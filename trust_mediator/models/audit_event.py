@@ -81,6 +81,11 @@ class AuditEvent(BaseModel):
         Compute SHA-256 hash for this event for tamper-evidence.
         Call after all other fields are set.
         """
+        # Canonical UTC timestamp: some backends (SQLite) return stored
+        # datetimes naive, so the hash must not depend on tzinfo presence.
+        ts = self.timestamp
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
         payload = {
             "id": self.id,
             "seq_no": self.seq_no,
@@ -88,7 +93,7 @@ class AuditEvent(BaseModel):
             "module": self.module,
             "decision": self.decision,
             "reason_code": self.reason_code,
-            "timestamp": self.timestamp.isoformat(),
+            "timestamp": ts.astimezone(timezone.utc).isoformat(),
             "prev_hash": prev_hash,
             "details": self.details,
         }

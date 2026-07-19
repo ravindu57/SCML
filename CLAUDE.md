@@ -33,7 +33,8 @@ Spec: `TrustMediator_PRD (1).docx` (PRD v1.0) — the single source of truth for
 - Rate limiting: Redis-backed cluster-wide when `REDIS_URL` set (`modules/tool_policy/rate_limiter.py`), per-process in-memory otherwise.
 - Audit fan-out: Kafka (`modules/audit_log/kafka_forwarder.py`, optional `[kafka]` extra) + SIEM webhook; DB hash chain is authoritative.
 - Deploy: `k8s/` (gateway + sidecar), `.github/workflows/ci.yml` (lint, 3.11/3.12 tests, docker smoke).
-- Test commands must pass `DATABASE_URL="" TRUST_MEDIATOR_ENV=development REDIS_URL=""` — the local `.env` sets production mode + docker-only hostnames, which breaks bare pytest runs.
+- Test commands must pass `DATABASE_URL="" TRUST_MEDIATOR_ENV=development REDIS_URL="" TRUST_MEDIATOR_API_KEYS=""` — the local `.env` sets production mode, docker-only hostnames, and a real API key, all of which break bare pytest runs.
+- Audit chain integrity is enforced transactionally in `AuditRepository.append_chained` (row lock + unique (session_id, seq_no)); never reintroduce per-process chain state in AuditLogger.
 
 ## Known gaps vs PRD (backlog — don't claim these exist)
 

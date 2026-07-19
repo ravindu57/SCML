@@ -20,6 +20,8 @@
   "env": {
     "TRUST_MEDIATOR_ENV": "development",
     "DATABASE_URL": "",
+    "REDIS_URL": "",
+    "TRUST_MEDIATOR_API_KEYS": "",
     "SCANNER_SHADOW_MODE": "false"
   },
   "hooks": {

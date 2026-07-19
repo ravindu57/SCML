@@ -10,6 +10,7 @@ env:
   TRUST_MEDIATOR_ENV: development
   DATABASE_URL: ""
   REDIS_URL: ""
+  TRUST_MEDIATOR_API_KEYS: ""
 
 jobs:
   lint:
@@ -40,7 +41,7 @@ jobs:
           # All unit suites map to PRD FR-IDs; a shrinking suite is a red flag.
           count=$(pytest tests/ --collect-only -q 2>/dev/null | grep -oE '[0-9]+ tests collected' | grep -oE '[0-9]+' || echo 0)
           echo "collected $count tests"
-          test "$count" -ge 82
+          test "$count" -ge 83
 
   docker:
     runs-on: ubuntu-latest

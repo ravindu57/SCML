@@ -36,8 +36,6 @@ class AuditLogger:
     def __init__(self, repo: AuditRepository | None = None) -> None:
         self._repo = repo or AuditRepository()
         self._queue: asyncio.Queue[AuditEvent] = asyncio.Queue()
-        self._session_hashes: dict[str, str] = {}   # session_id → last_event_hash
-        self._session_seqs: dict[str, int] = {}     # session_id → last_seq_no
         self._siem_url = settings.audit_siem_webhook_url
         self._kafka = KafkaAuditForwarder(settings.audit_kafka_bootstrap)
         self._worker_task: asyncio.Task | None = None
@@ -82,19 +80,13 @@ class AuditLogger:
                 logger.error("audit_logger.write_error", error=str(e))
 
     async def _write(self, event: AuditEvent) -> None:
-        session_id = event.session_id or "global"
-        prev_hash = self._session_hashes.get(session_id, "")
-        seq_no = self._session_seqs.get(session_id, 0) + 1
-
-        finalized = event.finalize(seq_no=seq_no, prev_hash=prev_hash)
-
-        self._session_hashes[session_id] = finalized.event_hash
-        self._session_seqs[session_id] = seq_no
-
+        # seq_no and prev_hash are assigned transactionally in the repository
+        # so the per-session chain stays linear across workers (FR-AL-01).
         try:
-            await self._repo.append(finalized)
+            finalized = await self._repo.append_chained(event)
         except Exception as e:
             logger.error("audit_logger.db_write_error", error=str(e))
+            return
 
         # Forward downstream (fire-and-forget; DB write above is authoritative)
         if self._siem_url:
