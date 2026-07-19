@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trust-mediator-config
+  namespace: trust-mediator
+data:
+  TRUST_MEDIATOR_ENV: "production"
+  TRUST_MEDIATOR_LOG_LEVEL: "INFO"
+  TRUST_MEDIATOR_RATE_LIMIT: "200/minute"
+  # Redis is REQUIRED in gateway mode: distributed tool-call rate limiting.
+  REDIS_URL: "redis://redis.trust-mediator.svc.cluster.local:6379/0"
+  SCANNER_BACKEND: "heuristic"
+  SCANNER_SHADOW_MODE: "false"
+  SCANNER_BLOCK_THRESHOLD: "0.85"
+  MEMORY_INTEGRITY_THRESHOLD: "0.65"
+  MEMORY_RESCAN_ON_READ: "true"
+  # Optional audit pipeline (leave empty to disable):
+  AUDIT_KAFKA_BOOTSTRAP: ""
+  AUDIT_SIEM_WEBHOOK_URL: ""
+  # HTTP hardening — set to your real console origin(s) and ingress host:
+  TRUST_MEDIATOR_CORS_ORIGINS: ""
+  TRUST_MEDIATOR_TRUSTED_HOSTS: ""
+  TRUST_MEDIATOR_HSTS_ENABLED: "true"
+  OTEL_EXPORTER_OTLP_ENDPOINT: ""
+  OTEL_SERVICE_NAME: "trust-mediator"

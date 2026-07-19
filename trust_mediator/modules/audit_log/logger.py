@@ -12,7 +12,6 @@ so any modification of a past event invalidates all subsequent hashes.
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import Any
 
 import httpx
@@ -21,6 +20,7 @@ import structlog
 from trust_mediator.config import settings
 from trust_mediator.db.audit_repo import AuditRepository
 from trust_mediator.models.audit_event import AuditDecision, AuditEvent, AuditModule, SessionReplay
+from trust_mediator.modules.audit_log.kafka_forwarder import KafkaAuditForwarder
 
 logger = structlog.get_logger(__name__)
 
@@ -39,18 +39,21 @@ class AuditLogger:
         self._session_hashes: dict[str, str] = {}   # session_id → last_event_hash
         self._session_seqs: dict[str, int] = {}     # session_id → last_seq_no
         self._siem_url = settings.audit_siem_webhook_url
+        self._kafka = KafkaAuditForwarder(settings.audit_kafka_bootstrap)
         self._worker_task: asyncio.Task | None = None
 
     async def start(self) -> None:
-        """Start the background writer task."""
+        """Start the background writer task and optional Kafka forwarder."""
         self._worker_task = asyncio.create_task(self._writer_loop())
-        logger.info("audit_logger.started")
+        await self._kafka.start()
+        logger.info("audit_logger.started", kafka=self._kafka.active)
 
     async def stop(self) -> None:
         """Drain the queue and shut down the background writer."""
         if self._worker_task:
             await self._queue.join()
             self._worker_task.cancel()
+        await self._kafka.stop()
 
     def log(self, event: AuditEvent) -> None:
         """
@@ -93,9 +96,11 @@ class AuditLogger:
         except Exception as e:
             logger.error("audit_logger.db_write_error", error=str(e))
 
-        # Forward to SIEM
+        # Forward downstream (fire-and-forget; DB write above is authoritative)
         if self._siem_url:
             asyncio.create_task(self._forward_siem(finalized))
+        if self._kafka.active:
+            asyncio.create_task(self._kafka.forward(finalized))
 
     async def _forward_siem(self, event: AuditEvent) -> None:
         try:

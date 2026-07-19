@@ -1,5 +1,4 @@
 """Unit tests for the Injection Scanner (§6.3)."""
-import pytest
 from trust_mediator.models.context_envelope import ContextEnvelope, Provenance, ScanVerdict, TrustLabel
 from trust_mediator.modules.injection_scanner.heuristic_filter import HeuristicFilter
 from trust_mediator.modules.injection_scanner.scanner import InjectionScanner

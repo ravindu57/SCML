@@ -38,6 +38,29 @@ class Settings(BaseSettings):
         """Return a list of valid API keys (strips whitespace, drops empties)."""
         return [k.strip() for k in self.api_keys_raw.split(",") if k.strip()]
 
+    # ── gRPC (FR-IG-02) ───────────────────────────────────────────────────────
+    grpc_enabled: bool = Field(default=False, alias="TRUST_MEDIATOR_GRPC_ENABLED")
+    grpc_port: int = Field(default=50051, alias="TRUST_MEDIATOR_GRPC_PORT")
+
+    # ── HTTP hardening ────────────────────────────────────────────────────────
+    # Comma-separated allowed CORS origins for production, e.g.
+    # "https://console.example.com,https://ops.example.com". Ignored in dev
+    # (dev allows all origins for the local frontend).
+    cors_origins_raw: str = Field(default="", alias="TRUST_MEDIATOR_CORS_ORIGINS")
+    # Comma-separated allowed Host header values, e.g. "mediator.example.com".
+    # Empty = no host filtering (rely on the ingress / nginx layer).
+    trusted_hosts_raw: str = Field(default="", alias="TRUST_MEDIATOR_TRUSTED_HOSTS")
+    # Emit Strict-Transport-Security (enable once TLS terminates in front).
+    hsts_enabled: bool = Field(default=False, alias="TRUST_MEDIATOR_HSTS_ENABLED")
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins_raw.split(",") if o.strip()]
+
+    @property
+    def trusted_hosts(self) -> list[str]:
+        return [h.strip() for h in self.trusted_hosts_raw.split(",") if h.strip()]
+
     # ── Database ──────────────────────────────────────────────────────────────
     database_url: str = Field(
         default="sqlite+aiosqlite:///./trust_mediator.db",

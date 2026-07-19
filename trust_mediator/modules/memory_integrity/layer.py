@@ -28,7 +28,7 @@ import structlog
 
 from trust_mediator.config import settings
 from trust_mediator.db.memory_repo import MemoryRepository
-from trust_mediator.models.context_envelope import Provenance, TrustLabel
+from trust_mediator.models.context_envelope import Provenance
 from trust_mediator.models.memory_record import (
     MemoryRecord,
     MemoryReadRequest,

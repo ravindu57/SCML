@@ -102,6 +102,18 @@ Copy `.env.example` to `.env` and adjust. Key settings:
 
 Edit `policies/default_policy.yaml` to customise per-agent tool allow-lists, approval gates, rate limits, and scanner thresholds.
 
+## Production Deployment
+
+| Concern | Mechanism |
+|---|---|
+| Kubernetes | `k8s/` — gateway mode (Deployment + HPA + PDB, hardened securityContext) and sidecar example, per PRD §5.4 |
+| Distributed rate limiting | Set `REDIS_URL` — tool-call limits are enforced cluster-wide via Redis sorted sets (required for >1 worker/replica; falls back per-process if Redis blips) |
+| gRPC transport | `TRUST_MEDIATOR_GRPC_ENABLED=true` (port 50051) + `pip install "trust-mediator[grpc]"` — same pipeline, policy, and audit trail as REST |
+| Audit pipeline | `AUDIT_KAFKA_BOOTSTRAP` publishes finalized events to Kafka topic `trustmediator.audit` (at-least-once, keyed by session); `AUDIT_SIEM_WEBHOOK_URL` for direct SIEM webhook. The DB hash chain remains authoritative |
+| HTTP hardening | `TRUST_MEDIATOR_CORS_ORIGINS`, `TRUST_MEDIATOR_TRUSTED_HOSTS`, `TRUST_MEDIATOR_HSTS_ENABLED`; security headers (nosniff, frame-deny, no-store) always on |
+| Auth | `TRUST_MEDIATOR_API_KEYS` — enforced on REST (`X-API-Key`) and gRPC (`x-api-key` metadata) |
+| CI | `.github/workflows/ci.yml` — ruff, pytest on 3.11/3.12 with a test-count floor, Docker build + container smoke test |
+
 ## License
 
 MIT

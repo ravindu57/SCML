@@ -15,9 +15,9 @@ from trust_mediator.config import settings
 from trust_mediator.db.memory_repo import MemoryRepository
 from trust_mediator.db.policy_repo import PolicyRepository
 from trust_mediator.models.audit_event import AuditDecision, AuditModule
-from trust_mediator.models.context_envelope import ContextEnvelope, ScanVerdict, TrustLabel
+from trust_mediator.models.context_envelope import ContextEnvelope, ScanVerdict
 from trust_mediator.models.memory_record import MemoryReadRequest, MemoryWriteRequest
-from trust_mediator.models.tool_call import PolicyDecisionCode, ToolCallRequest
+from trust_mediator.models.tool_call import ToolCallRequest
 from trust_mediator.modules.audit_log.logger import AuditLogger
 from trust_mediator.modules.injection_scanner.scanner import InjectionScanner
 from trust_mediator.modules.memory_integrity.layer import MemoryIntegrityLayer, MemoryReadResult, MemoryWriteResult

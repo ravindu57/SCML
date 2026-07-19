@@ -63,10 +63,21 @@ async def lifespan(app: FastAPI):
     pipeline = get_pipeline()
     await pipeline.start()
 
+    # Optional gRPC transport (FR-IG-02) — same pipeline, same policy
+    grpc_server = None
+    if settings.grpc_enabled:
+        from trust_mediator.api.grpc.server import create_grpc_server
+
+        grpc_server = await create_grpc_server(pipeline)
+        await grpc_server.start()
+        logger.info("trustmediator.grpc_ready", port=settings.grpc_port)
+
     logger.info("trustmediator.ready", port=settings.port)
     yield
 
     # Graceful shutdown
+    if grpc_server is not None:
+        await grpc_server.stop(grace=5)
     await pipeline.stop()
     logger.info("trustmediator.stopped")
 
@@ -84,14 +95,21 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS (tighten in production)
+    # CORS: open in dev for the local frontend; explicit allow-list in prod
+    # (TRUST_MEDIATOR_CORS_ORIGINS). Empty prod list = no cross-origin access.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"] if settings.is_development else [],
-        allow_credentials=True,
+        allow_origins=["*"] if settings.is_development else settings.cors_origins,
+        allow_credentials=not settings.is_development,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Host-header filtering (TRUST_MEDIATOR_TRUSTED_HOSTS); off when unset.
+    if settings.trusted_hosts:
+        from starlette.middleware.trustedhost import TrustedHostMiddleware
+
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
 
     # ── Rate limiting ─────────────────────────────────────────────────────────
     app.state.limiter = limiter
@@ -118,6 +136,22 @@ def create_app() -> FastAPI:
         response.headers["X-Request-ID"] = request_id
         response.headers["X-TrustMediator-Latency-Ms"] = f"{duration_ms:.1f}"
         structlog.contextvars.unbind_contextvars("request_id")
+        return response
+
+    # ── Middleware: security response headers ─────────────────────────────────
+    @app.middleware("http")
+    async def security_headers_middleware(request: Request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault(
+            "Cache-Control", "no-store"
+        )  # mediation responses carry provenance/PII — never cache
+        if settings.hsts_enabled:
+            response.headers.setdefault(
+                "Strict-Transport-Security", "max-age=63072000; includeSubDomains"
+            )
         return response
 
     # ── Routers ───────────────────────────────────────────────────────────────

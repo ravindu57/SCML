@@ -1,0 +1,106 @@
+// TrustMediator gRPC mediation API (FR-IG-02).
+// Mirrors the REST surface in PRD §10.2; decisions and reason codes are
+// identical to the REST responses so callers can switch transports freely.
+syntax = "proto3";
+
+package trustmediator.v1;
+
+service MediationService {
+  // POST /v1/mediate/context
+  rpc MediateContext(ContextRequest) returns (ContextResponse);
+  // POST /v1/mediate/tool-call
+  rpc MediateToolCall(ToolCallRequest) returns (ToolCallResponse);
+  // POST /v1/mediate/memory/write
+  rpc MediateMemoryWrite(MemoryWriteRequest) returns (MemoryWriteResponse);
+  // POST /v1/mediate/memory/read
+  rpc MediateMemoryRead(MemoryReadRequest) returns (MemoryReadResponse);
+  // POST /v1/mediate/output
+  rpc MediateOutput(OutputRequest) returns (OutputResponse);
+  // GET /health
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+message ContextRequest {
+  string session_id = 1;
+  string content = 2;
+  string source = 3;        // user_query | tool_result | rag_retrieval | web_content | ...
+  string source_uri = 4;
+  string agent_id = 5;
+}
+
+message ContextResponse {
+  string context_id = 1;
+  string trust_label = 2;   // trusted_instruction | untrusted_data | risky_external | derived
+  string decision = 3;      // allow | transform | block | escalate
+  double score = 4;
+  string rationale = 5;
+  string sanitised_content = 6;  // set when decision == transform
+}
+
+message ToolCallRequest {
+  string session_id = 1;
+  string agent_id = 2;
+  string tool_name = 3;
+  string arguments_json = 4;             // JSON object of tool arguments
+  map<string, string> argument_trust_labels = 5;
+  bool is_irreversible = 6;
+  bool is_high_impact = 7;
+}
+
+message ToolCallResponse {
+  string decision = 1;      // allow | deny | require_approval
+  string reason = 2;
+  string reason_code = 3;
+  bool approver_required = 4;
+  string approval_id = 5;
+}
+
+message MemoryWriteRequest {
+  string session_id = 1;
+  string agent_id = 2;
+  string content = 3;
+  string source = 4;
+  string trust_label = 5;
+}
+
+message MemoryWriteResponse {
+  string verdict = 1;       // persist | quarantine | reject
+  string record_id = 2;
+  double integrity_score = 3;
+  string reason = 4;
+}
+
+message MemoryReadRequest {
+  string session_id = 1;
+  string agent_id = 2;
+  string memory_id = 3;
+  bool rescan = 4;
+}
+
+message MemoryReadResponse {
+  bool verified = 1;
+  bool withheld = 2;
+  string reason = 3;
+  string content = 4;       // populated only when verified
+}
+
+message OutputRequest {
+  string session_id = 1;
+  string content = 2;
+  string destination = 3;
+  repeated string data_class_labels = 4;
+}
+
+message OutputResponse {
+  bool blocked = 1;
+  string block_reason = 2;
+  string redacted_content = 3;
+  int32 redactions_count = 4;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  string status = 1;
+  string version = 2;
+}

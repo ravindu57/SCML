@@ -27,8 +27,16 @@ Spec: `TrustMediator_PRD (1).docx` (PRD v1.0) — the single source of truth for
 - `policies/` — declarative YAML policy; `default` agent is deny-all by design
 - `tests/unit/` per module, `tests/integration/test_pipeline_e2e.py` end-to-end
 
+## Production infrastructure
+
+- gRPC transport: `trust_mediator/api/grpc/` (proto + generated stubs + grpc.aio server); enable via `TRUST_MEDIATOR_GRPC_ENABLED`. Regeneration instructions in that package's `__init__.py`. Generated `mediation_pb2*.py` are ruff-excluded — never hand-edit them.
+- Rate limiting: Redis-backed cluster-wide when `REDIS_URL` set (`modules/tool_policy/rate_limiter.py`), per-process in-memory otherwise.
+- Audit fan-out: Kafka (`modules/audit_log/kafka_forwarder.py`, optional `[kafka]` extra) + SIEM webhook; DB hash chain is authoritative.
+- Deploy: `k8s/` (gateway + sidecar), `.github/workflows/ci.yml` (lint, 3.11/3.12 tests, docker smoke).
+- Test commands must pass `DATABASE_URL="" TRUST_MEDIATOR_ENV=development REDIS_URL=""` — the local `.env` sets production mode + docker-only hostnames, which breaks bare pytest runs.
+
 ## Known gaps vs PRD (backlog — don't claim these exist)
 
-- No gRPC API (REST only); `SCANNER_BACKEND=onnx` falls back to heuristic (no trained model shipped)
+- `SCANNER_BACKEND=onnx` falls back to heuristic (no trained DeBERTa model shipped)
 - No benchmark harness yet (AgentDojo / InjecAgent / memory-poisoning testbed — PRD §14)
-- Rate limiter is in-memory per-process; needs Redis for multi-worker correctness
+- No sandboxed tool executor (PRD §11) — tool execution stays in the host app

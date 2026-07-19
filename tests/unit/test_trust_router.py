@@ -1,5 +1,4 @@
 """Unit tests for the Trust Router (§6.2)."""
-import pytest
 from trust_mediator.models.context_envelope import ContextEnvelope, Provenance, TrustLabel
 from trust_mediator.modules.trust_router.router import TrustRouter
 

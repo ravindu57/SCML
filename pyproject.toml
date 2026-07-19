@@ -66,10 +66,18 @@ dev = [
     "faker>=25.0.0",
     "ruff>=0.4.0",
     "mypy>=1.10.0",
+    "fakeredis>=2.23.0",
 ]
 langchain = [
     "langchain>=0.2.0",
     "langchain-core>=0.2.0",
+]
+kafka = [
+    "aiokafka>=0.10.0",
+]
+grpc = [
+    "grpcio>=1.62.0",
+    "protobuf>=4.25.0",
 ]
 
 [project.scripts]
@@ -87,6 +95,7 @@ addopts = "-v --tb=short"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+extend-exclude = ["trust_mediator/api/grpc/mediation_pb2*.py"]  # protoc-generated
 
 [tool.mypy]
 python_version = "3.11"

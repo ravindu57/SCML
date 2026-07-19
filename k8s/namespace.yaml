@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: trust-mediator
+  labels:
+    app.kubernetes.io/name: trust-mediator
+    pod-security.kubernetes.io/enforce: restricted

@@ -4,7 +4,7 @@ Audit event persistence — append-only ORM with hash-chain storage.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import JSON, DateTime, Integer, String, Text, select
 from sqlalchemy.orm import Mapped, mapped_column

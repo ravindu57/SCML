@@ -8,7 +8,7 @@ catching obvious injections at near-zero cost. Covers 60+ known patterns.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass

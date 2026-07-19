@@ -1,6 +1,5 @@
 """Unit tests for the Tool-Call Policy Engine (§6.4)."""
 import pytest
-from unittest.mock import AsyncMock
 
 from trust_mediator.models.context_envelope import TrustLabel
 from trust_mediator.models.tool_call import PolicyDecisionCode, ToolCallRequest

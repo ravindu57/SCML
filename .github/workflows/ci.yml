@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  # Force deterministic dev-mode config in CI regardless of any .env
+  TRUST_MEDIATOR_ENV: development
+  DATABASE_URL: ""
+  REDIS_URL: ""
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check trust_mediator/ tests/
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: pip install -e ".[dev,kafka,grpc]"
+      - run: pytest tests/ -q --cov=trust_mediator --cov-report=term-missing
+      - name: Enforce Must-requirement test floor
+        run: |
+          # All unit suites map to PRD FR-IDs; a shrinking suite is a red flag.
+          count=$(pytest tests/ --collect-only -q 2>/dev/null | grep -oE '[0-9]+ tests collected' | grep -oE '[0-9]+' || echo 0)
+          echo "collected $count tests"
+          test "$count" -ge 82
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t trust-mediator:ci .
+      - name: Smoke test container
+        run: |
+          docker run -d --name tm -p 8000:8000 \
+            -e TRUST_MEDIATOR_ENV=development -e DATABASE_URL="" trust-mediator:ci
+          for i in $(seq 1 30); do
+            if curl -fs http://localhost:8000/health; then exit 0; fi
+            sleep 2
+          done
+          echo "health check never passed"; docker logs tm; exit 1

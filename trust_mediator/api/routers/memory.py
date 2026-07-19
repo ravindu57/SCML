@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from trust_mediator.api.auth import AuthDep
 from trust_mediator.api.dependencies import PipelineDep
 from trust_mediator.models.context_envelope import TrustLabel
-from trust_mediator.models.memory_record import MemoryReadRequest, MemoryStatus, MemoryWriteRequest
+from trust_mediator.models.memory_record import MemoryReadRequest, MemoryWriteRequest
 
 router = APIRouter(prefix="/v1/mediate/memory", tags=["memory"])
 

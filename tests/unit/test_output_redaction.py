@@ -1,5 +1,4 @@
 """Unit tests for Output Redaction (§6.6)."""
-import pytest
 from trust_mediator.modules.output_redaction.redactor import OutputRedactor
 
 

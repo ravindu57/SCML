@@ -8,7 +8,6 @@ separate channels (FR-TR-01, FR-TR-02, FR-TR-03).
 
 from __future__ import annotations
 
-from typing import Any
 
 import structlog
 

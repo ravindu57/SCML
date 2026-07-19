@@ -1,6 +1,6 @@
 """Unit tests for the Memory Integrity Layer (§6.5) — primary contribution."""
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 from trust_mediator.models.context_envelope import TrustLabel
 from trust_mediator.models.memory_record import MemoryRecord, MemoryStatus, MemoryWriteRequest

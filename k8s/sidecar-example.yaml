@@ -1,0 +1,62 @@
+# Sidecar mode (PRD §5.4 default): the mediator runs inside each agent Pod.
+# The agent talks to http://localhost:8000 — no network hop, per-tenant isolation.
+# Adapt the "agent" container to your actual agent image.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: example-agent-with-mediator
+  namespace: trust-mediator
+  labels:
+    app.kubernetes.io/name: example-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: example-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: example-agent
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: agent
+          image: your-agent-image:latest
+          env:
+            - name: TRUST_MEDIATOR_URL
+              value: "http://localhost:8000"
+        - name: trust-mediator
+          image: trust-mediator:1.0.0
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: trust-mediator-config
+            - secretRef:
+                name: trust-mediator-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+      volumes:
+        - name: tmp
+          emptyDir: {}

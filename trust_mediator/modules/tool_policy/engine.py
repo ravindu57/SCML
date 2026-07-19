@@ -19,52 +19,41 @@ Key rules:
 
 from __future__ import annotations
 
-import time
-from collections import defaultdict, deque
 from typing import Any
 
 import structlog
 
-from trust_mediator.models.context_envelope import TrustLabel
+from trust_mediator.config import settings
 from trust_mediator.models.tool_call import (
     PolicyDecision,
     PolicyDecisionCode,
     ToolCallRequest,
 )
 from trust_mediator.modules.tool_policy.policy_loader import PolicyLoader
+from trust_mediator.modules.tool_policy.rate_limiter import (
+    InMemoryRateLimiter,
+    RedisRateLimiter,
+    build_rate_limiter,
+)
 
 logger = structlog.get_logger(__name__)
-
-
-class RateLimiter:
-    """Sliding-window rate limiter (in-memory, per-agent-per-tool)."""
-
-    def __init__(self) -> None:
-        self._windows: dict[str, deque[float]] = defaultdict(deque)
-
-    def is_allowed(self, key: str, limit: int, window_seconds: int = 60) -> bool:
-        now = time.monotonic()
-        window = self._windows[key]
-        # Remove expired entries
-        while window and window[0] < now - window_seconds:
-            window.popleft()
-        if len(window) >= limit:
-            return False
-        window.append(now)
-        return True
 
 
 class PolicyEngine:
     """
     Evaluates ToolCallRequests against the active declarative policy.
 
-    Thread-safety: the rate limiter uses deques (GIL-protected in CPython).
-    For multi-process deployments, move rate_limit counters to Redis.
+    Rate limiting is Redis-backed when REDIS_URL is set (required for
+    multi-worker / gateway deployments); otherwise per-process in-memory.
     """
 
-    def __init__(self, loader: PolicyLoader) -> None:
+    def __init__(
+        self,
+        loader: PolicyLoader,
+        rate_limiter: InMemoryRateLimiter | RedisRateLimiter | None = None,
+    ) -> None:
         self._loader = loader
-        self._rate_limiter = RateLimiter()
+        self._rate_limiter = rate_limiter or build_rate_limiter(settings.redis_url)
 
     async def evaluate(self, request: ToolCallRequest) -> PolicyDecision:
         """
@@ -114,7 +103,7 @@ class PolicyEngine:
         rate_limits = agent_policy.get("rate_limits", {})
         rpm_limit = rate_limits.get("tool_calls_per_minute", 120)
         rate_key = f"{request.agent_id}:{request.tool_name}"
-        if not self._rate_limiter.is_allowed(rate_key, rpm_limit, window_seconds=60):
+        if not await self._rate_limiter.is_allowed(rate_key, rpm_limit, window_seconds=60):
             return self._deny(
                 PolicyDecisionCode.DENY_RATE_LIMIT,
                 f"Rate limit ({rpm_limit} calls/min) exceeded for tool '{request.tool_name}'",

@@ -4,7 +4,7 @@ GET /v1/audit/* — audit replay and forensics endpoints.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 from trust_mediator.api.auth import AuthDep
 from trust_mediator.api.dependencies import PipelineDep

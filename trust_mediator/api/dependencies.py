@@ -1,7 +1,6 @@
 """FastAPI dependency injection — pipeline, audit logger, policy store."""
 from __future__ import annotations
 
-from functools import lru_cache
 from typing import Annotated
 
 from fastapi import Depends
