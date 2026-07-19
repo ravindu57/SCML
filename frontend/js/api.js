@@ -1,19 +1,52 @@
 /* TrustMediator Frontend — API Client */
 const API_BASE = 'http://localhost:8000';
 
+/* API key for production mode (X-API-Key). Stored in localStorage; on the
+   first 401/403 the user is prompted once and the key is remembered. */
+let API_KEY = localStorage.getItem('tm_api_key') || '';
+
+const authHeaders = () => (API_KEY ? { 'X-API-Key': API_KEY } : {});
+
+const promptForKey = () => {
+  let k = null;
+  try {
+    // Some embedded browsers don't implement prompt(); fall back to
+    // window.API.setKey('<key>') from the console in that case.
+    k = window.prompt('TrustMediator API key (X-API-Key header):', API_KEY);
+  } catch {
+    return false;
+  }
+  if (k && k.trim() && k.trim() !== API_KEY) {
+    API_KEY = k.trim();
+    localStorage.setItem('tm_api_key', API_KEY);
+    return true;
+  }
+  return false;
+};
+
 const req = async (path, opts = {}) => {
-  const r = await fetch(API_BASE + path, opts);
+  const r = await fetch(API_BASE + path, {
+    ...opts,
+    headers: { ...authHeaders(), ...(opts.headers || {}) },
+  });
+  if ((r.status === 401 || r.status === 403) && promptForKey()) {
+    return req(path, opts);
+  }
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
   return r.json();
 };
 
 const reqText = async (path) => {
-  const r = await fetch(API_BASE + path);
+  const r = await fetch(API_BASE + path, { headers: authHeaders() });
+  if ((r.status === 401 || r.status === 403) && promptForKey()) {
+    return reqText(path);
+  }
   if (!r.ok) throw new Error(`${r.status}`);
   return r.text();
 };
 
 window.API = {
+  setKey:            (k) => { API_KEY = k; localStorage.setItem('tm_api_key', k); },
   health:            ()  => req('/health'),
   metrics:           ()  => reqText('/metrics'),
   quarantined:       ()  => req('/v1/mediate/memory/quarantined'),

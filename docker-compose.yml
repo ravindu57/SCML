@@ -9,13 +9,17 @@ services:
     container_name: trust-mediator
     ports:
       - "8000:8000"
+    # Secrets/tunables come from .env on disk (immune to shell-env shadowing);
+    # the environment: block below still overrides where explicitly set.
+    env_file:
+      - path: .env
+        required: false
     environment:
       - DATABASE_URL=postgresql+asyncpg://tmuser:tmpassword@postgres:5432/trust_mediator
       - REDIS_URL=redis://redis:6379/0
       - TRUST_MEDIATOR_ENV=production
       - TRUST_MEDIATOR_LOG_LEVEL=INFO
       - TRUST_MEDIATOR_SECRET_KEY=${TRUST_MEDIATOR_SECRET_KEY:-change-me-in-production}
-      - TRUST_MEDIATOR_API_KEYS=${TRUST_MEDIATOR_API_KEYS:-}
       - MEMORY_INTEGRITY_THRESHOLD=${MEMORY_INTEGRITY_THRESHOLD:-0.65}
       - SCANNER_BACKEND=${SCANNER_BACKEND:-heuristic}
       - POLICY_DEFAULT_FILE=policies/default_policy.yaml
