@@ -1,0 +1,41 @@
+# docker-compose.dev.yml
+# ─────────────────────────────────────────────────────────────────────────────
+# LOCAL DEVELOPMENT ONLY — NOT for production deploys.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#   OR simply:  bash dev.sh
+#
+# What this adds over docker-compose.yml:
+#   - Hot-reload via watchfiles (--reload flag)
+#   - Dev environment (coloured logs, DEBUG level, open auth)
+#   - Source code volume mount (no rebuild needed on file changes)
+#   - Exposes DB/Redis ports for local tooling (TablePlus, redis-cli, etc.)
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  trust-mediator:
+    environment:
+      - TRUST_MEDIATOR_ENV=development
+      - TRUST_MEDIATOR_LOG_LEVEL=DEBUG
+    volumes:
+      - ./trust_mediator:/app/trust_mediator:ro
+      - ./policies:/app/policies:ro
+    command:
+      - uvicorn
+      - trust_mediator.api.app:app
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --reload
+      - --log-level
+      - debug
+
+  postgres:
+    ports:
+      - "5432:5432"   # expose for local DB tools (TablePlus, pgAdmin)
+
+  redis:
+    ports:
+      - "6379:6379"   # expose for local redis-cli inspection

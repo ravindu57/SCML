@@ -1,0 +1,40 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/bin/pytest*)",
+      "Bash(.venv/bin/ruff*)",
+      "Bash(.venv/bin/pip install*)",
+      "Bash(.venv/bin/uvicorn*)",
+      "Bash(docker compose*)",
+      "Bash(curl http://localhost:8000/*)"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Read(trust_mediator.db)",
+      "Bash(rm -rf*)"
+    ],
+    "ask": [
+      "Bash(git push*)"
+    ]
+  },
+  "env": {
+    "TRUST_MEDIATOR_ENV": "development",
+    "DATABASE_URL": "",
+    "SCANNER_SHADOW_MODE": "false"
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('file_path') or d.get('tool_response',{}).get('filePath') or '')\"); case \"$f\" in *.py) out=$(.venv/bin/ruff check \"$f\" 2>&1) || { echo \"$out\" >&2; exit 2; };; esac",
+            "timeout": 30,
+            "statusMessage": "Linting with ruff"
+          }
+        ]
+      }
+    ]
+  }
+}

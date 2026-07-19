@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>scml - middleware layer secure — Memory Integrity</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+<script>
+tailwind.config={darkMode:"class",theme:{extend:{colors:{"surface-container-low":"#131b2e","primary":"#a0c9ff","surface-bright":"#31394d","success-emerald":"#10B981","surface-dim":"#0b1326","outline-variant":"#3f4753","error":"#ffb4ab","surface-container-high":"#222a3d","on-surface":"#dae2fd","background":"#0b1326","mediation-blue":"#0798FF","security-teal":"#00FFC2","on-surface-variant":"#bfc7d5","surface-container":"#171f33","surface-variant":"#2d3449","surface-charcoal":"#1E293B","alert-amber":"#FFB800","surface":"#0b1326","primary-container":"#0798ff","outline":"#89919e","quarantine-purple":"#7C4DFF","inverse-surface":"#dae2fd"},fontFamily:{mono:["JetBrains Mono","monospace"]},fontSize:{"headline-xl":["48px",{lineHeight:"1.2",fontWeight:"700"}],"headline-lg":["32px",{lineHeight:"1.3",fontWeight:"600"}],"headline-md":["24px",{lineHeight:"1.4",fontWeight:"600"}],"label-caps":["12px",{lineHeight:"1.2",letterSpacing:"0.1em",fontWeight:"600"}],"code-sm":["13px",{lineHeight:"1.5"}],"body-sm":["14px",{lineHeight:"1.5"}]}}}}
+</script>
+<style>
+.glass-panel{background:rgba(19,27,46,.8);backdrop-filter:blur(12px);border:1px solid rgba(63,71,83,.3)}
+.glow-purple{border:1px solid rgba(124,77,255,.4);box-shadow:0 0 15px rgba(124,77,255,.1)}
+.glow-blue{border:1px solid rgba(7,152,255,.4);box-shadow:0 0 15px rgba(7,152,255,.1)}
+.card-purple{border-left:4px solid #7C4DFF;background:linear-gradient(135deg,rgba(124,77,255,.05) 0%,rgba(19,27,46,0) 50%)}
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#3f4753;border-radius:4px}
+.row-active{background:rgba(124,77,255,.1)!important}
+</style>
+</head>
+<body class="bg-background text-on-surface font-sans antialiased overflow-x-hidden">
+
+<header class="fixed top-0 left-0 w-full z-50 h-16 flex items-center justify-between px-10 bg-surface-dim/80 backdrop-blur-xl border-b border-outline-variant/30">
+  <div id="top-bar-title" class="text-mediation-blue font-bold text-xl tracking-tight">scml - middleware layer secure</div>
+  <div class="flex items-center gap-4">
+    <button class="text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">notifications</span></button>
+    <button class="text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">settings</span></button>
+    <button class="text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">account_circle</span></button>
+  </div>
+</header>
+
+<nav id="side-nav" class="fixed left-0 top-0 h-full z-40 flex flex-col pt-20 pb-8 bg-surface-container-low/90 backdrop-blur-md border-r border-outline-variant/20 w-64"></nav>
+
+<main class="ml-64 pt-20 px-6 pb-12 min-h-screen flex flex-col gap-6">
+
+  <!-- Header -->
+  <div class="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 border-b border-outline-variant/30 pb-4">
+    <div>
+      <h1 class="text-headline-lg text-on-surface font-bold flex items-center gap-3">
+        <span class="material-symbols-outlined text-quarantine-purple text-[32px]" style="font-variation-settings:'FILL' 1">memory</span>
+        Memory Integrity Layer
+      </h1>
+      <p class="text-body-sm text-on-surface-variant mt-2 max-w-2xl">Monitoring and moderating long-term agent memory writes. Quarantined entries require manual review before committing to the persistent knowledge graph.</p>
+    </div>
+    <button onclick="loadMemory()" class="px-4 py-2 bg-surface-container-high border border-outline-variant/50 rounded text-on-surface hover:bg-surface-variant transition-colors flex items-center gap-2 text-label-caps">
+      <span class="material-symbols-outlined text-[18px]">refresh</span> Recalculate Integrity
+    </button>
+  </div>
+
+  <!-- Metrics -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div class="glass-panel rounded-lg p-6 card-purple relative overflow-hidden">
+      <div class="absolute top-0 right-0 w-24 h-24 bg-quarantine-purple/10 rounded-full blur-2xl -mr-8 -mt-8"></div>
+      <div class="flex justify-between items-start mb-4">
+        <div class="text-label-caps text-on-surface-variant">Quarantined Entries</div>
+        <span class="material-symbols-outlined text-quarantine-purple">pending_actions</span>
+      </div>
+      <div id="m-count" class="text-headline-xl text-on-surface">—</div>
+      <div class="font-mono text-code-sm text-error mt-2 flex items-center gap-1">
+        <span class="material-symbols-outlined text-[16px]">pending</span> <span id="m-count-label">Loading…</span>
+      </div>
+    </div>
+    <div class="glass-panel rounded-lg p-6 relative overflow-hidden">
+      <div class="flex justify-between items-start mb-4">
+        <div class="text-label-caps text-on-surface-variant">Avg Integrity Score</div>
+        <span class="material-symbols-outlined text-security-teal">verified</span>
+      </div>
+      <div id="m-avg-score" class="text-headline-xl text-on-surface">—</div>
+      <div class="w-full bg-surface-charcoal h-1.5 rounded-full mt-4 overflow-hidden">
+        <div id="m-score-bar" class="bg-security-teal h-full rounded-full transition-all" style="width:0%"></div>
+      </div>
+      <div class="font-mono text-code-sm text-on-surface-variant mt-2 text-right">Threshold: &gt; 0.65</div>
+    </div>
+    <div class="glass-panel rounded-lg p-6 relative overflow-hidden">
+      <div class="flex justify-between items-start mb-4">
+        <div class="text-label-caps text-on-surface-variant">Last Refreshed</div>
+        <span class="material-symbols-outlined text-primary">schedule</span>
+      </div>
+      <div id="m-last-scan" class="text-headline-md text-on-surface mt-2">—</div>
+      <div class="font-mono text-code-sm text-on-surface-variant mt-1">Memory Integrity Monitor</div>
+      <div id="m-scan-status" class="font-mono text-code-sm text-success-emerald mt-4 flex items-center gap-1">
+        <span class="material-symbols-outlined text-[16px]">check_circle</span> Ready
+      </div>
+    </div>
+  </div>
+
+  <!-- Split View -->
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1">
+
+    <!-- Quarantine Queue -->
+    <section class="lg:col-span-7 flex flex-col gap-3">
+      <h2 class="text-label-caps text-quarantine-purple flex items-center gap-2">
+        <span class="material-symbols-outlined text-[16px]">list</span> Quarantine Queue
+      </h2>
+      <div class="glass-panel rounded-lg border border-outline-variant/30 overflow-hidden flex flex-col flex-1 min-h-[400px]">
+        <div class="grid grid-cols-12 gap-4 p-4 border-b border-outline-variant/30 bg-surface-container-high/50 text-label-caps text-on-surface-variant">
+          <div class="col-span-2">ID</div>
+          <div class="col-span-5">Content</div>
+          <div class="col-span-2">Score</div>
+          <div class="col-span-3 text-right">Status</div>
+        </div>
+        <div id="quarantine-list" class="overflow-y-auto flex-1 p-2 flex flex-col gap-1">
+          <div class="p-8 text-center text-on-surface-variant text-body-sm">Loading quarantine queue…</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Detail Panel -->
+    <section class="lg:col-span-5 flex flex-col gap-3">
+      <h2 class="text-label-caps text-on-surface-variant flex items-center gap-2">
+        <span class="material-symbols-outlined text-[16px]">troubleshoot</span> Record Analysis
+      </h2>
+      <div id="detail-panel" class="glass-panel rounded-lg border border-outline-variant/30 p-6 flex flex-col flex-1">
+        <div class="flex flex-col items-center justify-center h-full gap-4 text-on-surface-variant py-12">
+          <span class="material-symbols-outlined text-[48px] text-outline-variant">touch_app</span>
+          <p class="text-body-sm text-center">Select a quarantine entry to view analysis</p>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+<script>
+renderNav('memory');
+let allRecords = [];
+
+async function loadMemory() {
+  document.getElementById('m-last-scan').textContent = new Date().toLocaleTimeString('en-GB',{hour12:false})+' UTC';
+  try {
+    const data = await API.quarantined();
+    const records = data.records || data || [];
+    allRecords = records;
+    document.getElementById('m-count').textContent = records.length;
+    document.getElementById('m-count-label').textContent = records.length ? `${records.length} entries pending review` : 'No entries in queue';
+
+    if (records.length) {
+      const avgScore = records.reduce((s,r) => s + (r.integrity_score||0), 0) / records.length;
+      document.getElementById('m-avg-score').textContent = avgScore.toFixed(2);
+      document.getElementById('m-score-bar').style.width = (avgScore * 100)+'%';
+      document.getElementById('m-score-bar').className = `h-full rounded-full transition-all ${avgScore >= 0.65 ? 'bg-security-teal' : 'bg-alert-amber'}`;
+    } else {
+      document.getElementById('m-avg-score').textContent = 'N/A';
+      document.getElementById('m-score-bar').style.width = '0%';
+    }
+
+    renderQueue(records);
+    document.getElementById('m-scan-status').innerHTML = `<span class="material-symbols-outlined text-[16px]">check_circle</span> Scan Complete`;
+  } catch(e) {
+    document.getElementById('quarantine-list').innerHTML = `<div class="p-8 text-center text-error text-body-sm">Error: ${e.message}</div>`;
+    document.getElementById('m-scan-status').innerHTML = `<span class="material-symbols-outlined text-[16px] text-error">error</span> <span class="text-error">Load Failed</span>`;
+  }
+}
+
+function renderQueue(records) {
+  const el = document.getElementById('quarantine-list');
+  if (!records.length) {
+    el.innerHTML = `<div class="flex flex-col items-center gap-3 py-12 text-on-surface-variant"><span class="material-symbols-outlined text-security-teal text-[48px]">verified_user</span><p class="text-body-sm">No quarantined entries</p></div>`;
+    return;
+  }
+  el.innerHTML = records.map((r, i) => {
+    const score = r.integrity_score || 0;
+    const scoreColor = score < 0.5 ? 'text-error' : score < 0.65 ? 'text-alert-amber' : 'text-security-teal';
+    return `<div onclick="showDetail(${i})" class="grid grid-cols-12 gap-4 p-3 rounded hover:bg-surface-variant/50 border border-transparent cursor-pointer items-center transition-colors" data-idx="${i}">
+      <div class="col-span-2 font-mono text-code-sm text-on-surface">${r.id?.slice(0,8)||'?'}…</div>
+      <div class="col-span-5 text-body-sm text-on-surface-variant line-clamp-2">${r.content||'—'}</div>
+      <div class="col-span-2 font-mono text-code-sm ${scoreColor} font-bold">${score.toFixed(2)}</div>
+      <div class="col-span-3 text-right"><span class="px-2 py-0.5 rounded-full border ${decisionBadge('quarantine')} text-[10px] font-mono">${r.status||'quarantined'}</span></div>
+    </div>`;
+  }).join('');
+}
+
+function showDetail(idx) {
+  const r = allRecords[idx];
+  if (!r) return;
+  document.querySelectorAll('#quarantine-list > div').forEach(el => el.classList.remove('row-active'));
+  document.querySelector(`[data-idx="${idx}"]`)?.classList.add('row-active');
+
+  const score = r.integrity_score || 0;
+  const flags = r.consistency_flags ? JSON.parse(r.consistency_flags) : [];
+  const breakdown = r.score_breakdown || { composite: score, provenance: r.provenance_score||0, scan: r.scan_score||0, consistency: score };
+
+  document.getElementById('detail-panel').innerHTML = `
+    <div class="mb-4">
+      <div class="text-label-caps text-on-surface-variant mb-2">Record ID: <span class="text-primary font-mono">${r.id}</span></div>
+      <div class="p-4 bg-surface-charcoal rounded border border-outline-variant/20 font-mono text-code-sm text-on-surface leading-relaxed">${r.content||'—'}</div>
+    </div>
+    <div class="flex items-center gap-2 mb-4 ${score < 0.65 ? 'text-error' : 'text-alert-amber'}">
+      <span class="material-symbols-outlined text-[16px]">warning</span>
+      <span class="text-label-caps">${score < 0.65 ? 'Below Integrity Threshold' : 'Suspicious Content Flags'}</span>
+    </div>
+    <div class="grid grid-cols-2 gap-3 mb-4">
+      ${Object.entries(breakdown).map(([k,v]) => `
+        <div class="bg-surface-container-high rounded p-3">
+          <div class="text-label-caps text-on-surface-variant mb-1">${k.toUpperCase()}</div>
+          <div class="font-mono text-headline-md ${parseFloat(v) >= 0.65 ? 'text-security-teal' : 'text-error'}">${parseFloat(v).toFixed(2)}</div>
+        </div>`).join('')}
+    </div>
+    ${flags.length ? `<div class="mb-4 flex flex-wrap gap-2">${flags.map(f=>`<span class="px-2 py-0.5 rounded border border-alert-amber/30 text-alert-amber font-mono text-[10px]">${f}</span>`).join('')}</div>` : ''}
+    <div class="flex flex-col gap-2 pt-4 border-t border-outline-variant/30 mt-auto">
+      <div class="text-label-caps text-on-surface-variant mb-1">Quarantine Reason</div>
+      <div class="font-mono text-code-sm text-on-surface-variant bg-surface-charcoal rounded p-3">${r.quarantine_reason||'—'}</div>
+    </div>
+    <div class="flex gap-3 mt-4">
+      <button onclick="purgeRecord('${r.id}')" class="flex-1 py-2 px-4 bg-quarantine-purple text-white rounded text-label-caps hover:bg-quarantine-purple/90 transition-colors shadow-[0_0_10px_rgba(124,77,255,.4)] flex items-center justify-center gap-2">
+        <span class="material-symbols-outlined text-[18px]">delete_forever</span> Reject &amp; Purge
+      </button>
+      <button onclick="releaseRecord('${r.id}')" class="flex-1 py-2 px-4 border border-outline-variant text-on-surface-variant rounded text-label-caps hover:bg-surface-variant hover:text-on-surface transition-colors flex items-center justify-center gap-2">
+        <span class="material-symbols-outlined text-[18px]">done</span> Force Approve
+      </button>
+    </div>`;
+}
+
+async function purgeRecord(id) {
+  if (!confirm('Permanently delete this quarantined record?')) return;
+  try {
+    await API.purgeMemory(id);
+    showToast('Record purged', 'success');
+    loadMemory();
+  } catch(e) { showToast('Error: '+e.message, 'error'); }
+}
+
+async function releaseRecord(id) {
+  try {
+    await API.releaseMemory(id);
+    showToast('Record approved and released', 'success');
+    loadMemory();
+  } catch(e) { showToast('Error: '+e.message, 'error'); }
+}
+
+loadMemory();
+setInterval(loadMemory, 15000);
+</script>
+</body>
+</html>

@@ -1,0 +1,73 @@
+version: "3.9"
+
+services:
+  # ── TrustMediator mediation service ────────────────────────────────────────
+  trust-mediator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trust-mediator
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://tmuser:tmpassword@postgres:5432/trust_mediator
+      - REDIS_URL=redis://redis:6379/0
+      - TRUST_MEDIATOR_ENV=production
+      - TRUST_MEDIATOR_LOG_LEVEL=INFO
+      - TRUST_MEDIATOR_SECRET_KEY=${TRUST_MEDIATOR_SECRET_KEY:-change-me-in-production}
+      - MEMORY_INTEGRITY_THRESHOLD=${MEMORY_INTEGRITY_THRESHOLD:-0.65}
+      - SCANNER_BACKEND=${SCANNER_BACKEND:-heuristic}
+      - POLICY_DEFAULT_FILE=policies/default_policy.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./policies:/app/policies:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: trust-mediator-postgres
+    environment:
+      POSTGRES_USER: tmuser
+      POSTGRES_PASSWORD: tmpassword
+      POSTGRES_DB: trust_mediator
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tmuser -d trust_mediator"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: trust-mediator-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:

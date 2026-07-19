@@ -1,0 +1,41 @@
+FROM python:3.11-slim
+
+LABEL maintainer="TrustMediator Project"
+LABEL description="TrustMediator — Trust-Aware Context Mediation Middleware"
+
+# Security: run as non-root
+RUN groupadd --gid 1001 tmgroup && \
+    useradd --uid 1001 --gid tmgroup --shell /bin/bash --create-home tmuser
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    libpq-dev \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY pyproject.toml .
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -e ".[langchain]"
+
+# Copy application source
+COPY trust_mediator/ ./trust_mediator/
+COPY policies/ ./policies/
+
+# Pre-train the heuristic classifier (bakes the model into the image)
+RUN python -c "from trust_mediator.modules.injection_scanner.classifier import HeuristicClassifier; HeuristicClassifier().train()"
+
+# Transfer ownership
+RUN chown -R tmuser:tmgroup /app
+
+USER tmuser
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+CMD ["uvicorn", "trust_mediator.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]

@@ -1,0 +1,77 @@
+# Example agent policy for a multi-tool RAG assistant
+# Load via PUT /v1/policy with this file's contents.
+
+agents:
+  default:
+    allowed_tools: []
+    require_approval_for: [irreversible, high_impact]
+    untrusted_arg_policy: require_approval
+    rate_limits:
+      tool_calls_per_minute: 60
+
+  rag_assistant:
+    allowed_tools:
+      - retrieve_documents
+      - summarise
+      - answer_question
+      - search_knowledge_base
+    require_approval_for:
+      - irreversible
+      - high_impact
+    untrusted_arg_policy: require_approval
+    rate_limits:
+      tool_calls_per_minute: 120
+    tool_configs:
+      retrieve_documents:
+        argument_schema:
+          type: object
+          properties:
+            query:
+              type: string
+              maxLength: 1000
+            top_k:
+              type: integer
+              minimum: 1
+              maximum: 20
+          required: [query]
+
+  banking_agent:
+    allowed_tools:
+      - check_balance
+      - get_transaction_history
+      - initiate_transfer            # Requires approval — irreversible
+    require_approval_for:
+      - irreversible
+      - high_impact
+      - initiate_transfer
+    untrusted_arg_policy: deny       # Never use untrusted args in banking context
+    rate_limits:
+      tool_calls_per_minute: 20
+    tool_configs:
+      initiate_transfer:
+        argument_constraints:
+          amount:
+            max_length: 10           # Max 10-char amount string
+          destination:
+            pattern: "^[A-Z]{2}[0-9]{2}[A-Z0-9]{4}[0-9]{7}([A-Z0-9]?){0,16}$"  # IBAN
+
+memory:
+  integrity_score_threshold: 0.75    # Stricter for this use-case
+  rescan_on_read: true               # Always re-scan for banking context
+
+scanner:
+  shadow_mode: false
+  thresholds:
+    block: 0.80
+    escalate: 0.65
+    transform: 0.45
+
+redaction:
+  pii_patterns_enabled: true
+  entropy_threshold: 4.2
+  protected_classes: [pii, secret, credential, financial]
+  data_flow_rules:
+    financial:
+      - internal_dashboard           # Financial data can only go to internal dashboard
+    pii:
+      - user                         # PII can only go back to the originating user

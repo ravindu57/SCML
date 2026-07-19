@@ -1,0 +1,11 @@
+# docker-compose.override.yml
+# ─────────────────────────────────────────────────────────────────────────────
+# This file is intentionally left empty.
+#
+# The development overrides have been moved to docker-compose.dev.yml
+# to prevent them from being auto-loaded in production deploys.
+#
+# For local development, use:
+#   bash dev.sh
+# ─────────────────────────────────────────────────────────────────────────────
+services: {}

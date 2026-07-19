@@ -1,0 +1,19 @@
+# Secrets & local state — never commit
+.env
+*.db
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Runtime artifacts
+.logs/
+
+# Claude Code personal overrides (team settings in .claude/settings.json ARE committed)
+.claude/settings.local.json

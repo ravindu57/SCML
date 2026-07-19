@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>scml - middleware layer secure — Live Agent Demo</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+<script>
+tailwind.config={darkMode:"class",theme:{extend:{colors:{
+  "bg":"#0b1326","surface":"#131b2e","surface2":"#1a2340","outline":"#3f4753",
+  "blue":"#0798FF","teal":"#00FFC2","amber":"#FFB800","red":"#ff4d4d",
+  "purple":"#7C4DFF","txt":"#dae2fd","dim":"#bfc7d5"
+},fontFamily:{mono:["JetBrains Mono","monospace"]}}}}
+</script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0b1326;color:#dae2fd;font-family:'Inter',sans-serif;height:100vh;overflow:hidden}
+.glass{background:rgba(19,27,46,.85);backdrop-filter:blur(12px);border:1px solid rgba(63,71,83,.4)}
+.mono{font-family:'JetBrains Mono',monospace}
+
+/* Event card flash animations */
+@keyframes flash-red{0%,100%{background:rgba(255,77,77,.0)}30%{background:rgba(255,77,77,.25)}}
+@keyframes flash-green{0%,100%{background:rgba(0,255,194,.0)}30%{background:rgba(0,255,194,.18)}}
+@keyframes flash-amber{0%,100%{background:rgba(255,184,0,.0)}30%{background:rgba(255,184,0,.18)}}
+@keyframes pulse-ring{0%{box-shadow:0 0 0 0 rgba(7,152,255,.5)}70%{box-shadow:0 0 0 12px transparent}100%{box-shadow:0 0 0 0 transparent}}
+@keyframes slide-in{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes typing{from{width:0}to{width:100%}}
+@keyframes flow-r{0%{left:-100%}100%{left:110%}}
+@keyframes flow-l{0%{right:-100%}100%{right:110%}}
+
+.flash-red  {animation:flash-red   .6s ease}
+.flash-green{animation:flash-green .6s ease}
+.flash-amber{animation:flash-amber .6s ease}
+.slide-in   {animation:slide-in    .3s ease}
+.live-dot   {animation:blink 1.5s infinite}
+.pulse      {animation:pulse-ring 1.5s infinite}
+
+/* Data flow bar */
+.flow-bar{position:relative;height:3px;background:rgba(63,71,83,.3);overflow:hidden;border-radius:2px}
+.flow-particle{position:absolute;height:100%;width:30%;border-radius:2px}
+.flow-r .flow-particle{animation:flow-r 1.2s linear infinite}
+.flow-l .flow-particle{animation:flow-l 1.2s linear infinite}
+
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#3f4753;border-radius:2px}
+
+.decision-BLOCK,.decision-REJECT,.decision-DENY{color:#ff4d4d}
+.decision-ALLOW,.decision-PERSIST{color:#00FFC2}
+.decision-ESCALATE{color:#FFB800}
+.decision-skip,.decision-SETUP{color:#bfc7d5}
+
+.badge-block,.badge-reject,.badge-deny{background:rgba(255,77,77,.15);border:1px solid rgba(255,77,77,.4);color:#ff4d4d}
+.badge-allow,.badge-persist{background:rgba(0,255,194,.12);border:1px solid rgba(0,255,194,.4);color:#00FFC2}
+.badge-escalate{background:rgba(255,184,0,.12);border:1px solid rgba(255,184,0,.4);color:#FFB800}
+.badge-skip{background:rgba(191,199,213,.08);border:1px solid rgba(191,199,213,.2);color:#bfc7d5}
+</style>
+</head>
+<body>
+
+<!-- Top bar -->
+<header class="h-14 flex items-center justify-between px-6 glass border-b border-outline/30 relative z-50">
+  <div class="flex items-center gap-3">
+    <span class="material-symbols-outlined text-blue text-[22px]" style="font-variation-settings:'FILL' 1">shield</span>
+    <span class="font-bold text-blue text-lg tracking-tight">scml - middleware layer secure</span>
+    <span class="mono text-[11px] text-dim border border-outline/30 px-2 py-0.5 rounded ml-2">LIVE AGENT DEMO</span>
+  </div>
+  <div class="flex items-center gap-5">
+    <div id="stat-blocked" class="text-center">
+      <div class="mono text-2xl font-bold text-red">0</div>
+      <div class="text-[10px] text-dim uppercase tracking-widest">Blocked</div>
+    </div>
+    <div id="stat-allowed" class="text-center">
+      <div class="mono text-2xl font-bold text-teal">0</div>
+      <div class="text-[10px] text-dim uppercase tracking-widest">Allowed</div>
+    </div>
+    <div id="stat-events" class="text-center">
+      <div class="mono text-2xl font-bold text-blue">0</div>
+      <div class="text-[10px] text-dim uppercase tracking-widest">Events</div>
+    </div>
+    <div class="flex items-center gap-2 glass px-3 py-1.5 rounded">
+      <span class="w-2 h-2 rounded-full bg-teal live-dot"></span>
+      <span id="conn-status" class="mono text-[11px] text-teal">CONNECTING…</span>
+    </div>
+  </div>
+</header>
+
+<!-- Main 3-panel layout -->
+<div class="grid grid-cols-12 gap-0 h-[calc(100vh-56px)]">
+
+  <!-- LEFT — AI Agent -->
+  <div class="col-span-3 flex flex-col gap-3 p-4 border-r border-outline/20 overflow-y-auto">
+    <div class="text-[10px] uppercase tracking-widest text-dim font-semibold flex items-center gap-2">
+      <span class="material-symbols-outlined text-[14px] text-blue">smart_toy</span>AI Agent
+    </div>
+
+    <!-- Mission card -->
+    <div class="glass rounded-lg p-4">
+      <div class="text-[10px] text-dim uppercase tracking-wider mb-1">Mission</div>
+      <div id="mission-name" class="font-semibold text-txt text-sm">Waiting for orchestrator…</div>
+      <div id="mission-agent" class="mono text-[11px] text-blue mt-1">—</div>
+      <div class="mt-3 text-[10px] text-dim uppercase tracking-wider">Session</div>
+      <div id="mission-session" class="mono text-[11px] text-dim break-all mt-0.5">—</div>
+    </div>
+
+    <!-- Current step -->
+    <div class="glass rounded-lg p-4">
+      <div class="text-[10px] text-dim uppercase tracking-wider mb-2">Current Step</div>
+      <div id="step-phase" class="mono text-[10px] text-amber mb-1">—</div>
+      <div id="step-label" class="font-semibold text-sm text-txt">Waiting…</div>
+      <div id="step-narrative" class="text-[12px] text-dim mt-2 leading-relaxed">—</div>
+    </div>
+
+    <!-- Thought process -->
+    <div class="glass rounded-lg p-4 flex-1">
+      <div class="text-[10px] text-dim uppercase tracking-wider mb-2 flex items-center gap-1">
+        <span class="material-symbols-outlined text-[13px]">psychology</span>Agent Thoughts
+      </div>
+      <div id="thoughts-list" class="flex flex-col gap-1.5 mono text-[11px] text-dim">
+        <div class="text-dim/50 italic">Awaiting mission start…</div>
+      </div>
+    </div>
+
+    <!-- Nav back -->
+    <a href="index.html" class="glass rounded px-3 py-2 text-[11px] text-dim hover:text-blue transition-colors flex items-center gap-2">
+      <span class="material-symbols-outlined text-[14px]">arrow_back</span>Back to Dashboard
+    </a>
+  </div>
+
+  <!-- CENTER — Security Gateway -->
+  <div class="col-span-6 flex flex-col border-r border-outline/20">
+
+    <!-- Gateway header + flow viz -->
+    <div class="glass border-b border-outline/20 p-4">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <span class="material-symbols-outlined text-blue text-[20px]" style="font-variation-settings:'FILL' 1">security</span>
+          <span class="font-bold text-blue">Security Gateway</span>
+          <span class="w-2 h-2 rounded-full bg-teal pulse ml-1"></span>
+        </div>
+        <div id="gateway-status" class="mono text-[11px] text-teal">ACTIVE</div>
+      </div>
+
+      <!-- Flow viz: Agent → Gateway → Environment -->
+      <div class="grid grid-cols-3 items-center gap-2 text-center">
+        <div class="glass rounded p-2">
+          <div class="text-[10px] text-dim mb-1">AI AGENT</div>
+          <span class="material-symbols-outlined text-blue text-[28px]" style="font-variation-settings:'FILL' 1">smart_toy</span>
+        </div>
+        <div class="flex flex-col gap-1.5">
+          <div class="flow-bar flow-r"><div id="flow1" class="flow-particle bg-blue/70"></div></div>
+          <div class="mono text-[10px] text-dim text-center">🛡 MEDIATING</div>
+          <div class="flow-bar flow-l"><div id="flow2" class="flow-particle bg-teal/70"></div></div>
+        </div>
+        <div class="glass rounded p-2">
+          <div class="text-[10px] text-dim mb-1">ENVIRONMENT</div>
+          <span class="material-symbols-outlined text-dim text-[28px]">cloud</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- BIG current event card -->
+    <div id="event-card" class="glass m-4 rounded-xl p-6 transition-all">
+      <div class="flex items-start justify-between mb-4">
+        <div>
+          <div id="ev-phase" class="mono text-[11px] text-amber uppercase tracking-widest mb-1">—</div>
+          <div id="ev-label" class="font-bold text-lg text-txt">Waiting for agent…</div>
+        </div>
+        <div id="ev-badge" class="mono text-[12px] px-3 py-1.5 rounded font-bold badge-skip">PENDING</div>
+      </div>
+      <div id="ev-narrative" class="text-sm text-dim leading-relaxed mb-4">Connect the orchestrator to begin the live demonstration.</div>
+      <div class="grid grid-cols-3 gap-3 text-center">
+        <div class="glass rounded p-2">
+          <div class="text-[10px] text-dim mb-0.5">Decision</div>
+          <div id="ev-decision" class="mono font-bold text-sm text-dim">—</div>
+        </div>
+        <div class="glass rounded p-2">
+          <div class="text-[10px] text-dim mb-0.5">Score</div>
+          <div id="ev-score" class="mono font-bold text-sm text-dim">—</div>
+        </div>
+        <div class="glass rounded p-2">
+          <div class="text-[10px] text-dim mb-0.5">Latency</div>
+          <div id="ev-latency" class="mono font-bold text-sm text-dim">—</div>
+        </div>
+      </div>
+      <div id="ev-patterns" class="mt-3 hidden">
+        <div class="text-[10px] text-dim mb-1">Patterns matched</div>
+        <div id="ev-patterns-val" class="mono text-[11px] text-amber"></div>
+      </div>
+      <div id="ev-reason" class="mt-2 mono text-[11px] text-dim hidden"></div>
+    </div>
+
+    <!-- Event history feed -->
+    <div class="flex-1 overflow-y-auto px-4 pb-4">
+      <div class="text-[10px] uppercase tracking-widest text-dim mb-2">Event History</div>
+      <div id="event-feed" class="flex flex-col gap-2">
+        <div class="text-dim/50 text-sm text-center py-4">Events will appear here…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT — Analytics -->
+  <div class="col-span-3 flex flex-col gap-3 p-4 overflow-y-auto">
+    <div class="text-[10px] uppercase tracking-widest text-dim font-semibold flex items-center gap-2">
+      <span class="material-symbols-outlined text-[14px] text-amber">analytics</span>Threat Analytics
+    </div>
+
+    <!-- Big counters -->
+    <div class="glass rounded-lg p-4">
+      <div class="flex justify-between items-center mb-3">
+        <span class="text-[11px] text-dim uppercase tracking-wider">Threats Intercepted</span>
+      </div>
+      <div id="big-blocked" class="mono font-bold text-red" style="font-size:52px;line-height:1">0</div>
+      <div class="text-[11px] text-dim mt-1">out of <span id="big-total" class="text-txt">0</span> total events</div>
+    </div>
+
+    <!-- Breakdown by type -->
+    <div class="glass rounded-lg p-4">
+      <div class="text-[10px] text-dim uppercase tracking-wider mb-3">By Threat Type</div>
+      <div class="flex flex-col gap-2">
+        <div class="flex justify-between items-center">
+          <div class="flex items-center gap-2 text-[12px]">
+            <span class="w-2 h-2 rounded-full bg-red"></span>Prompt Injection
+          </div>
+          <span id="cnt-injection" class="mono text-sm font-bold text-red">0</span>
+        </div>
+        <div class="flex justify-between items-center">
+          <div class="flex items-center gap-2 text-[12px]">
+            <span class="w-2 h-2 rounded-full bg-purple"></span>Memory Poison
+          </div>
+          <span id="cnt-memory" class="mono text-sm font-bold" style="color:#7C4DFF">0</span>
+        </div>
+        <div class="flex justify-between items-center">
+          <div class="flex items-center gap-2 text-[12px]">
+            <span class="w-2 h-2 rounded-full bg-amber"></span>Tool Policy Deny
+          </div>
+          <span id="cnt-tool" class="mono text-sm font-bold text-amber">0</span>
+        </div>
+        <div class="flex justify-between items-center">
+          <div class="flex items-center gap-2 text-[12px]">
+            <span class="w-2 h-2 rounded-full bg-teal"></span>Allowed
+          </div>
+          <span id="cnt-allowed" class="mono text-sm font-bold text-teal">0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Progress bar -->
+    <div class="glass rounded-lg p-4">
+      <div class="text-[10px] text-dim uppercase tracking-wider mb-2">Mission Progress</div>
+      <div id="progress-steps" class="mono text-2xl font-bold text-blue">0 / 10</div>
+      <div class="w-full bg-outline/20 rounded-full h-2 mt-2">
+        <div id="progress-bar" class="bg-blue h-2 rounded-full transition-all duration-500" style="width:0%"></div>
+      </div>
+    </div>
+
+    <!-- Audit chain -->
+    <div class="glass rounded-lg p-4 flex-1">
+      <div class="text-[10px] text-dim uppercase tracking-wider mb-2 flex items-center gap-1">
+        <span class="material-symbols-outlined text-[13px]">link</span>Audit Chain
+      </div>
+      <div id="chain-status" class="flex items-center gap-2 mb-3">
+        <span class="material-symbols-outlined text-teal text-[16px]">verified</span>
+        <span class="mono text-[11px] text-teal">Tamper-evident</span>
+      </div>
+      <div id="chain-events" class="flex flex-col gap-1.5 mono text-[10px] text-dim">
+        <div class="text-dim/50 italic">Awaiting events…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ───────────────────────────────────────────────────────
+const state = {
+  blocked:0, allowed:0, total:0,
+  injection:0, memory:0, tool:0,
+  step:0, session:'—'
+};
+
+// ── SSE Connection ──────────────────────────────────────────────
+function connect() {
+  const es = new EventSource('http://localhost:3001/events');
+
+  es.addEventListener('mission_start', e => {
+    const d = JSON.parse(e.data);
+    state.session = d.session;
+    state.step = 0;
+    document.getElementById('mission-name').textContent    = d.mission;
+    document.getElementById('mission-agent').textContent   = d.agent;
+    document.getElementById('mission-session').textContent = d.session;
+    document.getElementById('thoughts-list').innerHTML = '<div class="text-dim/50 italic">Mission started…</div>';
+    document.getElementById('conn-status').textContent = 'LIVE';
+    setConnected(true);
+    updateStats();
+  });
+
+  es.addEventListener('step_start', e => {
+    const d = JSON.parse(e.data);
+    document.getElementById('step-phase').textContent     = d.phase;
+    document.getElementById('step-label').textContent     = d.label;
+    document.getElementById('step-narrative').textContent = d.narrative;
+    document.getElementById('ev-phase').textContent       = d.phase;
+    document.getElementById('ev-label').textContent       = d.label;
+    document.getElementById('ev-narrative').textContent   = d.narrative;
+    document.getElementById('ev-badge').className         = 'mono text-[12px] px-3 py-1.5 rounded font-bold badge-skip';
+    document.getElementById('ev-badge').textContent       = 'PROCESSING…';
+    document.getElementById('ev-decision').textContent    = '—';
+    document.getElementById('ev-score').textContent       = '—';
+    document.getElementById('ev-latency').textContent     = '—';
+    document.getElementById('ev-patterns').classList.add('hidden');
+    document.getElementById('ev-reason').classList.add('hidden');
+    document.getElementById('thoughts-list').innerHTML    = '';
+  });
+
+  es.addEventListener('thought', e => {
+    const d = JSON.parse(e.data);
+    const el = document.createElement('div');
+    el.className = 'slide-in flex items-start gap-1';
+    el.innerHTML = `<span class="text-blue/60 mt-0.5">›</span><span>${d.text}</span>`;
+    document.getElementById('thoughts-list').appendChild(el);
+  });
+
+  es.addEventListener('step_result', e => {
+    const d = JSON.parse(e.data);
+    state.step = d.id;
+    state.total++;
+
+    const dec = (d.decision||'skip').toUpperCase();
+    const isBlock = ['BLOCK','REJECT','DENY'].includes(dec);
+    const isAllow = ['ALLOW','PERSIST'].includes(dec);
+
+    if (isBlock) state.blocked++;
+    if (isAllow) state.allowed++;
+
+    // Categorise
+    if (isBlock) {
+      if (d.action_type === 'context')  state.injection++;
+      else if (d.action_type === 'memory') state.memory++;
+      else if (d.action_type === 'tool')   state.tool++;
+    }
+
+    // Update big event card
+    const card = document.getElementById('event-card');
+    card.className = 'glass m-4 rounded-xl p-6 transition-all ' +
+      (isBlock ? 'flash-red' : isAllow ? 'flash-green' : 'flash-amber');
+
+    const badge = document.getElementById('ev-badge');
+    badge.textContent  = dec;
+    badge.className    = `mono text-[12px] px-3 py-1.5 rounded font-bold badge-${dec.toLowerCase()}`;
+
+    document.getElementById('ev-decision').textContent = dec;
+    document.getElementById('ev-decision').className   = `mono font-bold text-sm decision-${dec}`;
+    document.getElementById('ev-score').textContent    = d.score != null ? d.score.toFixed(3) : '—';
+    document.getElementById('ev-latency').textContent  = d.elapsed_ms ? `${d.elapsed_ms} ms` : '—';
+
+    if (d.patterns && d.patterns.length) {
+      document.getElementById('ev-patterns').classList.remove('hidden');
+      document.getElementById('ev-patterns-val').textContent = d.patterns.join(', ');
+    }
+    if (d.reason) {
+      document.getElementById('ev-reason').classList.remove('hidden');
+      document.getElementById('ev-reason').textContent = d.reason;
+    }
+
+    // Flow particle colour
+    document.getElementById('flow1').className = `flow-particle ${isBlock ? 'bg-red/70' : 'bg-blue/70'}`;
+    document.getElementById('flow2').className = `flow-particle ${isAllow ? 'bg-teal/70' : 'bg-red/70'}`;
+
+    // Add to feed
+    addFeedItem(d, dec);
+    updateStats();
+    updateProgress();
+  });
+
+  es.addEventListener('audit_complete', e => {
+    const d = JSON.parse(e.data);
+    const chainEl = document.getElementById('chain-events');
+    chainEl.innerHTML = (d.events||[]).map(ev => {
+      const col = ['block','reject','deny'].includes(ev.decision) ? 'text-red' : 'text-teal';
+      return `<div class="flex justify-between slide-in">
+        <span class="text-dim/70">${ev.module||'—'}</span>
+        <span class="${col} font-bold">${(ev.decision||'').toUpperCase()}</span>
+        <span class="text-dim/50">${ev.hash}…</span>
+      </div>`;
+    }).join('');
+    document.getElementById('chain-status').innerHTML =
+      d.chain_valid
+        ? '<span class="material-symbols-outlined text-teal text-[16px]">verified</span><span class="mono text-[11px] text-teal">Chain valid — tamper-evident ✓</span>'
+        : '<span class="material-symbols-outlined text-red text-[16px]">error</span><span class="mono text-[11px] text-red">Chain INVALID</span>';
+  });
+
+  es.onopen = () => {
+    document.getElementById('conn-status').textContent = 'CONNECTED';
+    setConnected(true);
+  };
+  es.onerror = () => {
+    document.getElementById('conn-status').textContent = 'WAITING…';
+    setConnected(false);
+  };
+}
+
+function setConnected(ok) {
+  const dot = document.querySelector('.live-dot');
+  if (dot) dot.style.background = ok ? '#00FFC2' : '#FFB800';
+}
+
+function addFeedItem(d, dec) {
+  const feed = document.getElementById('event-feed');
+  if (feed.querySelector('.text-dim\\/50')) feed.innerHTML = '';
+  const isBlock = ['BLOCK','REJECT','DENY'].includes(dec);
+  const el = document.createElement('div');
+  el.className = 'glass rounded p-3 slide-in flex items-center justify-between gap-3';
+  el.innerHTML = `
+    <div class="flex-1 min-w-0">
+      <div class="mono text-[10px] text-dim/70 uppercase">${d.phase||'—'}</div>
+      <div class="text-[12px] font-medium truncate">${d.label||'—'}</div>
+    </div>
+    <div class="mono text-[11px] px-2 py-0.5 rounded font-bold badge-${dec.toLowerCase()} shrink-0">${dec}</div>
+    <div class="mono text-[10px] text-dim shrink-0">${d.elapsed_ms||0}ms</div>`;
+  feed.insertBefore(el, feed.firstChild);
+  // keep max 20
+  while (feed.children.length > 20) feed.removeChild(feed.lastChild);
+}
+
+function updateStats() {
+  document.querySelector('#stat-blocked div').textContent = state.blocked;
+  document.querySelector('#stat-allowed div').textContent = state.allowed;
+  document.querySelector('#stat-events div').textContent  = state.total;
+  document.getElementById('big-blocked').textContent     = state.blocked;
+  document.getElementById('big-total').textContent       = state.total;
+  document.getElementById('cnt-injection').textContent   = state.injection;
+  document.getElementById('cnt-memory').textContent      = state.memory;
+  document.getElementById('cnt-tool').textContent        = state.tool;
+  document.getElementById('cnt-allowed').textContent     = state.allowed;
+}
+
+function updateProgress() {
+  const pct = Math.round((state.step / 10) * 100);
+  document.getElementById('progress-steps').textContent = `${state.step} / 10`;
+  document.getElementById('progress-bar').style.width   = pct + '%';
+}
+
+// Start connection
+connect();
+</script>
+</body>
+</html>

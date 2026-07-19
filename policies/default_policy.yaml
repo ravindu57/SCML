@@ -1,0 +1,74 @@
+# Default declarative security policy for TrustMediator v1.0
+# Edit via PUT /v1/policy or replace this file before startup.
+# All thresholds are calibrated conservatively; tune via shadow mode first.
+
+agents:
+  # Default policy applied to any agent_id not explicitly listed
+  default:
+    allowed_tools: []                    # Empty = deny all tool calls (safest default)
+    require_approval_for:
+      - irreversible
+      - high_impact
+    untrusted_arg_policy: require_approval   # deny | require_approval | allow
+    rate_limits:
+      tool_calls_per_minute: 60
+
+  # Example: a web-search agent with a limited tool set
+  web_search_agent:
+    allowed_tools:
+      - web_search
+      - summarise
+    require_approval_for:
+      - irreversible
+      - high_impact
+    untrusted_arg_policy: require_approval
+    rate_limits:
+      tool_calls_per_minute: 30
+    tool_configs:
+      web_search:
+        argument_schema:
+          type: object
+          properties:
+            query:
+              type: string
+              maxLength: 500
+          required: [query]
+        argument_constraints:
+          query:
+            max_length: 500
+
+  # Example: an email agent with strict approval gates
+  email_agent:
+    allowed_tools:
+      - read_email
+      - send_email
+      - draft_email
+    require_approval_for:
+      - irreversible
+      - high_impact
+      - send_email          # Always require approval to send
+    untrusted_arg_policy: deny       # Never use untrusted args for email operations
+    rate_limits:
+      tool_calls_per_minute: 10
+
+memory:
+  integrity_score_threshold: 0.65    # Below this → quarantine; below half → reject
+  rescan_on_read: false              # Set true for high-security deployments
+
+scanner:
+  shadow_mode: false                 # true = log but do not enforce (for rollout)
+  thresholds:
+    block: 0.85                      # Definite injection — block and audit
+    escalate: 0.70                   # Probable injection — escalate for review
+    transform: 0.50                  # Possible injection — sanitise (RISKY_EXTERNAL)
+
+redaction:
+  pii_patterns_enabled: true
+  entropy_threshold: 4.5             # Shannon entropy threshold for secret detection
+  protected_classes:
+    - pii
+    - secret
+    - credential
+  # data_flow_rules defines which protected classes can flow to which destinations
+  # Omitting this means no extra flow restrictions beyond redaction
+  data_flow_rules: {}

@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>scml - middleware layer secure — Command Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+<script>
+tailwind.config={darkMode:"class",theme:{extend:{colors:{"surface-container-low":"#131b2e","primary":"#a0c9ff","surface-bright":"#31394d","success-emerald":"#10B981","surface-dim":"#0b1326","outline-variant":"#3f4753","error":"#ffb4ab","surface-container-high":"#222a3d","on-surface":"#dae2fd","background":"#0b1326","mediation-blue":"#0798FF","security-teal":"#00FFC2","on-surface-variant":"#bfc7d5","surface-container":"#171f33","surface-variant":"#2d3449","surface-charcoal":"#1E293B","alert-amber":"#FFB800","surface":"#0b1326","primary-container":"#0798ff","outline":"#89919e","quarantine-purple":"#7C4DFF","inverse-surface":"#dae2fd"},fontFamily:{mono:["JetBrains Mono","monospace"]},fontSize:{"headline-xl":["48px",{lineHeight:"1.2",fontWeight:"700"}],"headline-lg":["32px",{lineHeight:"1.3",fontWeight:"600"}],"headline-md":["24px",{lineHeight:"1.4",fontWeight:"600"}],"label-caps":["12px",{lineHeight:"1.2",letterSpacing:"0.1em",fontWeight:"600"}],"code-sm":["13px",{lineHeight:"1.5"}],"body-sm":["14px",{lineHeight:"1.5"}],"body-md":["16px",{lineHeight:"1.6"}]}}}}
+</script>
+<style>
+*{box-sizing:border-box}
+.glass-panel{background:rgba(19,27,46,.8);backdrop-filter:blur(12px);border:1px solid rgba(63,71,83,.3)}
+.status-teal{border-left:4px solid #00FFC2}.status-amber{border-left:4px solid #FFB800}.status-purple{border-left:4px solid #7C4DFF}
+.glow-teal{background:radial-gradient(circle at top left,rgba(0,255,194,.06) 0%,transparent 70%)}
+::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#3f4753;border-radius:4px}
+.blink{animation:blink 1.4s infinite}.@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes pulse-dot{0%,100%{box-shadow:0 0 0 0 rgba(0,255,194,.4)}70%{box-shadow:0 0 0 6px rgba(0,255,194,0)}}
+.live-dot{animation:pulse-dot 2s infinite}
+</style>
+</head>
+<body class="bg-background text-on-surface font-sans antialiased overflow-x-hidden">
+
+<!-- Top Bar -->
+<header class="fixed top-0 left-0 w-full z-50 h-16 flex items-center justify-between px-10 bg-surface-dim/80 backdrop-blur-xl border-b border-outline-variant/30">
+  <div id="top-bar-title" class="text-mediation-blue font-bold text-xl tracking-tight">scml - middleware layer secure</div>
+  <div class="flex items-center gap-4">
+    <div class="flex items-center bg-surface-container-low px-3 py-1.5 rounded border border-outline-variant/30 gap-2">
+      <span class="material-symbols-outlined text-outline text-[18px]">search</span>
+      <input class="bg-transparent border-none focus:ring-0 text-sm text-on-surface placeholder-outline w-40" placeholder="Search..." type="text"/>
+    </div>
+    <button class="text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">notifications</span></button>
+    <button class="text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">settings</span></button>
+    <button class="text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">account_circle</span></button>
+  </div>
+</header>
+
+<!-- Side Nav -->
+<nav id="side-nav" class="fixed left-0 top-0 h-full z-40 flex flex-col pt-20 pb-8 bg-surface-container-low/90 backdrop-blur-md border-r border-outline-variant/20 w-64"></nav>
+
+<!-- Main -->
+<main class="ml-64 pt-20 px-6 pb-12 min-h-screen">
+
+  <!-- Page Header -->
+  <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-4">
+    <div>
+      <h1 class="text-headline-lg text-on-surface font-bold mb-1">Security Command Center</h1>
+      <p class="text-body-sm text-on-surface-variant">Real-time monitoring and mediation for autonomous agent activity.</p>
+    </div>
+    <div class="flex gap-3">
+      <div id="status-gateway" class="glass-panel px-4 py-2 rounded flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-security-teal live-dot"></span>
+        <span class="font-mono text-code-sm text-on-surface">Gateway: ACTIVE</span>
+      </div>
+      <div class="glass-panel px-4 py-2 rounded flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-alert-amber"></span>
+        <span class="font-mono text-code-sm text-on-surface">Fail-Closed: READY</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- KPI Grid -->
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+    <!-- Latency -->
+    <div class="glass-panel rounded-lg p-6 status-teal glow-teal flex flex-col justify-between h-32 relative overflow-hidden hover:border-mediation-blue/40 transition-colors">
+      <div class="flex justify-between items-start">
+        <span class="text-label-caps text-on-surface-variant">Avg Latency</span>
+        <span class="material-symbols-outlined text-security-teal text-[20px]">speed</span>
+      </div>
+      <div class="flex items-baseline gap-2">
+        <span id="kpi-latency" class="text-headline-xl text-on-surface">—</span>
+        <span class="font-mono text-code-sm text-security-teal">ms</span>
+      </div>
+    </div>
+    <!-- Total Requests -->
+    <div class="glass-panel rounded-lg p-6 status-purple flex flex-col justify-between h-32 relative overflow-hidden hover:border-mediation-blue/40 transition-colors">
+      <div class="flex justify-between items-start">
+        <span class="text-label-caps text-on-surface-variant">Total Requests</span>
+        <span class="material-symbols-outlined text-quarantine-purple text-[20px]">analytics</span>
+      </div>
+      <div class="flex items-baseline gap-2">
+        <span id="kpi-requests" class="text-headline-xl text-on-surface">—</span>
+      </div>
+      <div id="kpi-health" class="mt-1 text-[11px] font-mono text-on-surface-variant"></div>
+    </div>
+    <!-- Service Health -->
+    <div class="glass-panel rounded-lg p-6 status-teal flex flex-col justify-between h-32 relative overflow-hidden hover:border-mediation-blue/40 transition-colors">
+      <div class="flex justify-between items-start">
+        <span class="text-label-caps text-on-surface-variant">Service Status</span>
+        <span class="material-symbols-outlined text-mediation-blue text-[20px]">monitor_heart</span>
+      </div>
+      <div id="kpi-status" class="text-headline-xl text-security-teal">—</div>
+      <div id="kpi-version" class="font-mono text-code-sm text-on-surface-variant"></div>
+    </div>
+  </div>
+
+  <!-- Bento Grid -->
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <!-- Live Traffic Table -->
+    <div class="lg:col-span-8 glass-panel rounded-lg flex flex-col overflow-hidden">
+      <div class="px-6 py-4 border-b border-outline-variant/30 flex justify-between items-center bg-surface-container-low/50">
+        <div class="flex items-center gap-3">
+          <span class="relative flex h-2.5 w-2.5"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-security-teal opacity-75"></span><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-security-teal"></span></span>
+          <h2 class="text-label-caps text-on-surface">Live Audit Trail</h2>
+        </div>
+        <div class="flex items-center gap-3">
+          <label class="text-code-sm text-on-surface-variant flex items-center gap-2">
+            <span>Session:</span>
+            <input id="session-input" type="text" value="smoke-01" class="bg-surface-container-high border border-outline-variant/30 rounded px-2 py-1 text-code-sm text-on-surface w-32 focus:outline-none focus:border-mediation-blue"/>
+          </label>
+          <button onclick="loadAudit()" class="text-mediation-blue text-code-sm hover:underline flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">refresh</span>Load</button>
+        </div>
+      </div>
+      <div class="flex-1 overflow-x-auto">
+        <table class="w-full text-left font-mono text-code-sm border-collapse">
+          <thead><tr class="text-on-surface-variant border-b border-outline-variant/20 bg-surface-dim/30">
+            <th class="py-3 px-5 font-normal">Time</th>
+            <th class="py-3 px-5 font-normal">Module</th>
+            <th class="py-3 px-5 font-normal">Decision</th>
+            <th class="py-3 px-5 font-normal">Reason</th>
+            <th class="py-3 px-5 font-normal text-right">Hash</th>
+          </tr></thead>
+          <tbody id="audit-table-body">
+            <tr><td colspan="5" class="py-8 text-center text-on-surface-variant text-body-sm">Loading audit events…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Active Interventions -->
+    <div class="lg:col-span-4 glass-panel rounded-lg flex flex-col overflow-hidden status-purple" style="border:1px solid rgba(124,77,255,.3)">
+      <div class="px-6 py-4 border-b border-outline-variant/30 flex items-center gap-2 bg-quarantine-purple/10">
+        <span class="material-symbols-outlined text-[18px] text-quarantine-purple">gavel</span>
+        <h2 class="text-label-caps text-on-surface">Active Interventions</h2>
+      </div>
+      <div id="interventions-list" class="p-5 flex flex-col gap-4 flex-1 overflow-y-auto">
+        <div class="text-center text-on-surface-variant text-body-sm py-8">Loading…</div>
+      </div>
+      <div class="px-5 py-3 border-t border-outline-variant/20">
+        <div class="flex justify-between text-code-sm text-on-surface-variant font-mono">
+          <span>Blocked today:</span><span id="count-blocked" class="text-error">—</span>
+        </div>
+        <div class="flex justify-between text-code-sm text-on-surface-variant font-mono mt-1">
+          <span>Quarantined:</span><span id="count-quarantine" class="text-quarantine-purple">—</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer timestamp -->
+  <div class="mt-6 text-right font-mono text-code-sm text-on-surface-variant">
+    Last updated: <span id="last-updated">—</span> · <span class="text-mediation-blue cursor-pointer hover:underline" onclick="loadAll()">Refresh</span>
+  </div>
+</main>
+
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+<script>
+renderNav('dashboard');
+
+async function loadMetrics() {
+  try {
+    const text = await API.metrics();
+    const m = parseMetrics(text);
+    document.getElementById('kpi-latency').textContent = calcAvgLatencyMs(m);
+    document.getElementById('kpi-requests').textContent = calcThroughput(m).toLocaleString();
+  } catch(e) { console.warn('metrics:', e); }
+}
+
+async function loadHealth() {
+  try {
+    const h = await API.health();
+    document.getElementById('kpi-status').textContent = h.status.toUpperCase();
+    document.getElementById('kpi-version').textContent = `v${h.version} · ${h.env}`;
+    document.getElementById('kpi-health').textContent = `service: ${h.service}`;
+  } catch(e) {
+    document.getElementById('kpi-status').textContent = 'OFFLINE';
+    document.getElementById('kpi-status').className = 'text-headline-xl text-error';
+  }
+}
+
+async function loadAudit() {
+  const session = document.getElementById('session-input').value.trim() || 'smoke-01';
+  const tbody = document.getElementById('audit-table-body');
+  try {
+    const data = await API.auditReplay(session);
+    const events = data.events || [];
+    if (!events.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="py-8 text-center text-on-surface-variant text-body-sm">No events for session <code class="text-mediation-blue">${session}</code></td></tr>`;
+      document.getElementById('count-blocked').textContent = '0';
+      document.getElementById('count-quarantine').textContent = '0';
+      renderInterventions([]);
+      return;
+    }
+    const blocked = events.filter(e => e.decision==='block');
+    const quarantined = events.filter(e => e.decision==='quarantine');
+    document.getElementById('count-blocked').textContent = blocked.length;
+    document.getElementById('count-quarantine').textContent = quarantined.length;
+
+    tbody.innerHTML = events.slice().reverse().map(e => `
+      <tr class="border-b border-outline-variant/10 hover:bg-surface-charcoal/30 transition-colors">
+        <td class="py-2.5 px-5 text-outline">${fmtTime(e.timestamp)}</td>
+        <td class="py-2.5 px-5 text-on-surface">${e.module||'—'}</td>
+        <td class="py-2.5 px-5 font-bold ${decisionColor(e.decision)}">${(e.decision||'').toUpperCase()}</td>
+        <td class="py-2.5 px-5 text-on-surface-variant max-w-[180px] truncate">${e.reason_code||'—'}</td>
+        <td class="py-2.5 px-5 text-right font-mono text-[10px] text-outline" title="${e.event_hash||''}">${(e.event_hash||'').slice(0,8)}…</td>
+      </tr>`).join('');
+    renderInterventions(events.filter(e => ['block','quarantine','escalate'].includes(e.decision)));
+  } catch(e) {
+    tbody.innerHTML = `<tr><td colspan="5" class="py-8 text-center text-error text-body-sm">Error: ${e.message}</td></tr>`;
+  }
+}
+
+function renderInterventions(events) {
+  const el = document.getElementById('interventions-list');
+  if (!events.length) {
+    el.innerHTML = `<div class="flex flex-col items-center gap-3 py-8 text-on-surface-variant"><span class="material-symbols-outlined text-security-teal text-[40px]">verified_user</span><p class="text-body-sm">No active interventions</p></div>`;
+    return;
+  }
+  const colors = { block: 'text-error border-error/20', quarantine: 'text-quarantine-purple border-quarantine-purple/20', escalate: 'text-alert-amber border-alert-amber/20' };
+  el.innerHTML = events.slice(-3).reverse().map(e => `
+    <div class="bg-surface-charcoal/50 border border-outline-variant/20 rounded p-4">
+      <div class="flex justify-between items-start mb-2">
+        <span class="font-mono text-[12px] font-bold ${(colors[e.decision]||'text-on-surface').split(' ')[0]}">${(e.reason_code||e.module||'UNKNOWN').toUpperCase()}</span>
+        <span class="font-mono text-[11px] text-outline">${fmtTime(e.timestamp)}</span>
+      </div>
+      <p class="text-body-sm text-on-surface-variant mb-3 line-clamp-2">Module: <span class="text-on-surface">${e.module}</span> — Decision: <span class="font-bold ${(colors[e.decision]||'').split(' ')[0]}">${e.decision?.toUpperCase()}</span></p>
+      <button onclick="viewSession('${e.session_id}')" class="w-full bg-transparent border border-mediation-blue text-mediation-blue hover:bg-mediation-blue/10 text-body-sm py-1.5 rounded transition-colors text-[13px]">
+        View Audit Trail
+      </button>
+    </div>`).join('');
+}
+
+function viewSession(sid) {
+  document.getElementById('session-input').value = sid;
+  loadAudit();
+}
+
+async function loadAll() {
+  document.getElementById('last-updated').textContent = new Date().toLocaleTimeString();
+  await Promise.all([loadHealth(), loadMetrics(), loadAudit()]);
+}
+
+loadAll();
+setInterval(loadAll, 10000);
+</script>
+</body>
+</html>
