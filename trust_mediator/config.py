@@ -121,6 +121,11 @@ class Settings(BaseSettings):
     # ── Audit / SIEM ──────────────────────────────────────────────────────────
     audit_siem_webhook_url: str = Field(default="", alias="AUDIT_SIEM_WEBHOOK_URL")
     audit_kafka_bootstrap: str = Field(default="", alias="AUDIT_KAFKA_BOOTSTRAP")
+    # Max events the background writer coalesces into one transaction. Batches
+    # are opportunistic — under light load they are size 1 and behaviour is
+    # unchanged. Larger values raise sustained audit throughput but hold the
+    # per-session row lock for longer; 1 restores per-event writes.
+    audit_batch_max: int = Field(default=128, alias="AUDIT_BATCH_MAX")
 
     # ── Policy ────────────────────────────────────────────────────────────────
     policy_default_file: str = Field(

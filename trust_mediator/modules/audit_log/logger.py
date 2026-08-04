@@ -39,6 +39,7 @@ class AuditLogger:
         self._siem_url = settings.audit_siem_webhook_url
         self._kafka = KafkaAuditForwarder(settings.audit_kafka_bootstrap)
         self._worker_task: asyncio.Task | None = None
+        self._batch_max = max(1, settings.audit_batch_max)
 
     async def start(self) -> None:
         """Start the background writer task and optional Kafka forwarder."""
@@ -68,16 +69,61 @@ class AuditLogger:
         await self._queue.put(event)
 
     async def _writer_loop(self) -> None:
-        """Background coroutine: dequeue and persist events one by one."""
+        """
+        Background coroutine: dequeue and persist events in batches.
+
+        Writing one event per transaction capped audit throughput at ~140
+        events/s, below what the request path sustains — so under load the
+        queue grew without bound and decisions were lost on shutdown, an
+        FR-AL-01 failure rather than a latency one (benchmarks/results/load.md).
+
+        Batching is opportunistic: block for the first event, then take
+        whatever else is already queued up to `audit_batch_max`. Under light
+        load batches are size 1 and behaviour is unchanged; under heavy load
+        they grow and amortise the transaction cost exactly when that matters.
+        """
         while True:
             try:
-                event = await self._queue.get()
-                await self._write(event)
-                self._queue.task_done()
+                batch = [await self._queue.get()]
+                while len(batch) < self._batch_max:
+                    try:
+                        batch.append(self._queue.get_nowait())
+                    except asyncio.QueueEmpty:
+                        break
+                try:
+                    await self._write_batch(batch)
+                finally:
+                    # One task_done per successful get(), whatever the outcome,
+                    # or stop() would wait on join() forever.
+                    for _ in batch:
+                        self._queue.task_done()
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error("audit_logger.write_error", error=str(e))
+
+    async def _write_batch(self, events: list[AuditEvent]) -> None:
+        """
+        Persist a batch, then fan out downstream.
+
+        On batch failure, fall back to writing each event individually so one
+        malformed event cannot discard the others (FR-AL-01).
+        """
+        try:
+            finalized = await self._repo.append_chained_batch(events)
+        except Exception as e:
+            logger.error(
+                "audit_logger.batch_write_error",
+                error=str(e),
+                events=len(events),
+                fallback="per-event",
+            )
+            for event in events:
+                await self._write(event)
+            return
+
+        for event in finalized:
+            self._fan_out(event)
 
     async def _write(self, event: AuditEvent) -> None:
         # seq_no and prev_hash are assigned transactionally in the repository
@@ -87,12 +133,14 @@ class AuditLogger:
         except Exception as e:
             logger.error("audit_logger.db_write_error", error=str(e))
             return
+        self._fan_out(finalized)
 
-        # Forward downstream (fire-and-forget; DB write above is authoritative)
+    def _fan_out(self, event: AuditEvent) -> None:
+        """Forward downstream (fire-and-forget; the DB write is authoritative)."""
         if self._siem_url:
-            asyncio.create_task(self._forward_siem(finalized))
+            asyncio.create_task(self._forward_siem(event))
         if self._kafka.active:
-            asyncio.create_task(self._kafka.forward(finalized))
+            asyncio.create_task(self._kafka.forward(event))
 
     async def _forward_siem(self, event: AuditEvent) -> None:
         try:

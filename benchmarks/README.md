@@ -39,9 +39,9 @@ Latest committed results: [`results/load.md`](results/load.md).
 
 | NFR | Target | Measured | |
 |---|---|---|---|
-| NFR-PERF-01 fast-path latency | p50 < 120 ms, p95 < 400 ms | p50 32 ms, p95 52 ms (HTTP) | ✅ |
-| NFR-PERF-03 policy decision | p95 < 10 ms | 0.07 ms (engine) | ✅ |
-| NFR-SCAL-01 throughput | ≥ 100 req/s | 246 req/s (HTTP) | ✅ |
+| NFR-PERF-01 fast-path latency | p50 < 120 ms, p95 < 400 ms | p50 24 ms, p95 31 ms (HTTP) | ✅ |
+| NFR-PERF-03 policy decision | p95 < 10 ms | 0.04 ms (engine) | ✅ |
+| NFR-SCAL-01 throughput | ≥ 100 req/s | 334 req/s (HTTP) | ✅ |
 | NFR-PERF-04 audit off path | 0 ms on path | enqueue never awaited | ✅ |
 | NFR-AVAIL-01 availability | ≥ 99.9% | not measured — needs a soak | — |
 
@@ -52,19 +52,31 @@ app and answers NFR-SCAL-01 ("sustained mediated requests"). Quoting the
 pipeline figure as throughput would overstate capacity by ~100x, so the harness
 reports NFR-SCAL-01 as *not measured* unless an HTTP run is present.
 
-### The finding: audit write throughput is the binding constraint
+### What this harness found, and the fix
 
-The request path comfortably beats its targets, but the audit writer saturates
-at **~140 events/s** on SQLite. Every mediated call emits at least one event
-and FR-AL-01 requires all of them to be recorded, so sustained operation above
-that rate grows an unbounded in-memory queue and loses decisions on shutdown —
-it does not degrade latency, which is why this never showed up before.
+The request path comfortably beat its targets, but the audit writer saturated
+at **~140 events/s** — below the request path's own throughput. Every mediated
+call emits at least one event and FR-AL-01 requires all of them recorded, so
+sustained load grew an unbounded in-memory queue and lost decisions on
+shutdown. It never degraded latency, which is why only a load test surfaced it.
 
-The cause is structural, not SQLite being slow: `AuditRepository.append_chained`
-runs a `SELECT` for the previous hash plus an `INSERT` in its own transaction,
-per event. The hash chain forces read-then-write ordering; it does not force a
-transaction per event. Batching a session's consecutive events, or keeping the
-chain head in memory per writer, would both cut this materially.
+The cause was structural rather than SQLite being slow: one `SELECT` for the
+previous hash plus one `INSERT`, in its own transaction, **per event**. The
+hash chain forces read-then-write ordering; it does not force a transaction
+per event.
+
+Fixed by batching (`AuditRepository.append_chained_batch`): the writer
+coalesces whatever is queued into one transaction, re-reading each session's
+chain tail under a row lock *inside* that transaction. Chaining in memory is
+valid only within that lock — caching a chain head across transactions is what
+forked the chain in an earlier revision, so `AUDIT_BATCH_MAX=1` remains the
+escape hatch rather than reintroducing per-process state.
+
+Result: **~140 → ~2,800 events/s** across 50 concurrent sessions, and HTTP
+throughput rose 246 → 334 req/s as a side effect. Throughput still falls as
+session fan-out rises, since a batch needs one locked tail read per session it
+touches; single-session traffic measures nearer 9,000 events/s. Size against
+the multi-session figure.
 
 ## Structure
 

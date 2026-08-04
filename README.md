@@ -2,7 +2,7 @@
 
 **Trust-Aware Context Mediation Middleware for Securing Agentic AI and RAG Systems**
 
-[![Tests](https://img.shields.io/badge/tests-142%20passed-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-151%20passed-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ---
 
@@ -70,7 +70,7 @@ Interactive docs: **http://localhost:8000/docs**
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 .venv/bin/pytest tests/ -v
-# Expected: 142 passed
+# Expected: 151 passed
 ```
 
 ## Security Benchmarks
@@ -114,16 +114,17 @@ Measured with the load harness (PRD §8.1, §8.2) — see
 
 | NFR | Target | Measured | |
 |---|---|---|---|
-| Fast-path latency (NFR-PERF-01) | p50 < 120 ms, p95 < 400 ms | p50 32 ms, p95 52 ms | ✅ |
-| Policy decision (NFR-PERF-03) | p95 < 10 ms | 0.07 ms | ✅ |
-| Throughput (NFR-SCAL-01) | ≥ 100 req/s | 246 req/s | ✅ |
+| Fast-path latency (NFR-PERF-01) | p50 < 120 ms, p95 < 400 ms | p50 24 ms, p95 31 ms | ✅ |
+| Policy decision (NFR-PERF-03) | p95 < 10 ms | 0.04 ms | ✅ |
+| Throughput (NFR-SCAL-01) | ≥ 100 req/s | 334 req/s | ✅ |
 | Audit off request path (NFR-PERF-04) | 0 ms on path | enqueue never awaited | ✅ |
 | Availability (NFR-AVAIL-01) | ≥ 99.9% | not measured | — |
 
-**Known ceiling:** the audit writer saturates at ~140 events/s, below the 246
-req/s the request path sustains. Above that rate the unbounded audit queue
-grows in memory rather than adding latency — a durability risk for FR-AL-01,
-not a performance one. Details in [`benchmarks/README.md`](benchmarks/README.md).
+Audit writes are batched into one transaction per drain (`AUDIT_BATCH_MAX`),
+sustaining ~2,800 events/s. Per-event writes measured ~140 events/s and were
+the throughput ceiling — the queue grew in memory rather than adding latency,
+which is why it took a load test to find. Details in
+[`benchmarks/README.md`](benchmarks/README.md).
 
 ## Configuration
 

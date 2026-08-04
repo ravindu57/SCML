@@ -126,31 +126,52 @@ def render_markdown(metrics: list[LoadMetrics], environment: dict[str, str]) -> 
     if drain_rps > 0:
         headroom = drain_rps / 100.0
         verdict = "FAIL" if drain_rps < 100.0 else "MARGINAL" if headroom < 3 else "PASS"
-        lines.append(
-            f"### Audit write throughput is the binding constraint — {verdict}"
+        heading = (
+            "Audit write throughput is the binding constraint"
+            if headroom < 3
+            else "Audit write throughput"
         )
+        lines.append(f"### {heading} — {verdict}")
         lines.append("")
+        qualifier = "only " if headroom < 3 else ""
         lines.append(
             f"The background writer was measured saturated at **{drain_rps:,.0f} "
             f"events/s** (SQLite). Every mediated call emits at least one audit "
-            f"event and FR-AL-01 requires all of them to be recorded, so this is "
-            f"a ceiling on sustainable request rate, not just an internal detail. "
-            f"Against NFR-SCAL-01's 100 req/s that is only **{headroom:.1f}x** — "
+            f"event and FR-AL-01 requires all of them to be recorded, so this "
+            f"bounds the sustainable request rate, not just an internal detail. "
+            f"Against NFR-SCAL-01's 100 req/s that is {qualifier}**{headroom:.1f}x** — "
             f"and a single agent turn spanning context, tool call, memory write "
-            f"and output emits four events, which would put the effective "
-            f"sustainable turn rate near **{drain_rps / 4:,.0f}/s**."
+            f"and output emits four events, putting the sustainable turn rate "
+            f"near **{drain_rps / 4:,.0f}/s**."
         )
         lines.append("")
-        lines.append(
-            "Cause is structural rather than SQLite being slow: "
-            "`AuditRepository.append_chained` runs one `SELECT` for the previous "
-            "hash plus one `INSERT`, in its own transaction, per event. The hash "
-            "chain forces the read-then-write ordering, but not the per-event "
-            "transaction — batching consecutive events for a session into one "
-            "transaction, or maintaining the chain head in memory per writer, "
-            "would both cut this substantially. PostgreSQL is untested here and "
-            "would change the constant, not the shape."
-        )
+        if headroom < 3:
+            lines.append(
+                "Cause is structural rather than SQLite being slow: the writer "
+                "is running one `SELECT` for the previous hash plus one `INSERT`, "
+                "in its own transaction, per event. The hash chain forces the "
+                "read-then-write ordering, but not the per-event transaction."
+            )
+        else:
+            sessions = environment.get("audit_probe_sessions", "?")
+            lines.append(
+                "The background writer coalesces queued events into one "
+                "transaction per batch (`AUDIT_BATCH_MAX`), re-reading each "
+                "session's chain tail under a row lock inside that transaction. "
+                "Setting `AUDIT_BATCH_MAX=1` restores per-event writes, which "
+                "measured ~140 events/s and made audit the binding constraint on "
+                "throughput."
+            )
+            lines.append("")
+            lines.append(
+                f"This figure is measured across **{sessions} concurrent "
+                "sessions**, which is the pessimistic case: a batch still needs "
+                "one locked tail read per distinct session it touches, so audit "
+                "throughput falls as session fan-out rises and rises toward "
+                "~9,000 events/s for single-session traffic. Sizing should use "
+                "the multi-session number. PostgreSQL is untested here and would "
+                "change the constant, not the shape."
+            )
         lines.append("")
     if backlogged:
         lines.append("| Scenario | Events queued at end of run |")

@@ -8,80 +8,80 @@
 
 | Scenario | Target | Kind | req/s | p50 ms | p95 ms | p99 ms | max ms | errors |
 |---|---|---|---:|---:|---:|---:|---:|---:|
-| `context_benign` | pipeline | fast_path | 4,871 | 0.17 | 0.31 | 0.38 | 138.74 | 0 |
-| `context_injection` | pipeline | fast_path | 921 | 0.87 | 1.96 | 2.74 | 5.24 | 0 |
-| `tool_call_policy` | pipeline | deterministic | 20,040 | 0.04 | 0.07 | 0.10 | 143.77 | 0 |
-| `output_redaction` | pipeline | fast_path | 11,243 | 0.08 | 0.13 | 0.16 | 115.17 | 0 |
-| `memory_write` | pipeline | db_bound | 40 | 103.22 | 583.98 | 1668.25 | 3129.95 | 0 |
-| `context_benign` | http | fast_path | 221 | 31.91 | 52.12 | 135.61 | 139.26 | 0 |
-| `context_injection` | http | fast_path | 187 | 39.71 | 59.07 | 125.14 | 143.27 | 0 |
-| `tool_call_policy` | http | deterministic | 246 | 28.20 | 56.67 | 118.10 | 129.68 | 0 |
-| `output_redaction` | http | fast_path | 246 | 28.95 | 49.67 | 122.04 | 145.17 | 0 |
-| `memory_write` | http | db_bound | 23 | 185.49 | 1457.55 | 2131.94 | 2132.22 | 0 |
+| `context_benign` | pipeline | fast_path | 7,788 | 0.12 | 0.17 | 0.21 | 92.15 | 0 |
+| `context_injection` | pipeline | fast_path | 1,762 | 0.54 | 0.67 | 0.79 | 64.56 | 0 |
+| `tool_call_policy` | pipeline | deterministic | 31,366 | 0.03 | 0.04 | 0.05 | 132.07 | 0 |
+| `output_redaction` | pipeline | fast_path | 13,494 | 0.07 | 0.11 | 0.13 | 97.60 | 0 |
+| `memory_write` | pipeline | db_bound | 60 | 53.93 | 655.12 | 1083.99 | 2089.84 | 0 |
+| `context_benign` | http | fast_path | 310 | 23.62 | 30.94 | 97.73 | 107.87 | 0 |
+| `context_injection` | http | fast_path | 240 | 30.61 | 41.79 | 107.08 | 118.42 | 0 |
+| `tool_call_policy` | http | deterministic | 334 | 22.10 | 28.94 | 92.62 | 100.83 | 0 |
+| `output_redaction` | http | fast_path | 318 | 23.08 | 28.92 | 98.19 | 106.08 | 0 |
+| `memory_write` | http | db_bound | 26 | 164.82 | 1095.65 | 2511.71 | 3770.72 | 0 |
 
 ## NFR acceptance (PRD §8.1, §8.2)
 
 | Scenario | KPI | Measured | Target | Result |
 |---|---|---:|---:|---|
-| `context_benign` | latency_p50_ms | 0.17 ms | < 120 ms | PASS |
-| `context_benign` | latency_p95_ms | 0.31 ms | < 400 ms | PASS |
+| `context_benign` | latency_p50_ms | 0.12 ms | < 120 ms | PASS |
+| `context_benign` | latency_p95_ms | 0.17 ms | < 400 ms | PASS |
 | `context_benign` | error_rate | 0.00% | 0% | PASS |
-| `context_injection` | latency_p50_ms | 0.87 ms | < 120 ms | PASS |
-| `context_injection` | latency_p95_ms | 1.96 ms | < 400 ms | PASS |
+| `context_injection` | latency_p50_ms | 0.54 ms | < 120 ms | PASS |
+| `context_injection` | latency_p95_ms | 0.67 ms | < 400 ms | PASS |
 | `context_injection` | error_rate | 0.00% | 0% | PASS |
-| `tool_call_policy` | latency_p50_ms | 0.04 ms | < 120 ms | PASS |
-| `tool_call_policy` | latency_p95_ms | 0.07 ms | < 400 ms | PASS |
+| `tool_call_policy` | latency_p50_ms | 0.03 ms | < 120 ms | PASS |
+| `tool_call_policy` | latency_p95_ms | 0.04 ms | < 400 ms | PASS |
 | `tool_call_policy` | error_rate | 0.00% | 0% | PASS |
-| `tool_call_policy` | policy_p95_ms | 0.07 ms | < 10 ms | PASS — NFR-PERF-03 deterministic path |
-| `output_redaction` | latency_p50_ms | 0.08 ms | < 120 ms | PASS |
-| `output_redaction` | latency_p95_ms | 0.13 ms | < 400 ms | PASS |
+| `tool_call_policy` | policy_p95_ms | 0.04 ms | < 10 ms | PASS — NFR-PERF-03 deterministic path |
+| `output_redaction` | latency_p50_ms | 0.07 ms | < 120 ms | PASS |
+| `output_redaction` | latency_p95_ms | 0.11 ms | < 400 ms | PASS |
 | `output_redaction` | error_rate | 0.00% | 0% | PASS |
-| `memory_write` | latency_p50_ms | 103.22 ms | < 120 ms | N/A — not on the §8.1 fast path |
-| `memory_write` | latency_p95_ms | 583.98 ms | < 400 ms | N/A — not on the §8.1 fast path |
+| `memory_write` | latency_p50_ms | 53.93 ms | < 120 ms | N/A — not on the §8.1 fast path |
+| `memory_write` | latency_p95_ms | 655.12 ms | < 400 ms | N/A — not on the §8.1 fast path |
 | `memory_write` | error_rate | 0.00% | 0% | PASS |
-| `context_benign` | latency_p50_ms | 31.91 ms | < 120 ms | PASS |
-| `context_benign` | latency_p95_ms | 52.12 ms | < 400 ms | PASS |
+| `context_benign` | latency_p50_ms | 23.62 ms | < 120 ms | PASS |
+| `context_benign` | latency_p95_ms | 30.94 ms | < 400 ms | PASS |
 | `context_benign` | error_rate | 0.00% | 0% | PASS |
-| `context_injection` | latency_p50_ms | 39.71 ms | < 120 ms | PASS |
-| `context_injection` | latency_p95_ms | 59.07 ms | < 400 ms | PASS |
+| `context_injection` | latency_p50_ms | 30.61 ms | < 120 ms | PASS |
+| `context_injection` | latency_p95_ms | 41.79 ms | < 400 ms | PASS |
 | `context_injection` | error_rate | 0.00% | 0% | PASS |
-| `tool_call_policy` | latency_p50_ms | 28.20 ms | < 120 ms | PASS |
-| `tool_call_policy` | latency_p95_ms | 56.67 ms | < 400 ms | PASS |
+| `tool_call_policy` | latency_p50_ms | 22.10 ms | < 120 ms | PASS |
+| `tool_call_policy` | latency_p95_ms | 28.94 ms | < 400 ms | PASS |
 | `tool_call_policy` | error_rate | 0.00% | 0% | PASS |
-| `tool_call_policy` | policy_p95_ms | 56.67 ms | < 10 ms | N/A — measured over HTTP; NFR-PERF-03 scopes this to the engine — use --target pipeline |
-| `output_redaction` | latency_p50_ms | 28.95 ms | < 120 ms | PASS |
-| `output_redaction` | latency_p95_ms | 49.67 ms | < 400 ms | PASS |
+| `tool_call_policy` | policy_p95_ms | 28.94 ms | < 10 ms | N/A — measured over HTTP; NFR-PERF-03 scopes this to the engine — use --target pipeline |
+| `output_redaction` | latency_p50_ms | 23.08 ms | < 120 ms | PASS |
+| `output_redaction` | latency_p95_ms | 28.92 ms | < 400 ms | PASS |
 | `output_redaction` | error_rate | 0.00% | 0% | PASS |
-| `memory_write` | latency_p50_ms | 185.49 ms | < 120 ms | N/A — not on the §8.1 fast path |
-| `memory_write` | latency_p95_ms | 1457.55 ms | < 400 ms | N/A — not on the §8.1 fast path |
+| `memory_write` | latency_p50_ms | 164.82 ms | < 120 ms | N/A — not on the §8.1 fast path |
+| `memory_write` | latency_p95_ms | 1095.65 ms | < 400 ms | N/A — not on the §8.1 fast path |
 | `memory_write` | error_rate | 0.00% | 0% | PASS |
 
 ## NFR-SCAL-01 — sustained throughput per instance
 
-Best sustained fast-path throughput over HTTP: **246 req/s** (`output_redaction`) against a target of ≥ 100 req/s — **PASS**.
+Best sustained fast-path throughput over HTTP: **334 req/s** (`tool_call_policy`) against a target of ≥ 100 req/s — **PASS**.
 
 ## NFR-PERF-04 — audit off the request path
 
 Enqueue is `put_nowait` and never awaited, so audit adds no measurable latency to the request path — the requirement is met as written.
 
-### Audit write throughput is the binding constraint — FAIL
+### Audit write throughput — PASS
 
-The background writer was measured saturated at **53 events/s** (SQLite). Every mediated call emits at least one audit event and FR-AL-01 requires all of them to be recorded, so this is a ceiling on sustainable request rate, not just an internal detail. Against NFR-SCAL-01's 100 req/s that is only **0.5x** — and a single agent turn spanning context, tool call, memory write and output emits four events, which would put the effective sustainable turn rate near **13/s**.
+The background writer was measured saturated at **2,809 events/s** (SQLite). Every mediated call emits at least one audit event and FR-AL-01 requires all of them to be recorded, so this bounds the sustainable request rate, not just an internal detail. Against NFR-SCAL-01's 100 req/s that is **28.1x** — and a single agent turn spanning context, tool call, memory write and output emits four events, putting the sustainable turn rate near **702/s**.
 
-Cause is structural rather than SQLite being slow: `AuditRepository.append_chained` runs one `SELECT` for the previous hash plus one `INSERT`, in its own transaction, per event. The hash chain forces the read-then-write ordering, but not the per-event transaction — batching consecutive events for a session into one transaction, or maintaining the chain head in memory per writer, would both cut this substantially. PostgreSQL is untested here and would change the constant, not the shape.
+The background writer coalesces queued events into one transaction per batch (`AUDIT_BATCH_MAX`), re-reading each session's chain tail under a row lock inside that transaction. Setting `AUDIT_BATCH_MAX=1` restores per-event writes, which measured ~140 events/s and made audit the binding constraint on throughput.
+
+This figure is measured across **50 concurrent sessions**, which is the pessimistic case: a batch still needs one locked tail read per distinct session it touches, so audit throughput falls as session fan-out rises and rises toward ~9,000 events/s for single-session traffic. Sizing should use the multi-session number. PostgreSQL is untested here and would change the constant, not the shape.
 
 | Scenario | Events queued at end of run |
 |---|---:|
-| `context_benign` | 24,361 |
-| `context_injection` | 4,604 |
-| `tool_call_policy` | 100,206 |
-| `output_redaction` | 56,220 |
-| `memory_write` | 170 |
-| `context_benign` | 1,049 |
-| `context_injection` | 878 |
-| `tool_call_policy` | 1,159 |
-| `output_redaction` | 1,156 |
-| `memory_write` | 106 |
+| `context_benign` | 38,820 |
+| `context_injection` | 8,808 |
+| `tool_call_policy` | 156,834 |
+| `output_redaction` | 67,486 |
+| `context_benign` | 8 |
+| `context_injection` | 8 |
+| `tool_call_policy` | 24 |
+| `output_redaction` | 25 |
 
 The queue is unbounded (`asyncio.Queue()` with no maxsize), so whenever offered load exceeds writer throughput the cost is **deferred into memory rather than removed**, and queued decisions are lost on abrupt shutdown. A maxsize plus an explicit drop-or-spill policy would bound that — this matters for FR-AL-01 (every decision recorded) more than for latency.
 

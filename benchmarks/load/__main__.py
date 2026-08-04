@@ -21,6 +21,12 @@ from pathlib import Path
 
 _LOAD_API_KEY = "load-benchmark-key"
 
+#: Distinct sessions the audit drain probe spreads its burst across. A batch
+#: needs one locked tail read per session it touches, so this is the dominant
+#: variable in audit throughput — fixed here so the figure is comparable
+#: between runs, and reported alongside the result.
+_DRAIN_PROBE_SESSIONS = 50
+
 
 def _configure_environment(db_path: Path) -> None:
     import os
@@ -45,25 +51,50 @@ def _quiet_logging() -> None:
     )
 
 
-async def _measure_audit_drain_rate(pipeline, sample_s: float = 2.0) -> float:
+async def _measure_audit_drain_rate(pipeline, burst: int = 20_000) -> float:
     """
     Observed audit write throughput (NFR-PERF-04).
 
     A raw backlog figure is meaningless on its own — drive the mediator hard
     enough and any async writer falls behind. What matters is whether the
-    writer keeps up at the *target* load, so measure the drain rate directly
-    and let the report compare it against NFR-SCAL-01's 100 req/s.
+    writer keeps up at the *target* load, so measure its saturated throughput
+    directly and let the report compare it against NFR-SCAL-01's 100 req/s.
+
+    Measured with a deliberate synthetic burst rather than from whatever the
+    last scenario happened to leave queued: once batching made the writer fast
+    enough to keep up with HTTP load, the leftover backlog was a handful of
+    events and far too small to time.
     """
     import time as _time
 
-    queue = pipeline._audit._queue
-    before = queue.qsize()
-    if before == 0:
-        return 0.0
+    from trust_mediator.models.audit_event import AuditDecision, AuditModule
+
+    audit = pipeline._audit
+    queue = audit._queue
+    while not queue.empty():  # start from a known-empty queue
+        try:
+            queue.get_nowait()
+            queue.task_done()
+        except Exception:  # noqa: BLE001
+            break
+
+    for i in range(burst):
+        audit.log(
+            audit.make_event(
+                session_id=f"drain-probe-{i % _DRAIN_PROBE_SESSIONS}",
+                module=AuditModule.INJECTION_SCANNER,
+                decision=AuditDecision.ALLOW,
+                reason_code="drain_probe",
+            )
+        )
+
     started = _time.perf_counter()
-    await asyncio.sleep(sample_s)
+    try:
+        await asyncio.wait_for(queue.join(), timeout=120)
+    except asyncio.TimeoutError:
+        pass
     elapsed = _time.perf_counter() - started
-    drained = before - queue.qsize()
+    drained = burst - queue.qsize()
     return drained / elapsed if elapsed > 0 and drained > 0 else 0.0
 
 
@@ -152,6 +183,7 @@ async def _run(args: argparse.Namespace, db_path: Path) -> int:
     metrics = [compute_load_metrics(r) for r in results]
     environment = {
         "audit_drain_rps": f"{audit_drain_rps:.0f}",
+        "audit_probe_sessions": str(_DRAIN_PROBE_SESSIONS),
         "python": sys.version.split()[0],
         "platform": platform.platform(),
         "database": "sqlite (throwaway)",
