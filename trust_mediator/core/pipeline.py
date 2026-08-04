@@ -25,8 +25,13 @@ from trust_mediator.modules.output_redaction.redactor import OutputRedactor, Red
 from trust_mediator.modules.tool_policy.engine import PolicyEngine
 from trust_mediator.modules.tool_policy.policy_loader import PolicyLoader
 from trust_mediator.modules.trust_router.router import TrustRouter
+from trust_mediator.observability import get_tracer, set_decision_attributes
 
 logger = structlog.get_logger(__name__)
+
+# NFR-OBS-01: one span per mediation decision point. No-op unless tracing is
+# configured. Attributes carry decisions and labels only — never content.
+tracer = get_tracer(__name__)
 
 
 class MediationPipeline:
@@ -76,11 +81,22 @@ class MediationPipeline:
         Returns the envelope with scanner_verdict populated.
         Blocked items: scanner_verdict.decision = BLOCK.
         """
-        # Step 2: trust routing
-        routed = self._router.route(envelope)
+        with tracer.start_as_current_span("mediate.context") as span:
+            # Step 2: trust routing
+            routed = self._router.route(envelope)
 
-        # Step 3: injection scan (trusted instructions skip scanning)
-        scanned = self._scanner.scan(routed)
+            # Step 3: injection scan (trusted instructions skip scanning)
+            scanned = self._scanner.scan(routed)
+
+            set_decision_attributes(
+                span,
+                module="injection_scanner",
+                decision=scanned.scanner_verdict.decision.value,
+                reason_code=scanned.scanner_verdict.decision.value,
+                session_id=envelope.session_id,
+                trust_label=scanned.trust_label.value,
+                score=scanned.scanner_verdict.score,
+            )
 
         # Audit
         decision = (
@@ -109,8 +125,18 @@ class MediationPipeline:
 
     async def process_tool_call(self, request: ToolCallRequest):
         """Evaluate a proposed tool call against policy. Returns PolicyDecision."""
-        decision = await self._policy_engine.evaluate(request)
-        request.policy_decision = decision
+        with tracer.start_as_current_span("mediate.tool_call") as span:
+            decision = await self._policy_engine.evaluate(request)
+            request.policy_decision = decision
+            set_decision_attributes(
+                span,
+                module="tool_policy",
+                decision=decision.reason_code.value,
+                reason_code=decision.reason_code.value,
+                session_id=request.session_id,
+                agent_id=request.agent_id,
+            )
+            span.set_attribute("trustmediator.tool_name", request.tool_name)
 
         audit_decision = (
             AuditDecision.ALLOW if decision.is_allowed
@@ -131,7 +157,19 @@ class MediationPipeline:
     # ── §5.3 Step 6: Memory ops ───────────────────────────────────────────────
 
     async def process_memory_write(self, request: MemoryWriteRequest) -> MemoryWriteResult:
-        result = await self._memory.vet_write(request)
+        with tracer.start_as_current_span("mediate.memory_write") as span:
+            result = await self._memory.vet_write(request)
+            set_decision_attributes(
+                span,
+                module="memory_integrity",
+                decision=result.verdict,
+                reason_code=result.verdict,
+                session_id=request.session_id,
+                agent_id=request.agent_id,
+                trust_label=request.trust_label.value,
+                score=result.record.integrity_score,
+            )
+
         audit_decision = {
             "persist": AuditDecision.PERSIST,
             "quarantine": AuditDecision.QUARANTINE,
@@ -154,7 +192,17 @@ class MediationPipeline:
         return result
 
     async def process_memory_read(self, request: MemoryReadRequest) -> MemoryReadResult:
-        result = await self._memory.verify_read(request)
+        with tracer.start_as_current_span("mediate.memory_read") as span:
+            result = await self._memory.verify_read(request)
+            set_decision_attributes(
+                span,
+                module="memory_integrity",
+                decision="verified" if result.verified else "withheld",
+                reason_code=result.reason,
+                session_id=request.session_id,
+                agent_id=request.agent_id,
+            )
+
         audit_decision = AuditDecision.ALLOW if result.verified else AuditDecision.BLOCK
         event = self._audit.make_event(
             session_id=request.session_id,
@@ -176,9 +224,22 @@ class MediationPipeline:
         destination: str = "user",
         data_class_labels: list[str] | None = None,
     ) -> RedactionResult:
-        result = self._redactor.redact(
-            content, destination=destination, data_class_labels=data_class_labels
-        )
+        with tracer.start_as_current_span("mediate.output") as span:
+            result = self._redactor.redact(
+                content, destination=destination, data_class_labels=data_class_labels
+            )
+            set_decision_attributes(
+                span,
+                module="output_redaction",
+                decision="blocked" if result.blocked else "allowed",
+                reason_code=result.block_reason or "",
+                session_id=session_id,
+            )
+            span.set_attribute(
+                "trustmediator.redactions_count", len(result.redactions_applied)
+            )
+            span.set_attribute("trustmediator.destination", destination)
+
         audit_decision = AuditDecision.BLOCK if result.blocked else AuditDecision.ALLOW
         event = self._audit.make_event(
             session_id=session_id,

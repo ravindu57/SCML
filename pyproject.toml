@@ -75,6 +75,12 @@ langchain = [
 kafka = [
     "aiokafka>=0.10.0",
 ]
+# Span export for NFR-OBS-01. The API/SDK ship in the core deps so the
+# instrumentation is always compiled in; only the OTLP wire exporter is
+# optional, since a deployment may scrape traces some other way.
+otlp = [
+    "opentelemetry-exporter-otlp-proto-http>=1.25.0",
+]
 grpc = [
     "grpcio>=1.62.0",
     "protobuf>=4.25.0",

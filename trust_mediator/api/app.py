@@ -27,9 +27,14 @@ from trust_mediator.api.rate_limit import limiter
 from trust_mediator.api.routers import audit, mediate, memory, policy
 from trust_mediator.db.base import create_all_tables
 from trust_mediator.logging_config import configure_logging
+from trust_mediator.observability import configure_observability, instrument_fastapi
 
 # Configure logging as early as possible so all subsequent loggers benefit.
 configure_logging(env=settings.env)
+
+# NFR-OBS-01: install the tracer provider before any module builds its tracer.
+# No-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set.
+configure_observability()
 
 logger = structlog.get_logger(__name__)
 
@@ -153,6 +158,9 @@ def create_app() -> FastAPI:
                 "Strict-Transport-Security", "max-age=63072000; includeSubDomains"
             )
         return response
+
+    # ── Tracing (NFR-OBS-01) ──────────────────────────────────────────────────
+    instrument_fastapi(app)
 
     # ── Routers ───────────────────────────────────────────────────────────────
     app.include_router(mediate.router)

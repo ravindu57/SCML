@@ -5,7 +5,7 @@ Spec: `TrustMediator_PRD (1).docx` (PRD v1.0) — the single source of truth for
 
 ## Commands
 
-- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 118 passed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
+- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 127 passed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
 - Benchmarks: `.venv/bin/python -m benchmarks.cli --testbed memory_poisoning` (see `benchmarks/README.md`; the CLI pins its own env and DB, so it needs no env prefix)
 - Lint: `.venv/bin/ruff check trust_mediator/ tests/`
 - Run API locally: `.venv/bin/uvicorn trust_mediator.api.app:app --reload --port 8000` (docs at /docs)
@@ -36,14 +36,15 @@ Spec: `TrustMediator_PRD (1).docx` (PRD v1.0) — the single source of truth for
 - Deploy: `k8s/` (gateway + sidecar), `.github/workflows/ci.yml` (lint, 3.11/3.12 tests, docker smoke).
 - Test commands must pass `DATABASE_URL="" TRUST_MEDIATOR_ENV=development REDIS_URL="" TRUST_MEDIATOR_API_KEYS=""` — the local `.env` sets production mode, docker-only hostnames, and a real API key, all of which break bare pytest runs.
 - Audit chain integrity is enforced transactionally in `AuditRepository.append_chained` (row lock + unique (session_id, seq_no)); never reintroduce per-process chain state in AuditLogger.
+- Tracing: `trust_mediator/observability.py` (NFR-OBS-01). Spans wrap every pipeline decision point. Off unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set; export needs the `[otlp]` extra. **Span attributes carry decisions/labels/scores only — never mediated content**, since spans leave the process for a collector the mediator does not control. `test_spans_never_carry_mediated_content` enforces this.
 
 ## Known gaps vs PRD (backlog — don't claim these exist)
 
 - `SCANNER_BACKEND=onnx` falls back to heuristic (no trained DeBERTa model shipped)
 - No AgentDojo / InjecAgent testbeds yet — only the memory-poisoning testbed exists (PRD §14.1)
 - No sandboxed tool executor (PRD §11) — tool execution stays in the host app
-- OpenTelemetry is declared in deps + config but never wired (NFR-OBS-01 unmet); Prometheus `/metrics` + structlog JSON are the working substitute
 - No TLS/mTLS between components (NFR-SEC-03) and no secrets manager (NFR-SEC-04)
+- NFR-SCAL-01 (≥100 req/s) and NFR-AVAIL-01 (99.9%) are unmeasured — no load or soak test exists
 
 ## Measured state (PRD §14.2) — do not overstate
 
