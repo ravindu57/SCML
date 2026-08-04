@@ -5,7 +5,8 @@ Spec: `TrustMediator_PRD (1).docx` (PRD v1.0) — the single source of truth for
 
 ## Commands
 
-- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 64 passed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
+- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 118 passed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
+- Benchmarks: `.venv/bin/python -m benchmarks.cli --testbed memory_poisoning` (see `benchmarks/README.md`; the CLI pins its own env and DB, so it needs no env prefix)
 - Lint: `.venv/bin/ruff check trust_mediator/ tests/`
 - Run API locally: `.venv/bin/uvicorn trust_mediator.api.app:app --reload --port 8000` (docs at /docs)
 - Full stack: `docker compose up -d` (service on :8000, Postgres, Redis)
@@ -39,5 +40,20 @@ Spec: `TrustMediator_PRD (1).docx` (PRD v1.0) — the single source of truth for
 ## Known gaps vs PRD (backlog — don't claim these exist)
 
 - `SCANNER_BACKEND=onnx` falls back to heuristic (no trained DeBERTa model shipped)
-- No benchmark harness yet (AgentDojo / InjecAgent / memory-poisoning testbed — PRD §14)
+- No AgentDojo / InjecAgent testbeds yet — only the memory-poisoning testbed exists (PRD §14.1)
 - No sandboxed tool executor (PRD §11) — tool execution stays in the host app
+- OpenTelemetry is declared in deps + config but never wired (NFR-OBS-01 unmet); Prometheus `/metrics` + structlog JSON are the working substitute
+- No TLS/mTLS between components (NFR-SEC-03) and no secrets manager (NFR-SEC-04)
+
+## Measured state (PRD §14.2) — do not overstate
+
+`benchmarks/results/memory_poisoning.md` is the committed baseline. As of the
+last run the memory integrity layer measures **33.3% ASR against a < 10%
+target**; §14.2 acceptance is NOT met. Residual failures are concentrated in
+families no shipped detector matches (`tool_hijack`, `authority_spoof`) —
+that gap needs the §6.3 classifier, not more scoring rules.
+
+When changing the scorer, thresholds or detectors, re-run the benchmark and
+update the committed result. Do not tune weights or add regex patterns until
+this corpus passes: it was written in-house, so that is overfitting, not a
+result. External validation (AgentDojo / InjecAgent) has to come first.

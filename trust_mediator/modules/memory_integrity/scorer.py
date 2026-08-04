@@ -104,6 +104,21 @@ class IntegrityScorer:
         ):
             composite = min(composite, self.reject_threshold - 0.01)
 
+        # Hard gate: a candidate that contradicts an existing trusted record can
+        # never persist silently, however clean it looks otherwise.
+        #
+        # Fact replacement is categorical, not a matter of degree — the write
+        # either conflicts with established memory or it does not. As a weighted
+        # term this signal was being averaged into insignificance: a 0.47
+        # contradiction moved the composite by only ~0.12, leaving it above the
+        # persist threshold, so the attack in [7] persisted unchallenged.
+        #
+        # Quarantine rather than reject: a contradiction may be a legitimate
+        # fact update, so it goes to human review (FR-MI-03, FR-MI-05) instead
+        # of being discarded.
+        if consistency_report.contradicted_ids:
+            composite = min(composite, self.persist_threshold - 0.01)
+
         verdict = self._verdict(composite)
 
         breakdown = IntegrityScoreBreakdown(

@@ -2,7 +2,7 @@
 
 **Trust-Aware Context Mediation Middleware for Securing Agentic AI and RAG Systems**
 
-[![Tests](https://img.shields.io/badge/tests-64%20passed-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-118%20passed-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ---
 
@@ -70,8 +70,38 @@ Interactive docs: **http://localhost:8000/docs**
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 .venv/bin/pytest tests/ -v
-# Expected: 64 passed
+# Expected: 118 passed
 ```
+
+## Security Benchmarks
+
+The evaluation harness (PRD §14) measures attack success rate, false-positive
+rate and latency, and runs the per-module ablation study.
+
+```bash
+.venv/bin/python -m benchmarks.cli --testbed memory_poisoning
+```
+
+Current measured state — see [`benchmarks/results/memory_poisoning.md`](benchmarks/results/memory_poisoning.md):
+
+| KPI | Measured | PRD §14.2 target | |
+|---|---:|---:|---|
+| Memory-poisoning ASR | 33.3% | < 10% | ❌ |
+| ASR reduction vs undefended | 66.7% | ≥ 90% | ❌ |
+| False-positive rate | 0.0% | < 3% | ✅ |
+| Utility | 100.0% | ≥ 90% | ✅ |
+| Added latency (p95) | 6.7 ms | < 400 ms | ✅ |
+
+**v1.0 acceptance (§14.4) is not met.** The memory integrity layer blocks two
+thirds of the memory-poisoning corpus — real and measurably better than no
+defence (100% → 33.3% ASR), but short of the headline claim in the PRD.
+
+The residual failures are concentrated in attack families that no shipped
+detector matches at all (`tool_hijack` 83%, `authority_spoof` 67%) — plainly
+worded poisoned memories that trip neither the regex pre-filter nor the
+instruction-pattern checker. Closing that gap needs the trained classifier
+of §6.3, not more scoring rules. Diagnosis and methodological caveats:
+[`benchmarks/README.md`](benchmarks/README.md).
 
 ## Configuration
 

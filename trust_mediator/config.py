@@ -101,7 +101,11 @@ class Settings(BaseSettings):
     memory_integrity_threshold: float = Field(
         default=0.65, alias="MEMORY_INTEGRITY_THRESHOLD"
     )
-    memory_rescan_on_read: bool = Field(default=False, alias="MEMORY_RESCAN_ON_READ")
+    # FR-MI-04 is a Must requirement: memory must be re-verified on read so
+    # entries written before a policy update are still checked. Defaulting this
+    # off left that requirement opt-in. Measured cost is ~4 ms against the
+    # §8.1 400 ms fast-path budget.
+    memory_rescan_on_read: bool = Field(default=True, alias="MEMORY_RESCAN_ON_READ")
 
     # ── Rate Limiting ─────────────────────────────────────────────────────────
     # slowapi limit string, e.g. "200/minute", "500/minute", "10/second"

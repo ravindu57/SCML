@@ -36,8 +36,14 @@ from trust_mediator.models.memory_record import (
     MemoryWriteRequest,
 )
 from trust_mediator.modules.injection_scanner.scanner import InjectionScanner
-from trust_mediator.modules.memory_integrity.consistency_checker import ConsistencyChecker
-from trust_mediator.modules.memory_integrity.scorer import IntegrityScorer
+from trust_mediator.modules.memory_integrity.consistency_checker import (
+    ConsistencyChecker,
+    ConsistencyReport,
+)
+from trust_mediator.modules.memory_integrity.scorer import (
+    IntegrityScoreBreakdown,
+    IntegrityScorer,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -84,6 +90,7 @@ class MemoryIntegrityLayer:
         repo: MemoryRepository | None = None,
         scanner: InjectionScanner | None = None,
         integrity_threshold: float | None = None,
+        checker: ConsistencyChecker | None = None,
     ) -> None:
         self._repo = repo or MemoryRepository()
         self._scanner = scanner or InjectionScanner()
@@ -92,7 +99,9 @@ class MemoryIntegrityLayer:
             persist_threshold=threshold,
             reject_threshold=threshold * 0.5,
         )
-        self._checker = ConsistencyChecker()
+        # Injectable so the §14.3 ablation harness can disable stage 3 without
+        # the production path branching on whether it is being benchmarked.
+        self._checker = checker or ConsistencyChecker()
 
     # ── Write pipeline ────────────────────────────────────────────────────────
 
@@ -126,23 +135,9 @@ class MemoryIntegrityLayer:
         )
 
         try:
-            # Stage 2: Injection scan
-            record, scan_score = await self._stage_scan(record)
-
-            # Stage 3: Consistency check
-            consistency_report = await self._stage_consistency(
+            # Stages 2-4: scan → consistency → score
+            record, breakdown, consistency_report = await self._evaluate(
                 record, request.agent_id
-            )
-
-            # Stage 4: Integrity scoring
-            breakdown = self._scorer.score(record, consistency_report)
-            record = record.model_copy(
-                update={
-                    "integrity_score": breakdown.composite,
-                    "scan_score": breakdown.scan_score,
-                    "provenance_score": breakdown.provenance_score,
-                    "consistency_flags": consistency_report.flags,
-                }
             )
 
             # Stage 5: Decision
@@ -207,6 +202,30 @@ class MemoryIntegrityLayer:
                 score_breakdown={},
                 blocked=False,
             )
+
+    async def _evaluate(
+        self, record: MemoryRecord, agent_id: str
+    ) -> tuple[MemoryRecord, IntegrityScoreBreakdown, ConsistencyReport]:
+        """
+        Run stages 2-4 (scan → consistency → score) over a candidate record.
+
+        Shared by the write and read paths so both apply an identical standard.
+        They previously diverged: the read path only re-scanned, which meant a
+        record that would have been quarantined at write time was served back
+        to the agent unchallenged.
+        """
+        record, _ = await self._stage_scan(record)
+        consistency_report = await self._stage_consistency(record, agent_id)
+        breakdown = self._scorer.score(record, consistency_report)
+        record = record.model_copy(
+            update={
+                "integrity_score": breakdown.composite,
+                "scan_score": breakdown.scan_score,
+                "provenance_score": breakdown.provenance_score,
+                "consistency_flags": consistency_report.flags,
+            }
+        )
+        return record, breakdown, consistency_report
 
     async def _stage_scan(self, record: MemoryRecord) -> tuple[MemoryRecord, float]:
         """Stage 2: run the injection scanner over candidate content."""
@@ -284,32 +303,37 @@ class MemoryIntegrityLayer:
                 reason="hash_mismatch_possible_tampering",
             )
 
-        # Re-scan (policy-driven or forced)
+        # Re-verification (policy-driven or forced).
+        #
+        # This applies the full write-path gauntlet, not a bare re-scan. The
+        # two paths used to disagree: a record scoring below the persist
+        # threshold was refused at write time but served at read time, because
+        # the read check only withheld on a block/escalate scanner verdict.
+        # Anything the scanner scored below its escalate threshold was handed
+        # to the agent regardless of how the other signals rated it — which is
+        # exactly the pre-existing-poison case FR-MI-04 exists to catch.
         should_rescan = request.rescan or settings.memory_rescan_on_read
         if should_rescan:
-            from trust_mediator.models.context_envelope import ContextEnvelope
-            envelope = ContextEnvelope(
-                content=record.content,
-                trust_label=record.trust_label,
-                provenance=record.source_provenance,
-            )
-            scanned = self._scanner.scan(envelope)
-            if scanned.scanner_verdict.decision.value in ("block", "escalate"):
+            rescored, breakdown, report = await self._evaluate(record, request.agent_id)
+            if breakdown.verdict != "persist":
                 logger.warning(
-                    "memory_integrity.rescan_withheld",
+                    "memory_integrity.reverification_withheld",
                     record_id=record.id,
-                    scan_score=scanned.scanner_verdict.score,
+                    composite=breakdown.composite,
+                    verdict=breakdown.verdict,
+                    flags=report.flags[:5],
                 )
                 await self._repo.update_status(
                     record.id,
                     MemoryStatus.QUARANTINED,
-                    "Re-scan on read detected injection; withheld",
+                    f"Re-verification on read scored {breakdown.composite:.2f} "
+                    f"({breakdown.verdict}); withheld",
                 )
                 return MemoryReadResult(
-                    record=record,
+                    record=rescored,
                     verified=False,
                     withheld=True,
-                    reason="rescan_detected_injection",
+                    reason="reverification_below_threshold",
                 )
 
         await self._repo.update_verified_at(record.id)
