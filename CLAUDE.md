@@ -5,7 +5,7 @@ Spec: `TrustMediator_PRD (1).docx` (PRD v1.0) — the single source of truth for
 
 ## Commands
 
-- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 151 passed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
+- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 182 passed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
 - Benchmarks: `.venv/bin/python -m benchmarks.cli --testbed memory_poisoning` (see `benchmarks/README.md`; the CLI pins its own env and DB, so it needs no env prefix)
 - Load/latency: `.venv/bin/python -m benchmarks.load` (§8.1/§8.2 NFRs; same self-pinning env)
 - Lint: `.venv/bin/ruff check trust_mediator/ tests/`
@@ -38,6 +38,7 @@ Spec: `TrustMediator_PRD (1).docx` (PRD v1.0) — the single source of truth for
 - Test commands must pass `DATABASE_URL="" TRUST_MEDIATOR_ENV=development REDIS_URL="" TRUST_MEDIATOR_API_KEYS=""` — the local `.env` sets production mode, docker-only hostnames, and a real API key, all of which break bare pytest runs.
 - Audit chain integrity is enforced transactionally in `AuditRepository.append_chained` / `append_chained_batch` (row lock + unique (session_id, seq_no)); never reintroduce per-process chain state in AuditLogger. The batch variant re-reads each session's tail under the lock inside its own transaction, so it is safe across workers — chaining in memory is only valid *within* one locked transaction.
 - The audit writer coalesces queued events into one transaction per batch (`AUDIT_BATCH_MAX`, default 128). Per-event writes measured ~140 events/s and made audit the throughput ceiling; batching lifts it to ~2,800/s across 50 sessions. Throughput falls as session fan-out rises (one locked tail read per session per batch). `AUDIT_BATCH_MAX=1` restores the old behaviour.
+- LangChain guard (`integrations/langchain_guard.py`): callbacks are notification-only, so the hooks scan and audit but cannot alter data in flight. The only enforcement points are `strict=True` (raises, aborting the run) and `guard.redact(text)` (returns safe text for the caller to substitute). It sends `argument_trust_labels` by default — without them FR-PE-04 never fires and a model-composed argument sails through as `allow`. It also prefers LangChain's structured `inputs` dict over the flat string, or declared `argument_schema`s can never match. Don't "simplify" either back.
 - Tracing: `trust_mediator/observability.py` (NFR-OBS-01). Spans wrap every pipeline decision point. Off unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set; export needs the `[otlp]` extra. **Span attributes carry decisions/labels/scores only — never mediated content**, since spans leave the process for a collector the mediator does not control. `test_spans_never_carry_mediated_content` enforces this.
 
 ## Known gaps vs PRD (backlog — don't claim these exist)
