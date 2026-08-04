@@ -2,7 +2,7 @@
 
 **Trust-Aware Context Mediation Middleware for Securing Agentic AI and RAG Systems**
 
-[![Tests](https://img.shields.io/badge/tests-127%20passed-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-142%20passed-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ---
 
@@ -70,7 +70,7 @@ Interactive docs: **http://localhost:8000/docs**
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 .venv/bin/pytest tests/ -v
-# Expected: 127 passed
+# Expected: 142 passed
 ```
 
 ## Security Benchmarks
@@ -102,6 +102,28 @@ worded poisoned memories that trip neither the regex pre-filter nor the
 instruction-pattern checker. Closing that gap needs the trained classifier
 of §6.3, not more scoring rules. Diagnosis and methodological caveats:
 [`benchmarks/README.md`](benchmarks/README.md).
+
+## Performance
+
+Measured with the load harness (PRD §8.1, §8.2) — see
+[`benchmarks/results/load.md`](benchmarks/results/load.md):
+
+```bash
+.venv/bin/python -m benchmarks.load
+```
+
+| NFR | Target | Measured | |
+|---|---|---|---|
+| Fast-path latency (NFR-PERF-01) | p50 < 120 ms, p95 < 400 ms | p50 32 ms, p95 52 ms | ✅ |
+| Policy decision (NFR-PERF-03) | p95 < 10 ms | 0.07 ms | ✅ |
+| Throughput (NFR-SCAL-01) | ≥ 100 req/s | 246 req/s | ✅ |
+| Audit off request path (NFR-PERF-04) | 0 ms on path | enqueue never awaited | ✅ |
+| Availability (NFR-AVAIL-01) | ≥ 99.9% | not measured | — |
+
+**Known ceiling:** the audit writer saturates at ~140 events/s, below the 246
+req/s the request path sustains. Above that rate the unbounded audit queue
+grows in memory rather than adding latency — a durability risk for FR-AL-01,
+not a performance one. Details in [`benchmarks/README.md`](benchmarks/README.md).
 
 ## Configuration
 

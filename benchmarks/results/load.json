@@ -1,0 +1,428 @@
+{
+  "environment": {
+    "audit_drain_rps": "53",
+    "python": "3.12.3",
+    "platform": "Linux-6.14.0-37-generic-x86_64-with-glibc2.39",
+    "database": "sqlite (throwaway)",
+    "duration_s": "5.0",
+    "concurrency": "8",
+    "warmup_s": "1.0",
+    "target": "both"
+  },
+  "scenarios": [
+    {
+      "scenario": "context_benign",
+      "kind": "fast_path",
+      "target": "pipeline",
+      "concurrency": 8,
+      "elapsed_s": 5.001448241004255,
+      "completed": 24362,
+      "errors": 0,
+      "latency_p50_ms": 0.1675970052019693,
+      "latency_p95_ms": 0.31335400126408786,
+      "latency_p99_ms": 0.3808840046986006,
+      "latency_mean_ms": 0.2048560733128645,
+      "latency_max_ms": 138.74458400096046,
+      "throughput_rps": 4870.989126763068,
+      "audit_backlog": 24361,
+      "error_rate": 0.0,
+      "kpi_checks": [
+        {
+          "kpi": "latency_p50_ms",
+          "value": 0.1675970052019693,
+          "target": 120.0,
+          "status": "PASS",
+          "note": ""
+        },
+        {
+          "kpi": "latency_p95_ms",
+          "value": 0.31335400126408786,
+          "target": 400.0,
+          "status": "PASS",
+          "note": ""
+        },
+        {
+          "kpi": "error_rate",
+          "value": 0.0,
+          "target": 0.0,
+          "status": "PASS",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "scenario": "context_injection",
+      "kind": "fast_path",
+      "target": "pipeline",
+      "concurrency": 8,
+      "elapsed_s": 5.0004370599999675,
+      "completed": 4604,
+      "errors": 0,
+      "latency_p50_ms": 0.8693759955349378,
+      "latency_p95_ms": 1.9622510008048266,
+      "latency_p99_ms": 2.7361660031601787,
+      "latency_mean_ms": 1.08520610382648,
+      "latency_max_ms": 5.24158299958799,
+      "throughput_rps": 920.7195180654928,
+      "audit_backlog": 4604,
+      "error_rate": 0.0,
+      "kpi_checks": [
+        {
+          "kpi": "latency_p50_ms",
+          "value": 0.8693759955349378,
+          "target": 120.0,
+          "status": "PASS",
+          "note": ""
+        },
+        {
+          "kpi": "latency_p95_ms",
+          "value": 1.9622510008048266,
+          "target": 400.0,
+          "status": "PASS",
+          "note": ""
+        },
+        {
+          "kpi": "error_rate",
+          "value": 0.0,
+          "target": 0.0,
+          "status": "PASS",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "scenario": "tool_call_policy",
+      "kind": "deterministic",
+      "target": "pipeline",
+      "concurrency": 8,
+      "elapsed_s": 5.0001897210022435,
+      "completed": 100206,
+      "errors": 0,
+      "latency_p50_ms": 0.03769899922190234,
+      "latency_p95_ms": 0.07203799759736285,
+      "latency_p99_ms": 0.09551100083626807,
+      "latency_mean_ms": 0.04957280014836201,
+      "latency_max_ms": 143.76986300339922,
+      "throughput_rps": 20040.439581543436,
+      "audit_backlog": 100206,
+      "error_rate": 0.0,
+      "kpi_checks": [
+        {
+          "kpi": "latency_p50_ms",
+          "value": 0.03769899922190234,
+          "target": 120.0,
+          "status": "PASS",
+          "note": ""
+        },
+        {
+          "kpi": "latency_p95_ms",
+          "value": 0.07203799759736285,
+          "target": 400.0,
+          "status": "PASS",
+          "note": ""
+        },
+        {
+          "kpi": "error_rate",
+          "value": 0.0,
+          "target": 0.0,
+          "status": "PASS",
+          "note": ""
+        },
+        {
+          "kpi": "policy_p95_ms",
+          "value": 0.07203799759736285,
+          "target": 10.0,
+          "status": "PASS",
+          "note": "NFR-PERF-03 deterministic path"
+        }
+      ]
+    },
+    {
+      "scenario": "output_redaction",
+      "kind": "fast_path",
+      "target": "pipeline",
+      "concurrency": 8,
+      "elapsed_s": 5.000305813999148,
+      "completed": 56220,
+      "errors": 0,
+      "latency_p50_ms": 0.07593200280098245,
+      "latency_p95_ms": 0.1301199954468757,
+      "latency_p99_ms": 0.1632330022403039,
+      "latency_mean_ms": 0.08859563926096001,
+      "latency_max_ms": 115.17017900041537,
+      "throughput_rps": 11243.31232753869,
+      "audit_backlog": 56220,
+      "error_rate": 0.0,
+      "kpi_checks": [
+        {
+          "kpi": "latency_p50_ms",
+          "value": 0.07593200280098245,
+          "target": 120.0,
+          "status": "PASS",
+          "note": ""
+        },
+        {
+          "kpi": "latency_p95_ms",
+          "value": 0.1301199954468757,
+          "target": 400.0,
+          "status": "PASS",
+          "note": ""
+        },
+        {
+          "kpi": "error_rate",
+          "value": 0.0,
+          "target": 0.0,
+          "status": "PASS",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "scenario": "memory_write",
+      "kind": "db_bound",
+      "target": "pipeline",
+      "concurrency": 8,
+      "elapsed_s": 5.124177981997491,
+      "completed": 206,
+      "errors": 0,
+      "latency_p50_ms": 103.22416800045175,
+      "latency_p95_ms": 583.9819190005073,
+      "latency_p99_ms": 1668.2455049958662,
+      "latency_mean_ms": 195.88389874288887,
+      "latency_max_ms": 3129.9460039954283,
+      "throughput_rps": 40.20157003205765,
+      "audit_backlog": 170,
+      "error_rate": 0.0,
+      "kpi_checks": [
+        {
+          "kpi": "latency_p50_ms",
+          "value": 103.22416800045175,
+          "target": 120.0,
+          "status": "N/A",
+          "note": "not on the \u00a78.1 fast path"
+        },
+        {
+          "kpi": "latency_p95_ms",
+          "value": 583.9819190005073,
+          "target": 400.0,
+          "status": "N/A",
+          "note": "not on the \u00a78.1 fast path"
+        },
+        {
+          "kpi": "error_rate",
+          "value": 0.0,
+          "target": 0.0,
+          "status": "PASS",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "scenario": "context_benign",
+      "kind": "fast_path",
+      "target": "http",
+      "concurrency": 8,
+      "elapsed_s": 5.055721056996845,
+      "completed": 1119,
+      "errors": 0,
+      "latency_p50_ms": 31.905511001241393,
+      "latency_p95_ms": 52.12027599918656,
+      "latency_p99_ms": 135.61244199809153,
+      "latency_mean_ms": 36.100344746025854,
+      "latency_max_ms": 139.2560990061611,
+      "throughput_rps": 221.3334136485565,
+      "audit_backlog": 1049,
+      "error_rate": 0.0,
+      "kpi_checks": [
+        {
+          "kpi": "latency_p50_ms",
+          "value": 31.905511001241393,
+          "target": 120.0,
+          "status": "PASS",
+          "note": ""
+        },
+        {
+          "kpi": "latency_p95_ms",
+          "value": 52.12027599918656,
+          "target": 400.0,
+          "status": "PASS",
+          "note": ""
+        },
+        {
+          "kpi": "error_rate",
+          "value": 0.0,
+          "target": 0.0,
+          "status": "PASS",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "scenario": "context_injection",
+      "kind": "fast_path",
+      "target": "http",
+      "concurrency": 8,
+      "elapsed_s": 5.021651982999174,
+      "completed": 938,
+      "errors": 0,
+      "latency_p50_ms": 39.70960699371062,
+      "latency_p95_ms": 59.0730380063178,
+      "latency_p99_ms": 125.14004100376042,
+      "latency_mean_ms": 42.74068542537458,
+      "latency_max_ms": 143.26534800056834,
+      "throughput_rps": 186.79112036748134,
+      "audit_backlog": 878,
+      "error_rate": 0.0,
+      "kpi_checks": [
+        {
+          "kpi": "latency_p50_ms",
+          "value": 39.70960699371062,
+          "target": 120.0,
+          "status": "PASS",
+          "note": ""
+        },
+        {
+          "kpi": "latency_p95_ms",
+          "value": 59.0730380063178,
+          "target": 400.0,
+          "status": "PASS",
+          "note": ""
+        },
+        {
+          "kpi": "error_rate",
+          "value": 0.0,
+          "target": 0.0,
+          "status": "PASS",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "scenario": "tool_call_policy",
+      "kind": "deterministic",
+      "target": "http",
+      "concurrency": 8,
+      "elapsed_s": 5.020190653995087,
+      "completed": 1233,
+      "errors": 0,
+      "latency_p50_ms": 28.20044399413746,
+      "latency_p95_ms": 56.67475300288061,
+      "latency_p99_ms": 118.09691700182157,
+      "latency_mean_ms": 32.548891747838574,
+      "latency_max_ms": 129.67751100222813,
+      "throughput_rps": 245.60820195519346,
+      "audit_backlog": 1159,
+      "error_rate": 0.0,
+      "kpi_checks": [
+        {
+          "kpi": "latency_p50_ms",
+          "value": 28.20044399413746,
+          "target": 120.0,
+          "status": "PASS",
+          "note": ""
+        },
+        {
+          "kpi": "latency_p95_ms",
+          "value": 56.67475300288061,
+          "target": 400.0,
+          "status": "PASS",
+          "note": ""
+        },
+        {
+          "kpi": "error_rate",
+          "value": 0.0,
+          "target": 0.0,
+          "status": "PASS",
+          "note": ""
+        },
+        {
+          "kpi": "policy_p95_ms",
+          "value": 56.67475300288061,
+          "target": 10.0,
+          "status": "N/A",
+          "note": "measured over HTTP; NFR-PERF-03 scopes this to the engine \u2014 use --target pipeline"
+        }
+      ]
+    },
+    {
+      "scenario": "output_redaction",
+      "kind": "fast_path",
+      "target": "http",
+      "concurrency": 8,
+      "elapsed_s": 5.016091260004032,
+      "completed": 1235,
+      "errors": 0,
+      "latency_p50_ms": 28.95448300114367,
+      "latency_p95_ms": 49.67202500120038,
+      "latency_p99_ms": 122.0403890038142,
+      "latency_mean_ms": 32.43874606975333,
+      "latency_max_ms": 145.1687939988915,
+      "throughput_rps": 246.2076417642783,
+      "audit_backlog": 1156,
+      "error_rate": 0.0,
+      "kpi_checks": [
+        {
+          "kpi": "latency_p50_ms",
+          "value": 28.95448300114367,
+          "target": 120.0,
+          "status": "PASS",
+          "note": ""
+        },
+        {
+          "kpi": "latency_p95_ms",
+          "value": 49.67202500120038,
+          "target": 400.0,
+          "status": "PASS",
+          "note": ""
+        },
+        {
+          "kpi": "error_rate",
+          "value": 0.0,
+          "target": 0.0,
+          "status": "PASS",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "scenario": "memory_write",
+      "kind": "db_bound",
+      "target": "http",
+      "concurrency": 8,
+      "elapsed_s": 5.2034767320001265,
+      "completed": 122,
+      "errors": 0,
+      "latency_p50_ms": 185.49191000056453,
+      "latency_p95_ms": 1457.5505660031922,
+      "latency_p99_ms": 2131.943123000383,
+      "latency_mean_ms": 337.0720129430277,
+      "latency_max_ms": 2132.221469000797,
+      "throughput_rps": 23.44586250376204,
+      "audit_backlog": 106,
+      "error_rate": 0.0,
+      "kpi_checks": [
+        {
+          "kpi": "latency_p50_ms",
+          "value": 185.49191000056453,
+          "target": 120.0,
+          "status": "N/A",
+          "note": "not on the \u00a78.1 fast path"
+        },
+        {
+          "kpi": "latency_p95_ms",
+          "value": 1457.5505660031922,
+          "target": 400.0,
+          "status": "N/A",
+          "note": "not on the \u00a78.1 fast path"
+        },
+        {
+          "kpi": "error_rate",
+          "value": 0.0,
+          "target": 0.0,
+          "status": "PASS",
+          "note": ""
+        }
+      ]
+    }
+  ]
+}

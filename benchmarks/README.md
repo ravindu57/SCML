@@ -24,6 +24,48 @@ applicable §14.2 target.
 
 Latest committed results: [`results/memory_poisoning.md`](results/memory_poisoning.md).
 
+## Load and latency (PRD §8.1, §8.2)
+
+Separate from the security testbeds — it scores throughput against a clock
+rather than decisions against attacks.
+
+```bash
+python -m benchmarks.load                       # both targets
+python -m benchmarks.load --target pipeline     # mediator cost only
+python -m benchmarks.load --target http --duration 10 --concurrency 32
+```
+
+Latest committed results: [`results/load.md`](results/load.md).
+
+| NFR | Target | Measured | |
+|---|---|---|---|
+| NFR-PERF-01 fast-path latency | p50 < 120 ms, p95 < 400 ms | p50 32 ms, p95 52 ms (HTTP) | ✅ |
+| NFR-PERF-03 policy decision | p95 < 10 ms | 0.07 ms (engine) | ✅ |
+| NFR-SCAL-01 throughput | ≥ 100 req/s | 246 req/s (HTTP) | ✅ |
+| NFR-PERF-04 audit off path | 0 ms on path | enqueue never awaited | ✅ |
+| NFR-AVAIL-01 availability | ≥ 99.9% | not measured — needs a soak | — |
+
+Two targets, because the PRD scopes its budgets differently: `pipeline` calls
+`MediationPipeline` directly and answers NFR-PERF-01/03 ("added latency per
+mediated call", "policy engine decision latency"), while `http` drives the ASGI
+app and answers NFR-SCAL-01 ("sustained mediated requests"). Quoting the
+pipeline figure as throughput would overstate capacity by ~100x, so the harness
+reports NFR-SCAL-01 as *not measured* unless an HTTP run is present.
+
+### The finding: audit write throughput is the binding constraint
+
+The request path comfortably beats its targets, but the audit writer saturates
+at **~140 events/s** on SQLite. Every mediated call emits at least one event
+and FR-AL-01 requires all of them to be recorded, so sustained operation above
+that rate grows an unbounded in-memory queue and loses decisions on shutdown —
+it does not degrade latency, which is why this never showed up before.
+
+The cause is structural, not SQLite being slow: `AuditRepository.append_chained`
+runs a `SELECT` for the previous hash plus an `INSERT` in its own transaction,
+per event. The hash chain forces read-then-write ordering; it does not force a
+transaction per event. Batching a session's consecutive events, or keeping the
+chain head in memory per writer, would both cut this materially.
+
 ## Structure
 
 | Path | Role |

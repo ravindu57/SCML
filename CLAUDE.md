@@ -5,8 +5,9 @@ Spec: `TrustMediator_PRD (1).docx` (PRD v1.0) — the single source of truth for
 
 ## Commands
 
-- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 127 passed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
+- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 142 passed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
 - Benchmarks: `.venv/bin/python -m benchmarks.cli --testbed memory_poisoning` (see `benchmarks/README.md`; the CLI pins its own env and DB, so it needs no env prefix)
+- Load/latency: `.venv/bin/python -m benchmarks.load` (§8.1/§8.2 NFRs; same self-pinning env)
 - Lint: `.venv/bin/ruff check trust_mediator/ tests/`
 - Run API locally: `.venv/bin/uvicorn trust_mediator.api.app:app --reload --port 8000` (docs at /docs)
 - Full stack: `docker compose up -d` (service on :8000, Postgres, Redis)
@@ -44,7 +45,8 @@ Spec: `TrustMediator_PRD (1).docx` (PRD v1.0) — the single source of truth for
 - No AgentDojo / InjecAgent testbeds yet — only the memory-poisoning testbed exists (PRD §14.1)
 - No sandboxed tool executor (PRD §11) — tool execution stays in the host app
 - No TLS/mTLS between components (NFR-SEC-03) and no secrets manager (NFR-SEC-04)
-- NFR-SCAL-01 (≥100 req/s) and NFR-AVAIL-01 (99.9%) are unmeasured — no load or soak test exists
+- NFR-AVAIL-01 (99.9%) is unmeasured — no soak or fault-injection test exists
+- Audit writer saturates at ~140 events/s (`benchmarks/results/load.md`). The request path sustains 246 req/s, so above ~140 req/s the unbounded audit queue grows in memory and drops decisions on shutdown — an FR-AL-01 risk, not a latency one. Cause is the per-event transaction in `AuditRepository.append_chained`, not SQLite.
 
 ## Measured state (PRD §14.2) — do not overstate
 
