@@ -87,17 +87,24 @@ class InjectionScanner:
 
         text = envelope.content
 
-        # Stage 1: heuristic
-        heuristic_matches = self._filter.scan(text)
-        heuristic_score = self._filter.aggregate_score(heuristic_matches)
-        pattern_names = [m.pattern_name for m in heuristic_matches]
+        try:
+            # Stage 1: heuristic
+            heuristic_matches = self._filter.scan(text)
+            heuristic_score = self._filter.aggregate_score(heuristic_matches)
+            pattern_names = [m.pattern_name for m in heuristic_matches]
 
-        # Stage 2: ML classifier (only if heuristic score is non-trivial or risky)
-        needs_ml = (
-            heuristic_score > 0.2
-            or envelope.trust_label == TrustLabel.RISKY_EXTERNAL
-        )
-        ml_score = self._classifier.predict(text) if needs_ml else 0.0
+            # Stage 2: ML classifier (only if heuristic score is non-trivial or risky)
+            needs_ml = (
+                heuristic_score > 0.2
+                or envelope.trust_label == TrustLabel.RISKY_EXTERNAL
+            )
+            ml_score = self._classifier.predict(text) if needs_ml else 0.0
+        except Exception as e:
+            # A scan that could not complete must never present itself as a
+            # clean scan (§9). Scoring 0.0 and setting is_verified would make a
+            # crashed scanner indistinguishable from "definitely benign" — the
+            # caller would consume unscanned content believing it was checked.
+            return self._unscannable(envelope, e)
 
         # Combined score: max of the two, with heuristic getting slight weight
         combined = max(heuristic_score, ml_score * 0.95)
@@ -139,6 +146,44 @@ class InjectionScanner:
                 "content": updated_content,
                 "scanner_verdict": result,
                 "is_verified": True,
+            }
+        )
+
+    def _unscannable(self, envelope: ContextEnvelope, error: Exception) -> ContextEnvelope:
+        """
+        Build the verdict for content the scanner could not evaluate (§9).
+
+        The fail direction is graded by risk, as §9 requires:
+
+          risky_external  → ESCALATE. Unverified web pages and attachments are
+                            not "low-risk reads"; letting one through unscanned
+                            is exactly the case the label exists for.
+          everything else → ALLOW, but explicitly tagged unverified so the
+                            caller and the audit trail can both see that this
+                            content proceeded without being checked.
+        """
+        risky = envelope.trust_label == TrustLabel.RISKY_EXTERNAL
+        reason = f"scanner_unavailable: {type(error).__name__}: {error}"
+
+        logger.error(
+            "injection_scanner.scan_failed",
+            envelope_id=envelope.id,
+            trust_label=envelope.trust_label,
+            fail_direction="closed" if risky else "open",
+            error=str(error),
+        )
+
+        return envelope.model_copy(
+            update={
+                "scanner_verdict": ScanResult(
+                    decision=ScanVerdict.ESCALATE if risky else ScanVerdict.ALLOW,
+                    # Not 0.0: that reads as "definitely clean" on a scale where
+                    # 0 means benign. The score is unknown, not low.
+                    score=0.0 if not risky else 0.5,
+                    rationale=reason,
+                ),
+                "is_verified": False,
+                "unverified_reason": reason,
             }
         )
 

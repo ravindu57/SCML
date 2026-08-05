@@ -5,7 +5,7 @@ Spec: `TrustMediator_PRD (1).docx` (PRD v1.0) — the single source of truth for
 
 ## Commands
 
-- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 195 passed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
+- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 208 passed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
 - Benchmarks: `.venv/bin/python -m benchmarks.cli --testbed memory_poisoning` (see `benchmarks/README.md`; the CLI pins its own env and DB, so it needs no env prefix)
 - Load/latency: `.venv/bin/python -m benchmarks.load` (§8.1/§8.2 NFRs; same self-pinning env)
 - Lint: `.venv/bin/ruff check trust_mediator/ tests/`

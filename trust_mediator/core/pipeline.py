@@ -73,6 +73,26 @@ class MediationPipeline:
 
         self._redactor = OutputRedactor(redaction_config)
 
+    def _emit(self, event) -> None:
+        """
+        Hand an audit event to the logger without letting it break mediation.
+
+        `AuditLogger.log()` is non-blocking and swallows its own overflow, but
+        the pipeline must not depend on that: a mediator that refuses to make
+        decisions because its logger is unhappy is an availability incident of
+        its own making (§8.3). The audit path is critical, not load-bearing for
+        the request — a dropped event is already accounted for by the queue's
+        gap markers.
+        """
+        try:
+            self._audit.log(event)
+        except Exception as e:
+            logger.error(
+                "pipeline.audit_emit_failed",
+                error=str(e),
+                module=getattr(event, "module", None),
+            )
+
     # ── §5.3 Step 1+2+3: Context mediation ───────────────────────────────────
 
     async def process_context(self, envelope: ContextEnvelope) -> ContextEnvelope:
@@ -98,26 +118,39 @@ class MediationPipeline:
                 score=scanned.scanner_verdict.score,
             )
 
-        # Audit
-        decision = (
-            AuditDecision.ALLOW
-            if scanned.scanner_verdict.decision == ScanVerdict.ALLOW
-            else AuditDecision(scanned.scanner_verdict.decision.value)
-        )
+        # Audit. §9 requires every fail-open to be recorded explicitly, so an
+        # operator can see exactly what proceeded unverified and why — an
+        # unscannable item logged as a plain ALLOW would be invisible.
+        unverified = not scanned.is_verified and bool(scanned.unverified_reason)
+        if unverified and scanned.scanner_verdict.decision == ScanVerdict.ALLOW:
+            # Genuinely failed open: unscannable, and it proceeded anyway.
+            decision = AuditDecision.FAIL_OPEN
+        elif scanned.scanner_verdict.decision == ScanVerdict.ALLOW:
+            decision = AuditDecision.ALLOW
+        else:
+            # Unscannable but escalated or blocked — nothing opened, so record
+            # the verdict that actually applied. Logging this as fail_open
+            # would tell an operator content proceeded when it did not.
+            decision = AuditDecision(scanned.scanner_verdict.decision.value)
         event = self._audit.make_event(
             session_id=envelope.session_id,
             module=AuditModule.INJECTION_SCANNER,
             decision=decision,
-            reason_code=scanned.scanner_verdict.decision.value,
+            reason_code=(
+                scanned.unverified_reason
+                if unverified
+                else scanned.scanner_verdict.decision.value
+            ),
             details={
                 "score": scanned.scanner_verdict.score,
                 "patterns": scanned.scanner_verdict.patterns_matched[:5],
                 "trust_label": scanned.trust_label.value,
+                "verified": scanned.is_verified,
             },
             input_provenance=envelope.provenance.model_dump(mode="json"),
             context_id=envelope.id,
         )
-        self._audit.log(event)
+        self._emit(event)
 
         return scanned
 
@@ -151,7 +184,7 @@ class MediationPipeline:
             details={"tool": request.tool_name, "reason": decision.reason},
             agent_id=request.agent_id,
         )
-        self._audit.log(event)
+        self._emit(event)
         return decision
 
     # ── §5.3 Step 6: Memory ops ───────────────────────────────────────────────
@@ -188,7 +221,7 @@ class MediationPipeline:
             },
             agent_id=request.agent_id,
         )
-        self._audit.log(event)
+        self._emit(event)
         return result
 
     async def process_memory_read(self, request: MemoryReadRequest) -> MemoryReadResult:
@@ -212,7 +245,7 @@ class MediationPipeline:
             details={"memory_id": request.memory_id, "withheld": result.withheld},
             agent_id=request.agent_id,
         )
-        self._audit.log(event)
+        self._emit(event)
         return result
 
     # ── §5.3 Step 7: Output redaction ─────────────────────────────────────────
@@ -225,9 +258,27 @@ class MediationPipeline:
         data_class_labels: list[str] | None = None,
     ) -> RedactionResult:
         with tracer.start_as_current_span("mediate.output") as span:
-            result = self._redactor.redact(
-                content, destination=destination, data_class_labels=data_class_labels
-            )
+            try:
+                result = self._redactor.redact(
+                    content, destination=destination, data_class_labels=data_class_labels
+                )
+            except Exception as e:
+                # §9: fail CLOSED on redaction failure. Letting the exception
+                # propagate would also avoid leaking, but it produces a 500
+                # with no decision and no audit record — the operator learns
+                # nothing about what was withheld or why.
+                logger.error(
+                    "pipeline.redaction_failed",
+                    error=str(e),
+                    destination=destination,
+                    session_id=session_id,
+                )
+                result = RedactionResult(
+                    content="",
+                    blocked=True,
+                    block_reason=f"Redaction failed — fail-closed: {type(e).__name__}",
+                    action_allowed=False,
+                )
             set_decision_attributes(
                 span,
                 module="output_redaction",
@@ -252,7 +303,7 @@ class MediationPipeline:
                 "block_reason": result.block_reason,
             },
         )
-        self._audit.log(event)
+        self._emit(event)
         return result
 
     # ── Audit replay ──────────────────────────────────────────────────────────
