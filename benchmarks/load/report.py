@@ -180,12 +180,13 @@ def render_markdown(metrics: list[LoadMetrics], environment: dict[str, str]) -> 
             lines.append(f"| `{m.scenario}` | {m.audit_backlog:,} |")
         lines.append("")
         lines.append(
-            "The queue is unbounded (`asyncio.Queue()` with no maxsize), so "
-            "whenever offered load exceeds writer throughput the cost is "
-            "**deferred into memory rather than removed**, and queued decisions "
-            "are lost on abrupt shutdown. A maxsize plus an explicit "
-            "drop-or-spill policy would bound that — this matters for FR-AL-01 "
-            "(every decision recorded) more than for latency."
+            "The queue is bounded (`AUDIT_QUEUE_MAXSIZE`, default 10,000), so a "
+            "backlog this size is buffering rather than unbounded growth. Past "
+            "the bound, overflow is dropped per `AUDIT_OVERFLOW_POLICY` and the "
+            "count is written into the affected session's hash chain as an "
+            "`audit_gap` marker — a recorded gap rather than silent loss. That "
+            "keeps FR-AL-01 auditable under overload, but dropped decisions are "
+            "still lost: size the bound for your peak, not your average."
         )
     else:
         lines.append("No backlog remained at end of run in any scenario.")

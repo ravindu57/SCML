@@ -57,8 +57,10 @@ reports NFR-SCAL-01 as *not measured* unless an HTTP run is present.
 The request path comfortably beat its targets, but the audit writer saturated
 at **~140 events/s** — below the request path's own throughput. Every mediated
 call emits at least one event and FR-AL-01 requires all of them recorded, so
-sustained load grew an unbounded in-memory queue and lost decisions on
-shutdown. It never degraded latency, which is why only a load test surfaced it.
+sustained load grew an in-memory queue and lost decisions on shutdown. It
+never degraded latency, which is why only a load test surfaced it. (The queue
+is now bounded and overflow is recorded as an `audit_gap` marker in the
+affected session's chain — see the NFR-PERF-04 section of the report.)
 
 The cause was structural rather than SQLite being slow: one `SELECT` for the
 previous hash plus one `INSERT`, in its own transaction, **per event**. The

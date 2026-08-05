@@ -126,6 +126,18 @@ class Settings(BaseSettings):
     # unchanged. Larger values raise sustained audit throughput but hold the
     # per-session row lock for longer; 1 restores per-event writes.
     audit_batch_max: int = Field(default=128, alias="AUDIT_BATCH_MAX")
+    # Bound on the in-memory audit queue. Unbounded, offered load above writer
+    # throughput grew the queue until the process died and took every queued
+    # decision with it. 0 restores the unbounded behaviour. At the measured
+    # ~2,800 events/s drain rate the default is roughly 3.5s of burst headroom.
+    audit_queue_maxsize: int = Field(default=10_000, alias="AUDIT_QUEUE_MAXSIZE")
+    # What to do when the queue is full. Neither option is good — that is the
+    # point of bounding it — but the choice must be explicit and recorded.
+    #   drop_newest: refuse the incoming event, keep the backlog intact
+    #   drop_oldest: evict the head to make room, preferring recent events
+    audit_overflow_policy: Literal["drop_newest", "drop_oldest"] = Field(
+        default="drop_newest", alias="AUDIT_OVERFLOW_POLICY"
+    )
 
     # ── Policy ────────────────────────────────────────────────────────────────
     policy_default_file: str = Field(
