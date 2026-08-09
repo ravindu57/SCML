@@ -175,14 +175,18 @@ async function loadPolicy() {
   try {
     const p = await API.getPolicy();
     currentPolicyData = p;
-    const pd = p.policy_data || {};
+    // GET /v1/policy returns {version, policy, shadow} — not the
+    // PolicyVersionResponse shape (policy_data/version_number/is_shadow) that
+    // PUT /v1/policy and /versions return. Reading the latter here left the
+    // page permanently showing "No agent policies defined".
+    const pd = p.policy || {};
 
     document.getElementById('policy-version-label').textContent =
-      `Version ${p.version_number || '—'} · ${pd.policy_id || 'default'}`;
+      `Version ${p.version ?? '—'} · ${pd.policy_id || 'default'}`;
     document.getElementById('policy-activated').textContent =
       p.activated_at ? `Activated: ${fmtTs(p.activated_at)}` : '';
 
-    if (p.is_shadow) document.getElementById('policy-shadow-badge').classList.remove('hidden');
+    if (p.shadow) document.getElementById('policy-shadow-badge').classList.remove('hidden');
 
     renderAgentCards(pd.agents || {});
     document.getElementById('yaml-content').textContent = JSON.stringify(pd, null, 2);
@@ -281,7 +285,8 @@ function exportPolicy() {
 async function loadVersionHistory() {
   try {
     const data = await API.getPolicyVersions();
-    const versions = data.versions || [];
+    // GET /v1/policy/versions returns a bare array, not {versions: [...]}.
+    const versions = Array.isArray(data) ? data : (data.versions || []);
     document.getElementById('version-history').innerHTML = versions.length
       ? `<div class="divide-y divide-outline-variant/20">${versions.map(v => `
           <div class="px-4 py-3 flex items-center justify-between hover:bg-surface-charcoal/30 transition-colors">
