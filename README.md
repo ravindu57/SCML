@@ -2,7 +2,7 @@
 
 **Trust-Aware Context Mediation Middleware for Securing Agentic AI and RAG Systems**
 
-[![Tests](https://img.shields.io/badge/tests-208%20passed-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-202%20passed%20%7C%20208%20with%20grpc-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ---
 
@@ -39,13 +39,38 @@ User Query ──► IngressInterceptor
 
 ```bash
 # Clone and enter the project
-cd "scml - middleware layer secure"
+git clone https://github.com/ravindu57/SCML.git
+cd SCML
 
 # Deploy everything (installs Docker if needed, builds image, starts stack)
 sudo bash deploy.sh
 ```
 
 The service will be live at **http://localhost:8000**.
+
+## Dashboard
+
+`deploy.sh` starts the API only. To bring up the API **and** the web dashboard
+together:
+
+```bash
+bash start.sh     # API :8000 + dashboard :3000 + agent orchestrator :3001
+bash stop.sh      # tear it all down
+```
+
+Six pages, all reading live data from the API:
+
+| Page | URL | Shows |
+|---|---|---|
+| Command Center | http://localhost:3000/index.html | Latency, throughput, live audit trail |
+| Live Agent Demo | http://localhost:3000/demo.html | An agent driven through the mediator in real time |
+| Traffic | http://localhost:3000/traffic.html | Per-decision feed: allow / block / quarantine |
+| Tool Policies | http://localhost:3000/policy.html | Per-agent allow-lists, redaction rules, version history |
+| Memory Integrity | http://localhost:3000/memory.html | Quarantined writes awaiting review, integrity scores |
+| Audit Logs | http://localhost:3000/audit.html | Full replay with hash-chain verification |
+
+The dashboard is static HTML — no build step. It talks to `http://localhost:8000`,
+so the API must be running.
 
 ## API Endpoints
 
@@ -69,7 +94,16 @@ Interactive docs: **http://localhost:8000/docs**
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
-.venv/bin/pytest tests/ -v
+.venv/bin/pytest tests/ -q
+# Expected: 202 passed, 1 skipped
+```
+
+The skip is `tests/integration/test_grpc_api.py`, which needs the optional gRPC
+transport. Install that extra to run the full suite:
+
+```bash
+.venv/bin/pip install -e ".[dev,grpc]"
+.venv/bin/pytest tests/ -q
 # Expected: 208 passed
 ```
 
