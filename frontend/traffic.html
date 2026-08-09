@@ -31,7 +31,7 @@ tailwind.config={darkMode:"class",theme:{extend:{colors:{"surface-container-low"
   <div class="flex items-center gap-4">
     <div class="relative">
       <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px]">search</span>
-      <input id="session-filter" type="text" placeholder="Session ID…" class="bg-surface-container-high border border-outline-variant/30 rounded-full pl-9 pr-4 py-1.5 text-sm text-on-surface focus:outline-none focus:border-mediation-blue w-48 placeholder:text-on-surface-variant/50 transition-all"/>
+      <input id="session-filter" type="text" value="demo-traffic" placeholder="Session ID…" class="bg-surface-container-high border border-outline-variant/30 rounded-full pl-9 pr-4 py-1.5 text-sm text-on-surface focus:outline-none focus:border-mediation-blue w-48 placeholder:text-on-surface-variant/50 transition-all"/>
     </div>
     <button onclick="loadTraffic()" class="text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">refresh</span></button>
     <button class="text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">notifications</span></button>
@@ -138,7 +138,7 @@ renderNav('traffic');
 let allEvents = [], activeFilter = 'all', selectedEvent = null;
 
 async function loadTraffic() {
-  const sid = document.getElementById('session-filter').value.trim() || 'smoke-01';
+  const sid = document.getElementById('session-filter').value.trim() || 'demo-traffic';
   try {
     const data = await API.auditReplay(sid);
     allEvents = (data.events || []).slice().reverse();

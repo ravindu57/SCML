@@ -101,7 +101,16 @@ addopts = "-v --tb=short"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-extend-exclude = ["trust_mediator/api/grpc/mediation_pb2*.py"]  # protoc-generated
+# Apply excludes even when a path is passed explicitly (e.g. editor/CI hooks
+# that lint one file at a time), so excluded demo scripts stay excluded.
+force-exclude = true
+extend-exclude = [
+    "trust_mediator/api/grpc/mediation_pb2*.py",  # protoc-generated
+    # Root-level demo/exhibition scripts, deliberately terse (semicolon style);
+    # never part of the linted library scope (trust_mediator/ + tests/).
+    "orchestrator.py",
+    "demo_agent.py",
+]
 
 [tool.mypy]
 python_version = "3.11"

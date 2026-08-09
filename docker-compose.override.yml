@@ -1,11 +1,14 @@
 # docker-compose.override.yml
 # ─────────────────────────────────────────────────────────────────────────────
-# This file is intentionally left empty.
+# Local demo override: allow the static frontend served on :3002 to call the API.
 #
-# The development overrides have been moved to docker-compose.dev.yml
-# to prevent them from being auto-loaded in production deploys.
-#
-# For local development, use:
-#   bash dev.sh
+# The API's CORS allowlist (TRUST_MEDIATOR_CORS_ORIGINS) normally comes from
+# .env and trusts only http://localhost:3000. Port 3000 is occupied by another
+# app on this machine, so the demo frontend runs on :3002 instead. An
+# `environment:` value here overrides the one from env_file, adding :3002 while
+# keeping :3000. Delete this file (restore `services: {}`) to revert.
 # ─────────────────────────────────────────────────────────────────────────────
-services: {}
+services:
+  trust-mediator:
+    environment:
+      - TRUST_MEDIATOR_CORS_ORIGINS=http://localhost:3000,http://localhost:3002

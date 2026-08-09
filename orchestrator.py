@@ -9,12 +9,29 @@ Usage:
     python3 orchestrator.py --loop      # loop forever (exhibition mode)
     python3 orchestrator.py --delay 4   # seconds between steps
 """
-import sys, time, json, threading, queue, argparse, requests
-from datetime import datetime
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import argparse
+import json
+import os
+import queue
+import sys
+import threading
+import time
+
+import requests
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 BASE     = "http://localhost:8000"
 SSE_PORT = 3001
+
+# Authenticate to the gateway. In production mode the API requires X-API-Key
+# (see trust_mediator/api/auth.py); the first key in TRUST_MEDIATOR_API_KEYS is
+# read from the environment so it never has to be hardcoded. Empty is fine in
+# development mode, where auth is off. All API calls go through this session so
+# the header is attached once.
+_API_KEY = (os.getenv("TRUST_MEDIATOR_API_KEYS", "").split(",")[0]).strip()
+_session = requests.Session()
+if _API_KEY:
+    _session.headers["X-API-Key"] = _API_KEY
 
 # ── Terminal colours ──────────────────────────────────────────────
 R="\033[0;31m"; G="\033[0;32m"; Y="\033[1;33m"; C="\033[0;36m"
@@ -70,7 +87,12 @@ class SSEHandler(BaseHTTPRequestHandler):
     def log_message(self, *_): pass
 
 def start_sse_server():
-    srv = HTTPServer(("0.0.0.0", SSE_PORT), SSEHandler)
+    # ThreadingHTTPServer, not HTTPServer: each SSE client blocks in a long-lived
+    # while-loop, so a single-threaded server can serve only one viewer at a time
+    # and wedges on stale connections. daemon_threads lets those handler threads
+    # die with the process instead of blocking shutdown.
+    srv = ThreadingHTTPServer(("0.0.0.0", SSE_PORT), SSEHandler)
+    srv.daemon_threads = True
     t = threading.Thread(target=srv.serve_forever, daemon=True)
     t.start()
     return srv
@@ -79,43 +101,50 @@ def start_sse_server():
 AGENT = "research-agent"
 
 def api_context(session, content, source="tool_result"):
-    return requests.post(f"{BASE}/v1/mediate/context", json={
+    return _session.post(f"{BASE}/v1/mediate/context", json={
         "session_id": session, "content": content,
         "source": source, "agent_id": AGENT
     }, timeout=10).json()
 
 def api_memory(session, content, trust="untrusted_data"):
-    return requests.post(f"{BASE}/v1/mediate/memory/write", json={
+    return _session.post(f"{BASE}/v1/mediate/memory/write", json={
         "session_id": session, "content": content,
         "source": "tool_result", "trust_label": trust, "agent_id": AGENT
     }, timeout=10).json()
 
 def api_tool(session, tool, args=None):
-    return requests.post(f"{BASE}/v1/mediate/tool-call", json={
+    return _session.post(f"{BASE}/v1/mediate/tool-call", json={
         "session_id": session, "tool_name": tool,
         "arguments": args or {}, "agent_id": AGENT
     }, timeout=10).json()
 
 def api_audit(session):
-    return requests.get(f"{BASE}/v1/audit/replay/{session}", timeout=10).json()
+    return _session.get(f"{BASE}/v1/audit/replay/{session}", timeout=10).json()
 
 def setup_policy():
     """Register the research-agent policy with safe tool allowlist."""
     try:
-        existing = requests.get(f"{BASE}/v1/policy", timeout=5).json()
-        policy = existing if isinstance(existing, dict) else {}
-        if "agents" not in policy:
-            policy["agents"] = {}
-        policy["agents"][AGENT] = {
+        # GET returns {"version": N, "policy": {"agents": {...}}}. The editable
+        # document is the inner "policy" dict; agents live under policy_doc["agents"].
+        current = _session.get(f"{BASE}/v1/policy", timeout=5).json()
+        policy_doc = current.get("policy") if isinstance(current, dict) else None
+        if not isinstance(policy_doc, dict):
+            policy_doc = {}
+        policy_doc.setdefault("agents", {})
+        policy_doc["agents"][AGENT] = {
             "allowed_tools": ["web_search","read_document","analyze_data","write_report"],
             "require_approval_for": ["irreversible","high_impact"],
             "untrusted_arg_policy": "require_approval",
             "rate_limits": {"tool_calls_per_minute": 60}
         }
-        requests.put(f"{BASE}/v1/policy",
-                     json=policy,
+        # PUT requires the doc wrapped in policy_data; activate to make it live.
+        r = _session.put(f"{BASE}/v1/policy",
+                     json={"policy_data": policy_doc,
+                           "description": f"Demo: register {AGENT} allowlist",
+                           "activate": True},
                      headers={"Content-Type":"application/json"},
                      timeout=5)
+        r.raise_for_status()
         print(f"  {G}✔ Policy configured for '{AGENT}'{NC}")
     except Exception as e:
         print(f"  {Y}⚠ Policy setup skipped: {e}{NC}")
