@@ -49,7 +49,26 @@ _PATTERNS: list[tuple[str, str, float]] = [
     ("code_exec",               r"(?i)\b(execute|run|eval|exec|shell|subprocess|os\.system|__import__)\s*[\(\[]", 0.85),
     ("code_inject_python",      r"(?i)(import os|import subprocess|import sys|__builtins__|__globals__)", 0.90),
     ("code_inject_shell",       r"(?i)(;\s*(rm|wget|curl|chmod|chown|nc|netcat|python|bash|sh)\s)", 0.90),
-    ("sql_injection",           r"(?i)(\b(UNION|SELECT|INSERT|DROP|DELETE|UPDATE|ALTER)\b.{0,50}\b(FROM|INTO|TABLE|WHERE)\b)", 0.75),
+    # Requires a *valid* SQL keyword pairing, not any-of x any-of. The looser
+    # form matched ordinary English whenever a verb-like keyword happened to
+    # precede a preposition-like one: the InjecAgent corpus tripped it 62 times
+    # on a Gmail record reading "...Global Economy Update", "from": "...",
+    # which is the whole of that testbed's false-positive rate. UPDATE...FROM
+    # is not even valid SQL, so the pairing was never a real signal.
+    ("sql_injection",           r"(?i)(\bUNION\b(\s+ALL)?\s+\bSELECT\b"
+                                # SELECT..FROM is the one pairing that is also
+                                # ordinary English ("select a slot from the
+                                # list"). SQL has no articles, so requiring
+                                # none between SELECT and the table name keeps
+                                # the payload and drops the prose.
+                                r"|\bSELECT\b(?:(?!\b(?:a|an|the)\b)[\s\S]){0,80}?"
+                                r"\bFROM\b\s+(?!(?:a|an|the)\b)[\w`\"\[]"
+                                r"|\bINSERT\s+INTO\b"
+                                r"|\bDELETE\s+FROM\b"
+                                r"|\bDROP\s+(TABLE|DATABASE|SCHEMA)\b"
+                                r"|\bUPDATE\b.{0,80}?\bSET\b"
+                                r"|\bALTER\s+TABLE\b"
+                                r"|'\s*(OR|AND)\s*'?\w+'?\s*=\s*'?\w+)", 0.75),
 
     # Memory / context manipulation
     ("memory_inject",           r"(?i)\b(remember|memorize|store in memory|add to (your )?memory|update (your )?knowledge)\b.{0,80}\b(always|never|must|should)\b", 0.85),

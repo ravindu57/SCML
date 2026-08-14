@@ -172,8 +172,8 @@ Two caveats that matter for any claim made from these numbers.
 detector patterns until this testbed passes would be overfitting to a corpus
 written in-house, and the resulting ASR would not be a research result. Any
 tuning driven by these findings should be validated on a corpus the tuner did
-not write — the external AgentDojo and InjecAgent suites exist precisely for
-this, and are not yet implemented.
+not write. **The InjecAgent testbed now provides that** (1054 third-party
+cases); AgentDojo remains unimplemented.
 
 **2. The scanner is the heuristic pre-filter only.** `SCANNER_BACKEND=onnx`
 still falls back to heuristics; no trained DeBERTa model ships. Every ASR here
@@ -181,10 +181,64 @@ therefore measures regex + TF-IDF detection, not the scanner the PRD
 specifies in §6.3/§11. Expect these numbers to move substantially once a real
 classifier lands.
 
+## Why §6.3 is unreachable, and what has already been tried
+
+The InjecAgent run showed the injection scanner detecting **0 of 1054** attacks.
+Before writing another classifier, know why, and which approaches are already
+ruled out — each of these was measured, not assumed.
+
+### Two independent defects
+
+**The stage-2 gate.** `InjectionScanner.scan` runs the ML classifier only when
+the regex pre-filter scores > 0.2, or the label is `RISKY_EXTERNAL`. On the
+external corpus, 992 of 1054 attacks score *exactly* 0.0, so the classifier
+never runs on 94% of untrusted content. **Improving the model changes nothing
+until this gate changes.**
+
+**The model itself.** Forced to run on all 1054, it scores attacks at mean
+0.478 and clean tool output at 0.515 — benign higher than malicious, i.e. worse
+than useless, and nothing approaches the 0.7 escalate threshold. It is trained
+on the 60 in-house strings in `classifier.py`, which are direct jailbreaks
+("ignore all previous instructions"), whereas an InjecAgent attack is a polite
+request embedded in a JSON payload. No vocabulary overlap.
+
+Note the ordering trap: ungating stage 2 *without* fixing the model would make
+things worse, since the model ranks benign content higher. Neither fix is
+useful alone.
+
+### Training approaches already measured and rejected
+
+Both trained TF-IDF + LogisticRegression on Apache-2.0 external corpora
+(`deepset/prompt-injections`, `jackhhao/jailbreak-classification`) and evaluated
+on InjecAgent held out. Neither is worth repeating:
+
+| Approach | Held-out ROC-AUC | Why it failed |
+|---|---:|---|
+| Train on direct-injection prompts | 0.660 | Direct jailbreaks and indirect injection share almost no vocabulary |
+| Same, embedded in generic tool-output carriers | 0.506 | Bag-of-words learns the carrier, not the instruction; a coin flip |
+
+The signal that actually separates the classes is *"does this data payload
+contain an imperative addressed to an assistant?"* — syntactic, not lexical.
+Bag-of-words cannot represent it, which is why both attempts failed and why
+more training data of the same shape will not help.
+
+### What would plausibly work
+
+- A fine-tuned transformer (the §6.3 DeBERTa), which needs a GPU — not
+  available on the current dev machine, so this is a deployment question, not
+  just a code one.
+- `SCANNER_BACKEND=llm`, which already ships (`LLMClassifier`) and needs only
+  `LLM_SCANNER_API_KEY`. Untested against these corpora; the obvious next
+  measurement, and cheap.
+- Syntactic imperative detection (dependency parse or POS features) rather than
+  n-grams. Must be designed from the concept, not from inspecting InjecAgent,
+  or it becomes overfitting with extra steps.
+
 ## Not yet implemented
 
 Do not cite these as existing:
 
 - AgentDojo testbed (§14.1)
-- InjecAgent testbed (§14.1)
+- Trained DeBERTa classifier for `SCANNER_BACKEND=onnx` (§6.3) — still falls
+  back to the heuristic
 - Load/soak testing for NFR-SCAL-01 (≥ 100 req/s) and NFR-AVAIL-01 (99.9%)

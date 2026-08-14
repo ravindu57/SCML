@@ -66,18 +66,29 @@ this corpus: it was written in-house, so that is overfitting, not a result.
 
 **External validation now exists.** `benchmarks/results/injecagent.md` is the
 committed baseline for 1054 third-party indirect-injection cases (InjecAgent,
-ACL 2024, MIT, vendored). Headline: **0.0% ASR against a < 5% target — PASS**,
-but read the ablation before quoting it:
+ACL 2024, MIT, vendored). All five §14.2 KPIs PASS — but never quote the
+headline without the ablation:
 
-- `no_scanner` is also 0.0%; `no_tool_policy` is 94.1%. **Tool policy is the
-  entire defence.** The injection scanner detects none of the 1054 attacks.
-- Its only blocks are 62 cases sharing one Gmail template, which the
-  `sql_injection` regex misreads whether or not an instruction was injected.
-  That single misfire is also the whole 5.9% FPR — which **fails** the < 3%
-  target.
+- `no_scanner` is also 0.0%; `no_tool_policy` is **100.0%**. Tool policy is the
+  *entire* defence. **The injection scanner detects 0 of 1054 attacks.**
+- Do not describe the 0% ASR as evidence the scanner works. It is evidence that
+  least agency holds while detection contributes nothing.
 
-So the §6.3 classifier gap is now measured rather than asserted, on both
-testbeds. Do not describe the 0% as evidence the scanner works; it is evidence
-that least agency holds when detection contributes nothing. Any classifier work
-must be trained on external data and evaluated against the in-house corpus as a
-held-out set, never the reverse.
+**§6.3 is broken in two independent ways, both measured** (details and the
+already-rejected fixes are in `benchmarks/README.md`):
+
+1. **Stage 2 is unreachable.** `scan()` runs the classifier only when the regex
+   pre-filter scores > 0.2; 992/1054 attacks score exactly 0.0. A better model
+   changes nothing until the gate does.
+2. **The classifier is anti-discriminative.** Ungated, it scores attacks at 0.478
+   and benign at 0.515 — benign *higher*. So ungating stage 2 without replacing
+   the model makes things worse. Neither fix works alone.
+
+Two TF-IDF training approaches on external Apache-2.0 corpora were measured and
+rejected (held-out AUC 0.660 and 0.506 — the latter a coin flip). Bag-of-words
+cannot represent the discriminating signal, which is syntactic ("is there an
+imperative addressed to an assistant in this payload?"). Do not retry that
+family. `SCANNER_BACKEND=llm` already ships and is the cheapest untested option.
+
+Any classifier work must train on external data and evaluate against the
+in-house corpus as a held-out set, never the reverse.

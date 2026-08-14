@@ -2,7 +2,7 @@
 
 **Trust-Aware Context Mediation Middleware for Securing Agentic AI and RAG Systems**
 
-[![Tests](https://img.shields.io/badge/tests-222%20passed%20%7C%20228%20with%20grpc-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-240%20passed%20%7C%20246%20with%20grpc-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ---
 
@@ -95,7 +95,7 @@ Interactive docs: **http://localhost:8000/docs**
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 .venv/bin/pytest tests/ -q
-# Expected: 222 passed, 1 skipped
+# Expected: 240 passed, 1 skipped
 ```
 
 The skip is `tests/integration/test_grpc_api.py`, which needs the optional gRPC
@@ -104,7 +104,7 @@ transport. Install that extra to run the full suite:
 ```bash
 .venv/bin/pip install -e ".[dev,grpc]"
 .venv/bin/pytest tests/ -q
-# Expected: 228 passed
+# Expected: 246 passed
 ```
 
 ## Security Benchmarks
@@ -155,33 +155,41 @@ Full results: [`benchmarks/results/injecagent.md`](benchmarks/results/injecagent
 |---|---:|---:|---|
 | Injection ASR | 0.0% | < 5% | ✅ |
 | ASR reduction vs undefended | 100.0% | ≥ 90% | ✅ |
-| False-positive rate | 5.9% | < 3% | ❌ |
-| Utility | 94.1% | ≥ 90% | ✅ |
-| Added latency (p95) | 0.9 ms | < 400 ms | ✅ |
+| False-positive rate | 0.0% | < 3% | ✅ |
+| Utility | 100.0% | ≥ 90% | ✅ |
+| Added latency (p95) | 0.4 ms | < 400 ms | ✅ |
 
-**Read the ablation before reading the headline.** 0% ASR is real, but it is
-not the scanner's doing:
+**Read the ablation before reading the headline.** Every KPI passes, but none
+of it is the scanner's doing:
 
 | Configuration | ASR |
 |---|---:|
 | `full_defence` | 0.0% |
 | `no_scanner` — detection off, enforcement on | 0.0% |
-| `no_tool_policy` — enforcement off, detection on | **94.1%** |
+| `no_tool_policy` — enforcement off, detection on | **100.0%** |
 | `undefended` | 100.0% |
 
-Removing the scanner changes nothing. Removing tool policy loses almost
-everything. **The injection scanner detects none of the 1054 attacks**: its only
-blocks are 62 cases sharing one Gmail response template, which a `sql_injection`
-regex misreads as SQL whether or not an instruction was injected — the same
-misfire that produces the entire 5.9% false-positive rate, and the reason that
-KPI fails.
+Removing the scanner changes nothing. Removing tool policy loses everything.
+**The injection scanner detects 0 of the 1054 attacks.** Two independent
+reasons, both measured:
+
+1. **Stage 2 is unreachable.** The scanner runs its ML classifier only when the
+   regex pre-filter scores > 0.2 ([`scanner.py`](trust_mediator/modules/injection_scanner/scanner.py)).
+   992 of 1054 attacks score *exactly* 0.0, so the classifier never executes on
+   94% of untrusted content. A better model would change nothing until this gate
+   does.
+2. **The classifier cannot discriminate anyway.** Forced to run on all 1054, it
+   scores attacks at mean 0.478 and clean content at 0.515 — benign *higher*
+   than malicious, nothing near the 0.7 escalate threshold. It is trained on 60
+   in-house jailbreak strings and has no signal for a polite instruction
+   embedded in JSON tool output.
 
 So the defence that holds is the §5.2 invariant enforced by least agency:
 untrusted tool output never authorises a tool call, so an attacker instruction
 is inert unless the tool it names is already on the agent's allow-list. That is
-the architecture working exactly as specified while its detection layer
-contributes nothing — which is the honest case for building it this way, and a
-measured argument rather than a claimed one.
+the architecture working exactly as specified **while its detection layer
+contributes nothing** — a measured argument for the design rather than a
+claimed one, and simultaneously a measured indictment of §6.3.
 
 One caveat this testbed asserts rather than hides: `GitHubGetUserDetails` is
 both a user tool and an attacker tool upstream. Where an attacker reuses a tool

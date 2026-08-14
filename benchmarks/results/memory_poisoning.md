@@ -1,7 +1,7 @@
 # Benchmark report — memory_poisoning
 
-- Run started: `2026-08-04T05:43:22.633962+00:00`
-- Duration: 8.81s
+- Run started: `2026-08-14T08:00:41.843363+00:00`
+- Duration: 10.06s
 - Python 3.12.3 on Linux-6.14.0-37-generic-x86_64-with-glibc2.39
 
 ## Mediator settings (reproducibility)
@@ -20,11 +20,11 @@
 
 | Configuration | ASR | Blocked | FPR | Utility | p50 ms | p95 ms |
 |---|---:|---:|---:|---:|---:|---:|
-| `full_defence` | 33.3% | 66.7% | 0.0% | 100.0% | 4.22 | 6.73 |
-| `no_scanner` | 47.9% | 52.1% | 0.0% | 100.0% | 3.97 | 5.28 |
-| `no_consistency` | 64.6% | 35.4% | 0.0% | 100.0% | 4.04 | 6.42 |
-| `scoring_only` | 100.0% | 0.0% | 0.0% | 100.0% | 3.94 | 5.09 |
-| `undefended` | 100.0% | 0.0% | 0.0% | 100.0% | 2.59 | 3.38 |
+| `full_defence` | 33.3% | 66.7% | 0.0% | 100.0% | 4.84 | 7.23 |
+| `no_scanner` | 47.9% | 52.1% | 0.0% | 100.0% | 4.63 | 6.78 |
+| `no_consistency` | 64.6% | 35.4% | 0.0% | 100.0% | 4.85 | 7.04 |
+| `scoring_only` | 100.0% | 0.0% | 0.0% | 100.0% | 4.72 | 6.72 |
+| `undefended` | 100.0% | 0.0% | 0.0% | 100.0% | 2.77 | 4.38 |
 
 ## KPI acceptance (PRD §14.2) — `full_defence`
 
@@ -34,7 +34,7 @@
 | asr_relative_reduction | 66.7% | ≥ 90% | FAIL — baseline ASR 100.0% → 33.3% |
 | false_positive_rate | 0.0% | < 3% | PASS |
 | utility | 100.0% | ≥ 90% | PASS |
-| latency_p95_ms | 6.73 ms | < 400 ms | PASS |
+| latency_p95_ms | 7.23 ms | < 400 ms | PASS |
 
 ## Attack family breakdown (ASR per family)
 
