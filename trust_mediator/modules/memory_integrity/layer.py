@@ -235,7 +235,8 @@ class MemoryIntegrityLayer:
             trust_label=record.trust_label,
             provenance=record.source_provenance,
         )
-        scanned = self._scanner.scan(envelope)
+        # scan_async: _stage_scan is on an event loop (see scanner.scan_async).
+        scanned = await self._scanner.scan_async(envelope)
         scan_score = scanned.scanner_verdict.score
 
         logger.debug(

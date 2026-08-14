@@ -19,6 +19,7 @@ Spec: `TrustMediator_PRD (1).docx` (PRD v1.0) — the single source of truth for
 - **Taint propagation:** derived values inherit the most restrictive label of their inputs (`TrustLabel.most_restrictive`).
 - **All config via env:** every tunable goes through `TRUST_MEDIATOR_*` env vars in `trust_mediator/config.py` (pydantic-settings). Never hardcode thresholds, URLs, or keys.
 - **Audit everything:** every mediation decision emits an `AuditEvent` through `AuditLogger` (SHA-256 hash chain). New decision points must log.
+- **Async callers use `InjectionScanner.scan_async`, never `scan`.** `scan` runs stage 2 inline, and `LLMClassifier.predict` bridges to async by blocking on `Future.result()` — a 1s classifier call measured 4 event-loop iterations instead of ~100, stalling every concurrent request, not just its own. A backend that performs I/O must override `predict_async`; the base class default delegates to `predict`, which is correct only for CPU-bound backends. `test_scanner_async_path.py` asserts both call sites.
 - **Traceability convention:** cite PRD requirement IDs (FR-*/NFR-*) in module docstrings and test names, as existing code does.
 
 ## Layout

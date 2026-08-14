@@ -77,37 +77,51 @@ class InjectionScanner:
         self._threshold_transform = settings.scanner_transform_threshold
         self._ml_gate = settings.scanner_ml_gate_threshold
 
+    def _trusted_passthrough(self, envelope: ContextEnvelope) -> ContextEnvelope:
+        result = ScanResult(decision=ScanVerdict.ALLOW, score=0.0, rationale="trusted_source")
+        return envelope.model_copy(update={"scanner_verdict": result, "is_verified": True})
+
+    def _stage1(self, text: str) -> tuple[float, list[str]]:
+        matches = self._filter.scan(text)
+        return self._filter.aggregate_score(matches), [m.pattern_name for m in matches]
+
+    def _needs_ml(self, heuristic_score: float, envelope: ContextEnvelope) -> bool:
+        """
+        Whether to consult stage 2. Gated on the heuristic score as a cost
+        control — but the gate is a tunable, not a constant, because it bounds
+        recall: stage 2 never sees what stage 1 missed, and stage 1 scores 0.0
+        on 94% of the external corpus. `SCANNER_ML_GATE_THRESHOLD=0.0` scans
+        everything, which is what an LLM backend needs to be useful.
+
+        `>=`, not `>`: the whole point of a 0.0 gate is "classify everything",
+        and 94% of untrusted content scores exactly 0.0, so a strict comparison
+        would exclude precisely the cases the gate is being lowered for.
+        """
+        return (
+            heuristic_score >= self._ml_gate
+            or envelope.trust_label == TrustLabel.RISKY_EXTERNAL
+        )
+
     def scan(self, envelope: ContextEnvelope) -> ContextEnvelope:
         """
         Scan a single envelope. Updates scanner_verdict in place.
         Only scans UNTRUSTED_DATA and RISKY_EXTERNAL; trusted envelopes pass through.
+
+        Synchronous, so stage 2 runs inline. With a backend that performs I/O
+        (`SCANNER_BACKEND=llm`) that blocks the caller for the round trip — use
+        `scan_async` from async code, which every in-tree caller does.
         """
         if envelope.trust_label == TrustLabel.TRUSTED_INSTRUCTION:
-            result = ScanResult(decision=ScanVerdict.ALLOW, score=0.0, rationale="trusted_source")
-            return envelope.model_copy(update={"scanner_verdict": result, "is_verified": True})
+            return self._trusted_passthrough(envelope)
 
         text = envelope.content
-
         try:
-            # Stage 1: heuristic
-            heuristic_matches = self._filter.scan(text)
-            heuristic_score = self._filter.aggregate_score(heuristic_matches)
-            pattern_names = [m.pattern_name for m in heuristic_matches]
-
-            # Stage 2: ML classifier. Gated on the heuristic score as a cost
-            # control — but the gate is a tunable, not a constant, because it
-            # bounds recall: stage 2 never sees what stage 1 missed, and stage 1
-            # scores 0.0 on 94% of the external corpus. `SCANNER_ML_GATE_THRESHOLD=0.0`
-            # scans everything, which is what an LLM backend needs to be useful.
-            # `>=`, not `>`: the whole point of a 0.0 gate is "classify
-            # everything", and 94% of untrusted content scores exactly 0.0, so
-            # a strict comparison would exclude precisely the cases the gate is
-            # being lowered for.
-            needs_ml = (
-                heuristic_score >= self._ml_gate
-                or envelope.trust_label == TrustLabel.RISKY_EXTERNAL
+            heuristic_score, pattern_names = self._stage1(text)
+            ml_score = (
+                self._classifier.predict(text)
+                if self._needs_ml(heuristic_score, envelope)
+                else 0.0
             )
-            ml_score = self._classifier.predict(text) if needs_ml else 0.0
         except Exception as e:
             # A scan that could not complete must never present itself as a
             # clean scan (§9). Scoring 0.0 and setting is_verified would make a
@@ -115,6 +129,44 @@ class InjectionScanner:
             # caller would consume unscanned content believing it was checked.
             return self._unscannable(envelope, e)
 
+        return self._finalize(envelope, heuristic_score, ml_score, pattern_names)
+
+    async def scan_async(self, envelope: ContextEnvelope) -> ContextEnvelope:
+        """
+        Async counterpart of `scan`, for callers already on an event loop.
+
+        Identical decision logic; the only difference is that stage 2 is
+        awaited rather than called inline. That matters because
+        `LLMClassifier.predict` bridges to async by blocking a worker thread on
+        `Future.result()`, which stalls the whole event loop for the duration of
+        the API call — a 1s round trip measured 4 loop iterations instead of
+        ~100, so a single slow scan stalls every concurrent request and takes
+        NFR-PERF-01 and NFR-SCAL-01 with it.
+        """
+        if envelope.trust_label == TrustLabel.TRUSTED_INSTRUCTION:
+            return self._trusted_passthrough(envelope)
+
+        text = envelope.content
+        try:
+            heuristic_score, pattern_names = self._stage1(text)
+            ml_score = (
+                await self._classifier.predict_async(text)
+                if self._needs_ml(heuristic_score, envelope)
+                else 0.0
+            )
+        except Exception as e:
+            return self._unscannable(envelope, e)
+
+        return self._finalize(envelope, heuristic_score, ml_score, pattern_names)
+
+    def _finalize(
+        self,
+        envelope: ContextEnvelope,
+        heuristic_score: float,
+        ml_score: float,
+        pattern_names: list[str],
+    ) -> ContextEnvelope:
+        """Thresholding, shadow mode and logging — shared by both entry points."""
         # Combined score: max of the two, with heuristic getting slight weight
         combined = max(heuristic_score, ml_score * 0.95)
 

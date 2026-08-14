@@ -164,6 +164,15 @@ class NullScanner:
             }
         )
 
+    async def scan_async(self, envelope: ContextEnvelope) -> ContextEnvelope:
+        """
+        The memory layer and pipeline call `scan_async`. Without this the stub
+        would not satisfy the surface it claims to, and every ablation run with
+        the scanner disabled would fail closed on an AttributeError instead of
+        measuring an undefended path.
+        """
+        return self.scan(envelope)
+
     def scan_batch(self, envelopes: list[ContextEnvelope]) -> list[ContextEnvelope]:
         return [self.scan(e) for e in envelopes]
 

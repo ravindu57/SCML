@@ -105,8 +105,10 @@ class MediationPipeline:
             # Step 2: trust routing
             routed = self._router.route(envelope)
 
-            # Step 3: injection scan (trusted instructions skip scanning)
-            scanned = self._scanner.scan(routed)
+            # Step 3: injection scan (trusted instructions skip scanning).
+            # scan_async, not scan: an I/O-backed classifier would otherwise
+            # block this event loop for the whole round trip.
+            scanned = await self._scanner.scan_async(routed)
 
             set_decision_attributes(
                 span,

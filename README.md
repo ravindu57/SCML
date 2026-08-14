@@ -2,7 +2,7 @@
 
 **Trust-Aware Context Mediation Middleware for Securing Agentic AI and RAG Systems**
 
-[![Tests](https://img.shields.io/badge/tests-249%20passed%20%7C%20255%20with%20grpc-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-261%20passed%20%7C%20267%20with%20grpc-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ---
 
@@ -95,7 +95,7 @@ Interactive docs: **http://localhost:8000/docs**
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 .venv/bin/pytest tests/ -q
-# Expected: 249 passed, 1 skipped
+# Expected: 261 passed, 1 skipped
 ```
 
 The skip is `tests/integration/test_grpc_api.py`, which needs the optional gRPC
@@ -104,7 +104,7 @@ transport. Install that extra to run the full suite:
 ```bash
 .venv/bin/pip install -e ".[dev,grpc]"
 .venv/bin/pytest tests/ -q
-# Expected: 255 passed
+# Expected: 267 passed
 ```
 
 ## Security Benchmarks

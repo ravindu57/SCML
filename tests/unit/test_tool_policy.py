@@ -23,9 +23,15 @@ SAMPLE_POLICY = {
 
 
 def make_loader() -> PolicyLoader:
-    loader = PolicyLoader.__new__(PolicyLoader)
-    loader._repo = None
-    loader._default_path = None
+    """
+    A loader pre-warmed with SAMPLE_POLICY, built through the real constructor.
+
+    Overriding only the cache rather than hand-assembling every attribute via
+    __new__: the hand-assembled form silently stops matching the moment the
+    loader gains a field, and the resulting AttributeError surfaces as whatever
+    the caller's error handling turns it into rather than as a failure here.
+    """
+    loader = PolicyLoader(policy_repo=None, default_path=None)
     loader._memory_cache = SAMPLE_POLICY
     loader._cache_loaded_at = 1e20  # Far future — always fresh
     return loader

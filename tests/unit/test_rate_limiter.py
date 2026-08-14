@@ -61,9 +61,12 @@ class TestRedisRateLimiterPipeline:
     async def test_sliding_window_against_fake_redis(self):
         """Exercise the ZSET pipeline logic with an in-process fake."""
         fakeredis = pytest.importorskip("fakeredis")
-        limiter = RedisRateLimiter.__new__(RedisRateLimiter)
+        # Built through the real constructor, then the client is swapped for
+        # the fake. from_url is lazy — no connection is attempted — so this
+        # keeps whatever else __init__ sets up instead of re-deriving it here
+        # and silently drifting when the limiter gains a field.
+        limiter = RedisRateLimiter("redis://localhost:6379/0")
         limiter._redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-        limiter._fallback = InMemoryRateLimiter()
 
         for _ in range(3):
             assert await limiter.is_allowed("agent:tool", limit=3) is True

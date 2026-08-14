@@ -186,7 +186,7 @@ class InjecAgentTestbed:
     ) -> CaseOutcome:
         start = time.perf_counter()
 
-        scanned = scanner.scan(self._envelope(case.content, case.id, config))
+        scanned = await scanner.scan_async(self._envelope(case.content, case.id, config))
         verdict = scanned.scanner_verdict.decision
 
         if verdict in _STOPPING_VERDICTS:
@@ -252,7 +252,7 @@ class InjecAgentTestbed:
         """
         start = time.perf_counter()
 
-        scanned = scanner.scan(self._envelope(case.content, case.id, config))
+        scanned = await scanner.scan_async(self._envelope(case.content, case.id, config))
         verdict = scanned.scanner_verdict.decision
         blocked = verdict in _STOPPING_VERDICTS
         detail = "scanner flagged clean content" if blocked else ""

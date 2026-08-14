@@ -100,6 +100,18 @@ class BaseClassifier(ABC):
         """Return an injection probability score in [0.0, 1.0]."""
         ...
 
+    async def predict_async(self, text: str) -> float:
+        """
+        Async scoring, used by `InjectionScanner.scan_async`.
+
+        The default simply calls `predict`, which is correct for CPU-bound
+        backends that return immediately. Any backend performing I/O must
+        override this with a genuinely non-blocking implementation — otherwise
+        it blocks the event loop for the whole round trip and every concurrent
+        request stalls with it.
+        """
+        return self.predict(text)
+
     @abstractmethod
     def train(self) -> None:
         """Train or warm-up the classifier (called at startup/docker build)."""

@@ -91,10 +91,13 @@ class TestMemoryWriteFailsClosed:
     """§9 — prevents persistent poisoning during degraded operation."""
 
     async def test_scanner_failure_quarantines_rather_than_persists(self, pipeline, monkeypatch):
-        def _boom(envelope):
+        # Patches scan_async, which is what the memory layer calls now that the
+        # scanner has a non-blocking path. Patching the sync `scan` would leave
+        # the real scanner running and quietly assert nothing.
+        async def _boom(envelope):
             raise RuntimeError("scanner exploded")
 
-        monkeypatch.setattr(pipeline._memory._scanner, "scan", _boom)
+        monkeypatch.setattr(pipeline._memory._scanner, "scan_async", _boom)
 
         result = await pipeline.process_memory_write(
             MemoryWriteRequest(session_id="fail-policy", content="remember this")
