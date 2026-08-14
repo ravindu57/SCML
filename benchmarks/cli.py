@@ -48,7 +48,7 @@ def _quiet_logging() -> None:
     )
 
 
-TESTBEDS = ("memory_poisoning",)
+TESTBEDS = ("memory_poisoning", "injecagent")
 
 
 def _build_testbed(name: str):
@@ -56,11 +56,21 @@ def _build_testbed(name: str):
         from benchmarks.testbeds.memory_poisoning import MemoryPoisoningTestbed
 
         return MemoryPoisoningTestbed()
+    if name == "injecagent":
+        from benchmarks.testbeds.injecagent import InjecAgentTestbed
+
+        return InjecAgentTestbed()
     raise SystemExit(f"Unknown testbed {name!r}. Available: {', '.join(TESTBEDS)}")
 
 
+def _grid_for(name: str):
+    """Each testbed varies the axes that actually gate its own attack path."""
+    from benchmarks.harness.ablation import injection_ablation_grid, memory_ablation_grid
+
+    return injection_ablation_grid() if name == "injecagent" else memory_ablation_grid()
+
+
 async def _run(args: argparse.Namespace) -> int:
-    from benchmarks.harness.ablation import memory_ablation_grid
     from benchmarks.harness.report import render_json, render_markdown
     from benchmarks.harness.runner import BenchmarkRunner
     from trust_mediator.db.base import create_all_tables
@@ -70,7 +80,7 @@ async def _run(args: argparse.Namespace) -> int:
     testbed = _build_testbed(args.testbed)
     runner = BenchmarkRunner(testbed)
 
-    configs = memory_ablation_grid()
+    configs = _grid_for(args.testbed)
     if args.config:
         configs = [c for c in configs if c.name in args.config]
         if not configs:

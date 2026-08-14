@@ -108,6 +108,41 @@ def memory_ablation_grid() -> list[AblationConfig]:
     ]
 
 
+def injection_ablation_grid() -> list[AblationConfig]:
+    """
+    The §14.3 ablation grid for the InjecAgent testbed.
+
+    Different axes from the memory grid, because a different path is under
+    test. An indirect injection arrives as context and does its damage through
+    a tool call, so the layers that gate it are the scanner (does the poisoned
+    content get through?), trust routing (is tool output labelled untrusted at
+    all?) and tool policy (may the agent call what the attacker asked for?).
+
+    `no_tool_policy` is the important row: it isolates detection from
+    enforcement, and shows how much of the defence survives when the scanner is
+    the only thing standing in the way — which is the configuration most
+    deployments actually run.
+    """
+    return [
+        AblationConfig("full_defence"),
+        # Detection off: what enforcement alone is worth.
+        AblationConfig("no_scanner", scanner=False),
+        # Enforcement off: what detection alone is worth.
+        AblationConfig("no_tool_policy", tool_policy=False),
+        # Tool output no longer labelled untrusted.
+        AblationConfig("no_trust_router", trust_router=False),
+        # Baseline: poisoned context reaches the agent and every call proceeds.
+        AblationConfig(
+            "undefended",
+            scanner=False,
+            consistency=False,
+            memory_integrity=False,
+            trust_router=False,
+            tool_policy=False,
+        ),
+    ]
+
+
 # ── Null implementations used to switch a layer off ───────────────────────────
 
 

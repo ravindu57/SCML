@@ -2,7 +2,7 @@
 
 **Trust-Aware Context Mediation Middleware for Securing Agentic AI and RAG Systems**
 
-[![Tests](https://img.shields.io/badge/tests-202%20passed%20%7C%20208%20with%20grpc-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-222%20passed%20%7C%20228%20with%20grpc-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ---
 
@@ -95,7 +95,7 @@ Interactive docs: **http://localhost:8000/docs**
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 .venv/bin/pytest tests/ -q
-# Expected: 202 passed, 1 skipped
+# Expected: 222 passed, 1 skipped
 ```
 
 The skip is `tests/integration/test_grpc_api.py`, which needs the optional gRPC
@@ -104,7 +104,7 @@ transport. Install that extra to run the full suite:
 ```bash
 .venv/bin/pip install -e ".[dev,grpc]"
 .venv/bin/pytest tests/ -q
-# Expected: 208 passed
+# Expected: 228 passed
 ```
 
 ## Security Benchmarks
@@ -136,6 +136,56 @@ worded poisoned memories that trip neither the regex pre-filter nor the
 instruction-pattern checker. Closing that gap needs the trained classifier
 of §6.3, not more scoring rules. Diagnosis and methodological caveats:
 [`benchmarks/README.md`](benchmarks/README.md).
+
+### External validation — InjecAgent
+
+That corpus was written in-house, so it can only ever be self-assessment. The
+InjecAgent testbed runs **1054 indirect-injection cases authored by a third
+party** ([Zhan et al., ACL Findings 2024](https://arxiv.org/abs/2403.02691),
+MIT-licensed, vendored under
+[`benchmarks/testbeds/injecagent/data/`](benchmarks/testbeds/injecagent/data/ATTRIBUTION.md)).
+
+```bash
+.venv/bin/python -m benchmarks.cli --testbed injecagent
+```
+
+Full results: [`benchmarks/results/injecagent.md`](benchmarks/results/injecagent.md).
+
+| KPI | Measured | PRD §14.2 target | |
+|---|---:|---:|---|
+| Injection ASR | 0.0% | < 5% | ✅ |
+| ASR reduction vs undefended | 100.0% | ≥ 90% | ✅ |
+| False-positive rate | 5.9% | < 3% | ❌ |
+| Utility | 94.1% | ≥ 90% | ✅ |
+| Added latency (p95) | 0.9 ms | < 400 ms | ✅ |
+
+**Read the ablation before reading the headline.** 0% ASR is real, but it is
+not the scanner's doing:
+
+| Configuration | ASR |
+|---|---:|
+| `full_defence` | 0.0% |
+| `no_scanner` — detection off, enforcement on | 0.0% |
+| `no_tool_policy` — enforcement off, detection on | **94.1%** |
+| `undefended` | 100.0% |
+
+Removing the scanner changes nothing. Removing tool policy loses almost
+everything. **The injection scanner detects none of the 1054 attacks**: its only
+blocks are 62 cases sharing one Gmail response template, which a `sql_injection`
+regex misreads as SQL whether or not an instruction was injected — the same
+misfire that produces the entire 5.9% false-positive rate, and the reason that
+KPI fails.
+
+So the defence that holds is the §5.2 invariant enforced by least agency:
+untrusted tool output never authorises a tool call, so an attacker instruction
+is inert unless the tool it names is already on the agent's allow-list. That is
+the architecture working exactly as specified while its detection layer
+contributes nothing — which is the honest case for building it this way, and a
+measured argument rather than a claimed one.
+
+One caveat this testbed asserts rather than hides: `GitHubGetUserDetails` is
+both a user tool and an attacker tool upstream. Where an attacker reuses a tool
+the agent legitimately holds, policy cannot help — the confused-deputy case.
 
 ## Performance
 

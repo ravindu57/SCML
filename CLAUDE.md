@@ -45,7 +45,8 @@ Spec: `TrustMediator_PRD (1).docx` (PRD v1.0) — the single source of truth for
 ## Known gaps vs PRD (backlog — don't claim these exist)
 
 - `SCANNER_BACKEND=onnx` falls back to heuristic (no trained DeBERTa model shipped)
-- No AgentDojo / InjecAgent testbeds yet — only the memory-poisoning testbed exists (PRD §14.1)
+- No AgentDojo testbed yet. The InjecAgent testbed **does** exist
+  (`benchmarks/testbeds/injecagent/`, 1054 external cases) — see "Measured state"
 - No sandboxed tool executor (PRD §11) — tool execution stays in the host app
 - No TLS/mTLS between components (NFR-SEC-03) and no secrets manager (NFR-SEC-04)
 - NFR-AVAIL-01 (99.9%) is unmeasured — no soak or fault-injection test exists
@@ -60,6 +61,23 @@ families no shipped detector matches (`tool_hijack`, `authority_spoof`) —
 that gap needs the §6.3 classifier, not more scoring rules.
 
 When changing the scorer, thresholds or detectors, re-run the benchmark and
-update the committed result. Do not tune weights or add regex patterns until
-this corpus passes: it was written in-house, so that is overfitting, not a
-result. External validation (AgentDojo / InjecAgent) has to come first.
+update the committed result. Do not tune weights or add regex patterns against
+this corpus: it was written in-house, so that is overfitting, not a result.
+
+**External validation now exists.** `benchmarks/results/injecagent.md` is the
+committed baseline for 1054 third-party indirect-injection cases (InjecAgent,
+ACL 2024, MIT, vendored). Headline: **0.0% ASR against a < 5% target — PASS**,
+but read the ablation before quoting it:
+
+- `no_scanner` is also 0.0%; `no_tool_policy` is 94.1%. **Tool policy is the
+  entire defence.** The injection scanner detects none of the 1054 attacks.
+- Its only blocks are 62 cases sharing one Gmail template, which the
+  `sql_injection` regex misreads whether or not an instruction was injected.
+  That single misfire is also the whole 5.9% FPR — which **fails** the < 3%
+  target.
+
+So the §6.3 classifier gap is now measured rather than asserted, on both
+testbeds. Do not describe the 0% as evidence the scanner works; it is evidence
+that least agency holds when detection contributes nothing. Any classifier work
+must be trained on external data and evaluated against the in-house corpus as a
+held-out set, never the reverse.
