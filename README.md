@@ -2,7 +2,7 @@
 
 **Trust-Aware Context Mediation Middleware for Securing Agentic AI and RAG Systems**
 
-[![Tests](https://img.shields.io/badge/tests-240%20passed%20%7C%20246%20with%20grpc-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-249%20passed%20%7C%20255%20with%20grpc-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ---
 
@@ -95,7 +95,7 @@ Interactive docs: **http://localhost:8000/docs**
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 .venv/bin/pytest tests/ -q
-# Expected: 240 passed, 1 skipped
+# Expected: 249 passed, 1 skipped
 ```
 
 The skip is `tests/integration/test_grpc_api.py`, which needs the optional gRPC
@@ -104,7 +104,7 @@ transport. Install that extra to run the full suite:
 ```bash
 .venv/bin/pip install -e ".[dev,grpc]"
 .venv/bin/pytest tests/ -q
-# Expected: 246 passed
+# Expected: 255 passed
 ```
 
 ## Security Benchmarks
@@ -174,15 +174,18 @@ Removing the scanner changes nothing. Removing tool policy loses everything.
 reasons, both measured:
 
 1. **Stage 2 is unreachable.** The scanner runs its ML classifier only when the
-   regex pre-filter scores > 0.2 ([`scanner.py`](trust_mediator/modules/injection_scanner/scanner.py)).
-   992 of 1054 attacks score *exactly* 0.0, so the classifier never executes on
-   94% of untrusted content. A better model would change nothing until this gate
-   does.
+   regex pre-filter scores at or above `SCANNER_ML_GATE_THRESHOLD`
+   ([`scanner.py`](trust_mediator/modules/injection_scanner/scanner.py)). 992 of
+   1054 attacks score *exactly* 0.0 — a mock oracle returning 1.0 is consulted on
+   **0 of 1054**. So `SCANNER_BACKEND=llm` buys nothing here without also lowering
+   the gate: it changes which classifier runs, not whether it runs.
 2. **The classifier cannot discriminate anyway.** Forced to run on all 1054, it
    scores attacks at mean 0.478 and clean content at 0.515 — benign *higher*
    than malicious, nothing near the 0.7 escalate threshold. It is trained on 60
    in-house jailbreak strings and has no signal for a polite instruction
-   embedded in JSON tool output.
+   embedded in JSON tool output. Lowering the gate to 0.0 with it catches 19.7%
+   more attacks but takes FPR to 23.5% and utility to 76.5% — two KPIs from PASS
+   to FAIL, so the default stays closed.
 
 So the defence that holds is the §5.2 invariant enforced by least agency:
 untrusted tool output never authorises a tool call, so an attacker instruction

@@ -78,11 +78,17 @@ headline without the ablation:
 already-rejected fixes are in `benchmarks/README.md`):
 
 1. **Stage 2 is unreachable.** `scan()` runs the classifier only when the regex
-   pre-filter scores > 0.2; 992/1054 attacks score exactly 0.0. A better model
-   changes nothing until the gate does.
+   pre-filter scores at or above `SCANNER_ML_GATE_THRESHOLD` (default 0.20);
+   992/1054 attacks score exactly 0.0. A mock oracle returning 1.0 is consulted
+   on **0 of 1054**. So `SCANNER_BACKEND=llm` buys nothing on the
+   `untrusted_data` path without also lowering the gate — it changes which
+   classifier runs, not whether it runs. `risky_external` bypasses the gate and
+   is always classified, so an LLM backend does work there today.
 2. **The classifier is anti-discriminative.** Ungated, it scores attacks at 0.478
-   and benign at 0.515 — benign *higher*. So ungating stage 2 without replacing
-   the model makes things worse. Neither fix works alone.
+   and benign at 0.515 — benign *higher*. Measured: `SCANNER_ML_GATE_THRESHOLD=0.0`
+   on InjecAgent catches 19.7% more attacks but takes FPR 0.0% → 23.5% and
+   utility 100% → 76.5%, flipping two KPIs to FAIL. Neither fix works alone, so
+   the gate default stays at 0.20 until a classifier earns opening it.
 
 Two TF-IDF training approaches on external Apache-2.0 corpora were measured and
 rejected (held-out AUC 0.660 and 0.506 — the latter a coin flip). Bag-of-words

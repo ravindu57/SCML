@@ -86,6 +86,20 @@ class Settings(BaseSettings):
     scanner_transform_threshold: float = Field(
         default=0.50, alias="SCANNER_TRANSFORM_THRESHOLD"
     )
+    #: Heuristic score at or above which stage 2 (the ML classifier) is consulted.
+    #:
+    #: This is a cost control, not a detection threshold: it exists so an
+    #: expensive backend is not invoked on every scan. But it gates recall on
+    #: the *cheap* stage, so stage 2 can only ever see what stage 1 already
+    #: suspects — and measured against InjecAgent the pre-filter scores exactly
+    #: 0.0 on 992 of 1054 attacks, so a classifier of any quality is consulted
+    #: on none of them (`tests/unit/test_scanner_ml_gate.py`).
+    #:
+    #: Set to 0.0 to scan everything. Required for `SCANNER_BACKEND=llm` to be
+    #: worth paying for; the default preserves the historic behaviour.
+    scanner_ml_gate_threshold: float = Field(
+        default=0.20, alias="SCANNER_ML_GATE_THRESHOLD"
+    )
 
     # ── LLM Scanner / Alignment Auditor ──────────────────────────────────────
     llm_scanner_api_key: str = Field(default="", alias="LLM_SCANNER_API_KEY")

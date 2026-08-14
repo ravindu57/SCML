@@ -202,9 +202,28 @@ on the 60 in-house strings in `classifier.py`, which are direct jailbreaks
 ("ignore all previous instructions"), whereas an InjecAgent attack is a polite
 request embedded in a JSON payload. No vocabulary overlap.
 
-Note the ordering trap: ungating stage 2 *without* fixing the model would make
-things worse, since the model ranks benign content higher. Neither fix is
-useful alone.
+Note the ordering trap: ungating stage 2 *without* fixing the model makes
+things worse. This is measured, not predicted — the gate is now configurable
+(`SCANNER_ML_GATE_THRESHOLD`, default 0.20 preserving the old behaviour), so
+running InjecAgent at `0.0` with the shipped TF-IDF classifier gives:
+
+| | Default gate | Gate 0.0 |
+|---|---:|---:|
+| Detection (`no_tool_policy` ASR) | 100.0% | 80.3% |
+| False-positive rate | 0.0% ✅ | **23.5%** ❌ |
+| Utility | 100.0% ✅ | **76.5%** ❌ |
+
+19.7% more attacks caught, at the cost of flipping two KPIs from PASS to FAIL.
+Neither fix is useful alone; the gate stays closed until a classifier exists
+that earns opening it.
+
+**This is also why an LLM backend is not a drop-in win.** `SCANNER_BACKEND=llm`
+changes *which* classifier runs, not *whether* it runs — a mock oracle
+returning 1.0 is consulted on 0 of 1054 attacks at the default gate
+(`tests/unit/test_scanner_ml_gate.py`). Configuring an API key without also
+lowering the gate buys nothing on the `untrusted_data` path. Content labelled
+`risky_external` bypasses the gate entirely and is always classified, so an LLM
+backend does take effect there today.
 
 ### Training approaches already measured and rejected
 

@@ -75,6 +75,7 @@ class InjectionScanner:
         self._threshold_block = settings.scanner_block_threshold
         self._threshold_escalate = settings.scanner_escalate_threshold
         self._threshold_transform = settings.scanner_transform_threshold
+        self._ml_gate = settings.scanner_ml_gate_threshold
 
     def scan(self, envelope: ContextEnvelope) -> ContextEnvelope:
         """
@@ -93,9 +94,17 @@ class InjectionScanner:
             heuristic_score = self._filter.aggregate_score(heuristic_matches)
             pattern_names = [m.pattern_name for m in heuristic_matches]
 
-            # Stage 2: ML classifier (only if heuristic score is non-trivial or risky)
+            # Stage 2: ML classifier. Gated on the heuristic score as a cost
+            # control — but the gate is a tunable, not a constant, because it
+            # bounds recall: stage 2 never sees what stage 1 missed, and stage 1
+            # scores 0.0 on 94% of the external corpus. `SCANNER_ML_GATE_THRESHOLD=0.0`
+            # scans everything, which is what an LLM backend needs to be useful.
+            # `>=`, not `>`: the whole point of a 0.0 gate is "classify
+            # everything", and 94% of untrusted content scores exactly 0.0, so
+            # a strict comparison would exclude precisely the cases the gate is
+            # being lowered for.
             needs_ml = (
-                heuristic_score > 0.2
+                heuristic_score >= self._ml_gate
                 or envelope.trust_label == TrustLabel.RISKY_EXTERNAL
             )
             ml_score = self._classifier.predict(text) if needs_ml else 0.0
