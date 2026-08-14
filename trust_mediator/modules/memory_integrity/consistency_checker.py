@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from trust_mediator.config import settings
+
 if TYPE_CHECKING:
     from trust_mediator.models.memory_record import MemoryRecord
 
@@ -35,7 +37,10 @@ class ConsistencyReport:
 
     @property
     def is_suspicious(self) -> bool:
-        return self.combined_risk > 0.4 or len(self.flags) > 0
+        return (
+            self.combined_risk > settings.memory_consistency_suspicion_threshold
+            or len(self.flags) > 0
+        )
 
 
 # ── Instruction-pattern detector ──────────────────────────────────────────────
@@ -138,12 +143,12 @@ class ConsistencyChecker:
             existing_tokens = self._tokenize(record.content)
             overlap = self._jaccard_similarity(candidate_tokens, existing_tokens)
 
-            if overlap < 0.25:
+            if overlap < settings.memory_contradiction_overlap_min:
                 continue  # Not similar enough to be a contradiction candidate
 
             # Check for negation divergence
             negation_score = self._negation_divergence(candidate, record.content)
-            if negation_score > 0.3:
+            if negation_score > settings.memory_negation_divergence_min:
                 contradiction_scores.append((record.id, overlap * negation_score))
                 flags.append(f"contradiction:overlaps_with:{record.id[:8]}…")
 
@@ -151,7 +156,11 @@ class ConsistencyChecker:
             return 0.0, [], []
 
         max_score = max(s for _, s in contradiction_scores)
-        contra_ids = [rid for rid, s in contradiction_scores if s > 0.3]
+        contra_ids = [
+            rid
+            for rid, s in contradiction_scores
+            if s > settings.memory_contradiction_report_min
+        ]
         return min(max_score, 1.0), contra_ids, flags
 
     @staticmethod

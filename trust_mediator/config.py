@@ -121,6 +121,39 @@ class Settings(BaseSettings):
     # §8.1 400 ms fast-path budget.
     memory_rescan_on_read: bool = Field(default=True, alias="MEMORY_RESCAN_ON_READ")
 
+    # ── Consistency checker (FR-MI-02) ───────────────────────────────────────
+    # These four gate the contradiction/instruction detector, which the §14.3
+    # ablation shows is the largest single contributor to the memory-poisoning
+    # defence (disabling it takes ASR 33.3% -> 64.6%). They were literals in
+    # consistency_checker.py, so the layer doing most of the work was the one
+    # that could not be adjusted without a code change.
+    #
+    # Defaults reproduce the previous constants exactly. Do not tune them
+    # against the in-house corpus — see the note in CLAUDE.md; that is
+    # overfitting, not a result.
+    #: combined_risk above which a candidate write is flagged suspicious.
+    memory_consistency_suspicion_threshold: float = Field(
+        default=0.40, alias="MEMORY_CONSISTENCY_SUSPICION_THRESHOLD"
+    )
+    #: Minimum Jaccard token overlap for two entries to be considered as
+    #: possibly contradicting. Below this they are about different things, so
+    #: a negation between them is not a contradiction.
+    memory_contradiction_overlap_min: float = Field(
+        default=0.25, alias="MEMORY_CONTRADICTION_OVERLAP_MIN"
+    )
+    #: Minimum negation divergence before an overlapping pair counts as
+    #: contradictory rather than merely similar.
+    memory_negation_divergence_min: float = Field(
+        default=0.30, alias="MEMORY_NEGATION_DIVERGENCE_MIN"
+    )
+    #: Minimum combined score for a specific existing record to be *named* as
+    #: contradicted. Distinct from the two above: those decide whether a
+    #: contradiction exists at all, this decides which records are cited for
+    #: review, so raising it hides evidence rather than changing the verdict.
+    memory_contradiction_report_min: float = Field(
+        default=0.30, alias="MEMORY_CONTRADICTION_REPORT_MIN"
+    )
+
     # ── Rate Limiting ─────────────────────────────────────────────────────────
     # slowapi limit string, e.g. "200/minute", "500/minute", "10/second"
     rate_limit: str = Field(default="200/minute", alias="TRUST_MEDIATOR_RATE_LIMIT")
