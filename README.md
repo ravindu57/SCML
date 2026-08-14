@@ -2,7 +2,7 @@
 
 **Trust-Aware Context Mediation Middleware for Securing Agentic AI and RAG Systems**
 
-[![Tests](https://img.shields.io/badge/tests-273%20passed%20%7C%20279%20with%20grpc-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-297%20passed%20%7C%20303%20with%20grpc-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ---
 
@@ -95,7 +95,7 @@ Interactive docs: **http://localhost:8000/docs**
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 .venv/bin/pytest tests/ -q
-# Expected: 273 passed, 1 skipped
+# Expected: 297 passed, 1 skipped
 ```
 
 The skip is `tests/integration/test_grpc_api.py`, which needs the optional gRPC
@@ -104,7 +104,7 @@ transport. Install that extra to run the full suite:
 ```bash
 .venv/bin/pip install -e ".[dev,grpc]"
 .venv/bin/pytest tests/ -q
-# Expected: 279 passed
+# Expected: 303 passed
 ```
 
 ## Security Benchmarks
@@ -213,13 +213,50 @@ Measured with the load harness (PRD §8.1, §8.2) — see
 | Policy decision (NFR-PERF-03) | p95 < 10 ms | 0.04 ms | ✅ |
 | Throughput (NFR-SCAL-01) | ≥ 100 req/s | 334 req/s | ✅ |
 | Audit off request path (NFR-PERF-04) | 0 ms on path | enqueue never awaited | ✅ |
-| Availability (NFR-AVAIL-01) | ≥ 99.9% | not measured | — |
+| Availability (NFR-AVAIL-01) | ≥ 99.9% | 100.000% | ✅ |
 
 Audit writes are batched into one transaction per drain (`AUDIT_BATCH_MAX`),
 sustaining ~2,800 events/s. Per-event writes measured ~140 events/s and were
 the throughput ceiling — the queue grew in memory rather than adding latency,
 which is why it took a load test to find. Details in
 [`benchmarks/README.md`](benchmarks/README.md).
+
+### Availability under fault injection
+
+```bash
+.venv/bin/python -m benchmarks.soak --duration 60
+```
+
+Six dependency failures are injected into a live pipeline — model server,
+policy store, memory database, redactor, audit database, and a degraded
+scanner — alternating with healthy windows. Result:
+[`benchmarks/results/soak.md`](benchmarks/results/soak.md).
+
+**Availability here means the caller received a decision, including a denial.**
+§9 requires a mediator that cannot verify a tool call to deny it, so a deny
+during a database outage is correct behaviour, not downtime; counting it
+otherwise would reward a mediator that failed open. A call is unavailable only
+when an exception escaped or it timed out.
+
+| Fault | §9 requires | Observed |
+|---|---|---|
+| `scanner_down` | low-risk reads fail open, tagged | `allow` |
+| `policy_store_down` | fail closed | `mediator_error` |
+| `memory_store_down` | fail closed | `quarantine` |
+| `redactor_down` | fail closed | `blocked` |
+| `audit_store_down` | mediation continues | decisions rendered |
+| `scanner_slow` | latency degrades, not availability | decisions rendered |
+
+10,666 calls, zero escaped faults, recovery under 1 ms after every fault
+cleared. This measures the mediator's own fault handling in-process — not a
+deployed service behind a load balancer, and not network partitions, disk
+exhaustion or OOM. It is not a production uptime SLO.
+
+The first run of this harness measured **75% availability under
+`memory_store_down`**: the fail-closed handler persisted its quarantine record
+with the same repository that had just failed, so the exception escaped to the
+caller. The unit test covering that path only broke `list_active`, leaving the
+quarantine write untested. Fixed, with the §9 escape now covered.
 
 ## Configuration
 

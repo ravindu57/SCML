@@ -189,13 +189,43 @@ class MemoryIntegrityLayer:
                 error=str(e),
                 record_id=record.id,
             )
+            reason = f"Pipeline error (fail-closed): {e}"
             record = record.model_copy(
                 update={
                     "status": MemoryStatus.QUARANTINED,
-                    "quarantine_reason": f"Pipeline error (fail-closed): {e}",
+                    "quarantine_reason": reason,
                 }
             )
-            await self._repo.save(record, agent_id=request.agent_id)
+
+            # The store is the most likely thing to have failed above, so the
+            # quarantine write can fail for the same reason. Unguarded, that
+            # exception escapes the fail-closed handler and reaches the caller
+            # — which §9 forbids: a mediator that cannot vet a memory write
+            # must render a decision, not raise. Measured by the soak harness
+            # as 879 escaped faults and 75% availability under memory_store_down.
+            try:
+                await self._repo.save(record, agent_id=request.agent_id)
+            except Exception as save_error:
+                # The safety property still holds: nothing reached ACTIVE, so
+                # no poisoned memory is readable. What is lost is the audit
+                # trail of the attempt — the record is not sitting in a
+                # quarantine queue for review, it is gone. An operator must be
+                # able to tell those apart, so it is recorded on the record
+                # rather than only logged.
+                logger.error(
+                    "memory_integrity.quarantine_persist_failed",
+                    error=str(save_error),
+                    record_id=record.id,
+                )
+                record = record.model_copy(
+                    update={
+                        "quarantine_reason": (
+                            f"{reason}; quarantine record NOT persisted "
+                            f"({save_error}) — unavailable for review"
+                        )
+                    }
+                )
+
             return MemoryWriteResult(
                 record=record,
                 verdict="quarantine",

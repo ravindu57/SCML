@@ -43,7 +43,7 @@ Latest committed results: [`results/load.md`](results/load.md).
 | NFR-PERF-03 policy decision | p95 < 10 ms | 0.04 ms (engine) | ✅ |
 | NFR-SCAL-01 throughput | ≥ 100 req/s | 334 req/s (HTTP) | ✅ |
 | NFR-PERF-04 audit off path | 0 ms on path | enqueue never awaited | ✅ |
-| NFR-AVAIL-01 availability | ≥ 99.9% | not measured — needs a soak | — |
+| NFR-AVAIL-01 availability | ≥ 99.9% | 100.000% (soak, see below) | ✅ |
 
 Two targets, because the PRD scopes its budgets differently: `pipeline` calls
 `MediationPipeline` directly and answers NFR-PERF-01/03 ("added latency per
@@ -80,6 +80,52 @@ session fan-out rises, since a batch needs one locked tail read per session it
 touches; single-session traffic measures nearer 9,000 events/s. Size against
 the multi-session figure.
 
+## Soak and fault injection (PRD §8.3, NFR-AVAIL-01)
+
+```bash
+python -m benchmarks.soak --duration 60
+python -m benchmarks.soak --fault memory_store_down --duration 20
+```
+
+Latest committed results: [`results/soak.md`](results/soak.md).
+
+Six dependency failures are injected into a **live** pipeline — the production
+objects are patched from outside, so the code running during a fault window is
+the code that runs in production. Healthy windows bracket every fault so
+recovery is measurable separately from degradation.
+
+**Availability is "the caller got a decision", denials included.** §9 requires
+a mediator that cannot verify a tool call to deny it, so a deny during a
+database outage is the system working as specified. Scoring it as downtime
+would penalise correct behaviour and reward a mediator that failed open — the
+harness would report its worst failure mode as its best result. A call is
+unavailable only when an exception escaped or it timed out.
+
+### What this harness found, and the fix
+
+The first run measured **75% availability under `memory_store_down`** with 879
+escaped exceptions. The fail-closed handler in `MemoryIntegrityLayer` caught
+the pipeline error and quarantined the record correctly — then persisted that
+quarantine record using the same repository that had just failed. Unguarded,
+that second failure escaped to the caller, so a §9 fail-*closed* path raised
+instead of deciding.
+
+The existing unit test broke only `list_active`, which left the quarantine
+`save` working and the path uncovered. This is the class of defect a soak finds
+and a unit test does not: it needs two dependencies to fail at once, which is
+exactly what a real outage does.
+
+Fixed, and the §9 escape is now covered by four tests. Re-run: **100.000%**
+over 10,666 calls, zero escaped faults, sub-millisecond recovery after every
+fault cleared.
+
+### Scope
+
+In-process fault injection only. No load balancer, network partition, disk
+exhaustion or OOM coverage, and no multi-node behaviour. It measures the
+mediator's own fault handling — **not** a production uptime SLO, and it must
+not be quoted as one.
+
 ## Structure
 
 | Path | Role |
@@ -90,10 +136,12 @@ the multi-session figure.
 | `harness/runner.py` | Grid execution, environment capture |
 | `harness/report.py` | Markdown + JSON rendering |
 | `testbeds/memory_poisoning/` | Corpus and run logic for the §6.5 layer |
+| `testbeds/injecagent/` | External validation: 1054 third-party injection cases |
+| `soak/` | Fault injection + availability measurement (§8.3) |
 
-Adding AgentDojo or InjecAgent means writing a class satisfying the `Testbed`
-protocol (`name`, `supported_axes`, `asr_kpi`, `async run()`); the harness,
-metrics and reporting are shared.
+Adding AgentDojo means writing a class satisfying the `Testbed` protocol
+(`name`, `supported_axes`, `asr_kpi`, `async run()`); the harness, metrics and
+reporting are shared. `testbeds/injecagent/` is the worked example.
 
 ## Methodology
 
@@ -260,4 +308,4 @@ Do not cite these as existing:
 - AgentDojo testbed (§14.1)
 - Trained DeBERTa classifier for `SCANNER_BACKEND=onnx` (§6.3) — still falls
   back to the heuristic
-- Load/soak testing for NFR-SCAL-01 (≥ 100 req/s) and NFR-AVAIL-01 (99.9%)
+- AgentDojo testbed (§14.1) — InjecAgent and the soak harness now exist

@@ -50,7 +50,15 @@ Spec: `TrustMediator_PRD (1).docx` (PRD v1.0) — the single source of truth for
   (`benchmarks/testbeds/injecagent/`, 1054 external cases) — see "Measured state"
 - No sandboxed tool executor (PRD §11) — tool execution stays in the host app
 - No TLS/mTLS between components (NFR-SEC-03) and no secrets manager (NFR-SEC-04)
-- NFR-AVAIL-01 (99.9%) is unmeasured — no soak or fault-injection test exists
+- ~~NFR-AVAIL-01 unmeasured~~ — **measured**: `benchmarks/soak/` injects six
+  dependency failures into a live pipeline; committed result
+  `benchmarks/results/soak.md` shows 100.000% over 10,666 calls (target 99.9%).
+  Availability there means *a decision was rendered*, denials included — §9
+  makes a deny during an outage correct behaviour, and scoring it as downtime
+  would reward failing open. In-process only: no load balancer, network
+  partition, disk-exhaustion or OOM coverage, so it is **not** a production
+  uptime SLO. Re-run it after touching any fail-open/fail-closed path; its
+  first run found a §9 escape the unit tests missed.
 - Audit overflow still loses decisions, it just records that it did. The queue is bounded (`AUDIT_QUEUE_MAXSIZE`, default 10k) with `AUDIT_OVERFLOW_POLICY` = `drop_newest` (default) or `drop_oldest`; drops are counted per session and flushed into that session's hash chain as an `audit_gap` marker, so replay shows the hole and still verifies. No spill-to-disk, so a long overload is still permanent loss — FR-AL-01 is auditable under overload, not satisfied by it.
 
 ## Measured state (PRD §14.2) — do not overstate

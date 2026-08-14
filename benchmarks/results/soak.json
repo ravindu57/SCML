@@ -1,0 +1,108 @@
+{
+  "environment": {
+    "python": "3.12.3",
+    "platform": "Linux-6.14.0-37-generic-x86_64-with-glibc2.39"
+  },
+  "duration_s": 27.41,
+  "total_calls": 10666,
+  "decided": 10666,
+  "availability": 1.0,
+  "target": 0.999,
+  "met": true,
+  "latency_p50_ms": 0.202,
+  "latency_p95_ms": 44.877,
+  "by_phase": {
+    "healthy": {
+      "calls": 2014,
+      "decided": 2014,
+      "errors": {},
+      "verdicts": {
+        "allow": 530,
+        "released": 493,
+        "persist": 514,
+        "deny.rate_limit": 477
+      },
+      "availability": 1.0
+    },
+    "scanner_down": {
+      "calls": 450,
+      "decided": 450,
+      "errors": {},
+      "verdicts": {
+        "allow": 112,
+        "deny.rate_limit": 113,
+        "released": 111,
+        "persist": 114
+      },
+      "availability": 1.0
+    },
+    "policy_store_down": {
+      "calls": 314,
+      "decided": 314,
+      "errors": {},
+      "verdicts": {
+        "allow": 78,
+        "mediator_error": 79,
+        "released": 77,
+        "persist": 80
+      },
+      "availability": 1.0
+    },
+    "memory_store_down": {
+      "calls": 7468,
+      "decided": 7468,
+      "errors": {},
+      "verdicts": {
+        "allow": 1867,
+        "deny.rate_limit": 1867,
+        "quarantine": 1867,
+        "released": 1867
+      },
+      "availability": 1.0
+    },
+    "redactor_down": {
+      "calls": 210,
+      "decided": 210,
+      "errors": {},
+      "verdicts": {
+        "allow": 52,
+        "deny.rate_limit": 53,
+        "blocked": 51,
+        "persist": 54
+      },
+      "availability": 1.0
+    },
+    "audit_store_down": {
+      "calls": 198,
+      "decided": 198,
+      "errors": {},
+      "verdicts": {
+        "allow": 49,
+        "deny.rate_limit": 50,
+        "released": 48,
+        "persist": 51
+      },
+      "availability": 1.0
+    },
+    "scanner_slow": {
+      "calls": 12,
+      "decided": 12,
+      "errors": {},
+      "verdicts": {
+        "allow": 3,
+        "deny.rate_limit": 3,
+        "released": 2,
+        "persist": 4
+      },
+      "availability": 1.0
+    }
+  },
+  "recovery_times_s": {
+    "scanner_down": 0.0005,
+    "policy_store_down": 0.0002,
+    "memory_store_down": 0.0001,
+    "redactor_down": 0.0002,
+    "audit_store_down": 0.0002,
+    "scanner_slow": 0.0006
+  }
+}

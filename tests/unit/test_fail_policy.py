@@ -114,6 +114,58 @@ class TestMemoryWriteFailsClosed:
         )
         assert result.record.status != MemoryStatus.ACTIVE
 
+    async def test_a_failed_write_still_returns_a_decision(self, pipeline):
+        """
+        §9 requires a *decision*, and the fail-closed handler persists the
+        quarantine record with the same repository that just failed. Unguarded,
+        that raise escaped to the caller: the soak harness measured 75%
+        availability and 879 escaped faults under `memory_store_down`.
+
+        The test above only broke `list_active`, so the quarantine save still
+        worked and this path stayed uncovered.
+        """
+        pipeline._memory._repo.save = AsyncMock(side_effect=RuntimeError("db down"))
+        result = await pipeline.process_memory_write(
+            MemoryWriteRequest(session_id="fail-policy", content="remember this")
+        )
+        assert result.verdict == "quarantine"
+        assert result.record.status == MemoryStatus.QUARANTINED
+
+    async def test_total_store_outage_still_returns_a_decision(self, pipeline):
+        """Both repository calls down — the state the soak actually injects."""
+        pipeline._memory._repo.list_active = AsyncMock(
+            side_effect=RuntimeError("db down")
+        )
+        pipeline._memory._repo.save = AsyncMock(side_effect=RuntimeError("db down"))
+        result = await pipeline.process_memory_write(
+            MemoryWriteRequest(session_id="fail-policy", content="remember this")
+        )
+        assert result.record.status == MemoryStatus.QUARANTINED
+
+    async def test_an_unpersisted_quarantine_says_so(self, pipeline):
+        """
+        "Quarantined for review" and "quarantined and lost" are different
+        operational facts. The safety property holds either way — nothing
+        reached ACTIVE — but in the second case there is no record to review,
+        so an operator must not be told a queue entry exists when it does not.
+        """
+        pipeline._memory._repo.save = AsyncMock(side_effect=RuntimeError("db down"))
+        result = await pipeline.process_memory_write(
+            MemoryWriteRequest(session_id="fail-policy", content="remember this")
+        )
+        assert "NOT persisted" in result.record.quarantine_reason
+
+    async def test_a_persisted_quarantine_does_not_claim_it_was_lost(self, pipeline):
+        """The converse, so the marker cannot be added unconditionally."""
+        pipeline._memory._scanner.scan_async = AsyncMock(
+            side_effect=RuntimeError("scanner exploded")
+        )
+        result = await pipeline.process_memory_write(
+            MemoryWriteRequest(session_id="fail-policy", content="remember this")
+        )
+        assert result.record.status == MemoryStatus.QUARANTINED
+        assert "NOT persisted" not in result.record.quarantine_reason
+
 
 class TestContextScanFailOpenIsRecorded:
     """
