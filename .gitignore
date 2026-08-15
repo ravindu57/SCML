@@ -17,3 +17,6 @@ __pycache__/
 
 # Claude Code personal overrides (team settings in .claude/settings.json ARE committed)
 .claude/settings.local.json
+
+# Exhibition launcher runtime state (pids, logs)
+.exhibition/
