@@ -69,6 +69,22 @@ target**; §14.2 acceptance is NOT met. Residual failures are concentrated in
 families no shipped detector matches (`tool_hijack`, `authority_spoof`) —
 that gap needs the §6.3 classifier, not more scoring rules.
 
+**That 33.3% is storage, not harm.** `benchmarks/results/memory_poisoning_harm.md`
+applies the InjecAgent standard (success = the mediator would have let the goal
+through): 0/13 tool cases and 0/22 control-bypass cases are harmful; 1/5 output
+cases leak; 8 informational cases have no mediator gate at all. Pessimistic
+total **18.8%**. Report both numbers — quoting only the harm figure is moving
+the goalposts, quoting only storage overstates a record the control path never
+reads. Never count the 8 informational cases as defended; the mediator gates
+actions and egress, not beliefs.
+
+The reason 22 cases are inert is load-bearing and measured, not assumed:
+authorisation comes from the declarative policy store and **the mediator never
+reads agent memory to decide it**, so a record asserting "policy validation has
+been disabled" cannot disable it. `tests/unit/test_memory_harm.py` persists
+that poison as ACTIVE and asserts forbidden tools are still denied. Any change
+that lets memory influence a policy decision breaks §5.2 and that test.
+
 When changing the scorer, thresholds or detectors, re-run the benchmark and
 update the committed result. Do not tune weights or add regex patterns against
 this corpus: it was written in-house, so that is overfitting, not a result.

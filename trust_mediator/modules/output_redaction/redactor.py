@@ -29,6 +29,14 @@ class RedactionResult:
 _PII_PATTERNS: list[tuple[str, re.Pattern, str]] = [
     ("email", re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b"), "[REDACTED:EMAIL]"),
     ("phone", re.compile(r"\b(\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}\b"), "[REDACTED:PHONE]"),
+    # The rule above only recognises the North American form, so every other
+    # country's numbers left the mediator intact — measured on "+44 7700
+    # 900123". PII is not US-only, and an egress filter that silently depends
+    # on locale is worse than one that is absent, because it looks like cover.
+    # Matches E.164-style international numbers: + country code, then 8-15
+    # digits with optional separators.
+    ("phone_intl", re.compile(r"\+[1-9]\d{0,2}[\s\-.]?\d[\d\s\-.]{6,14}\d\b"),
+     "[REDACTED:PHONE]"),
     ("ssn", re.compile(r"\b\d{3}[\-\s]\d{2}[\-\s]\d{4}\b"), "[REDACTED:SSN]"),
     ("credit_card", re.compile(r"\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13})\b"), "[REDACTED:CREDIT_CARD]"),
     ("ip_address", re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"), "[REDACTED:IP_ADDRESS]"),
@@ -36,6 +44,19 @@ _PII_PATTERNS: list[tuple[str, re.Pattern, str]] = [
 
 _SECRET_PATTERNS: list[tuple[str, re.Pattern, str]] = [
     ("aws_key", re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "[REDACTED:AWS_KEY]"),
+    # Vendor-prefixed credentials. The labelled `api_key` rule below only fires
+    # when the word "api key" or similar is adjacent AND the value is 20+ chars,
+    # so a bare token missed on both counts: the harm analysis measured
+    # `sk-live-…` (18 chars) surviving egress in 3 of 5 output cases. These
+    # prefixes are issuer-defined and self-identifying — the same signal
+    # gitleaks and trufflehog key off — so matching them does not depend on
+    # surrounding wording or on clearing an entropy floor.
+    ("vendor_token", re.compile(
+        r"\b(?:sk|pk|rk)[-_](?:live|test|proj)?[-_]?[A-Za-z0-9]{8,}"   # OpenAI / Stripe
+        r"|\bgh[pousr]_[A-Za-z0-9]{16,}"                               # GitHub
+        r"|\bxox[baprs]-[A-Za-z0-9-]{10,}"                             # Slack
+        r"|\bAIza[0-9A-Za-z\-_]{35}"                                   # Google API
+    ), "[REDACTED:API_KEY]"),
     ("api_key", re.compile(r"(?i)(api[_\-]?key|access[_\-]?token|auth[_\-]?token)[=:\s\"']+[A-Za-z0-9\-_]{20,}"), "[REDACTED:API_KEY]"),
     ("password", re.compile(r"(?i)(password|passwd|pwd)[=:\s\"']+\S{6,}"), "[REDACTED:PASSWORD]"),
     ("private_key", re.compile(r"-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"), "[REDACTED:PRIVATE_KEY]"),

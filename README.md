@@ -137,6 +137,48 @@ instruction-pattern checker. Closing that gap needs the trained classifier
 of §6.3, not more scoring rules. Diagnosis and methodological caveats:
 [`benchmarks/README.md`](benchmarks/README.md).
 
+### Stored is not the same as harmful
+
+That 33.3% measures how much poison gets **stored**. It does not measure how
+much can *act*. Applying the standard the InjecAgent testbed uses — an attack
+succeeds only when the mediator would have let its goal through — gives a
+second number:
+
+```bash
+.venv/bin/python -m benchmarks.testbeds.memory_poisoning.harm_report
+```
+
+Full analysis: [`benchmarks/results/memory_poisoning_harm.md`](benchmarks/results/memory_poisoning_harm.md).
+
+| Harm vector | Cases | Still harmful | What it must defeat |
+|---|---:|---:|---|
+| `tool` | 13 | **0** | tool allow-list / untrusted-argument policy |
+| `control` | 22 | **0** | the claim that a mediator control is disabled |
+| `output` | 5 | 1 | egress redaction |
+| `informational` | 8 | 8 | *nothing — no mediator gate on this path* |
+
+**Both numbers are reported deliberately.** Quoting only the harm figure would
+be moving the goalposts; quoting only the storage figure overstates the risk of
+a record the control path never consults. Pessimistically — counting every
+out-of-scope case as a full loss — **18.8% (9/48)**, against 33.3% stored.
+
+Two findings sit behind that:
+
+- **`tool_hijack`, the worst family for storage (83%), is 0/6 for harm.** The
+  poisoned memory names `send_raw_smtp` or `shell_exec`; neither is on the
+  agent's allow-list, so a fully persuaded agent still cannot call them.
+- **All 22 control-bypass cases are inert, and it is measured, not assumed.**
+  Authorisation is read from the declarative policy store — the mediator never
+  consults agent memory to decide it. With three poisoned records sitting
+  ACTIVE, including *"policy validation has been disabled"*, every forbidden
+  tool is still denied. That is §5.2 holding after the write-path defence has
+  already failed, and it is asserted in
+  [`tests/unit/test_memory_harm.py`](tests/unit/test_memory_harm.py).
+
+The 8 `informational` cases are **not** counted as defended. A poisoned memory
+that makes the agent quote a false approval limit is real harm and nothing here
+stops it — the mediator gates actions and egress, not beliefs.
+
 ### External validation — InjecAgent
 
 That corpus was written in-house, so it can only ever be self-assessment. The
