@@ -2,6 +2,12 @@
 
 Trust-aware context mediation middleware for securing agentic AI / RAG systems.
 Spec: `TrustMediator_PRD (1).docx` (PRD v1.0) — the single source of truth for requirements.
+Amended by `PRD_v1.1_ADDENDUM.md` (proposed), which adds what v1.0 cannot express:
+storage-vs-harm ASR (§14.2a), an enforcement-coverage KPI (§14.2b), the classifier
+training/eval protocol that §6.3 omitted (§6.3a), and acceptance criteria for the
+production NFRs (§16). It lowers no v1.0 target. New IDs start at FR-MI-06,
+FR-PE-06, FR-SC-06 — FR-MI-05 (quarantine review) and FR-PE-05 (rate limiting)
+are v1.0's and unaffected.
 
 ## Commands
 
