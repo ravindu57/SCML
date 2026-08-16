@@ -18,8 +18,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Python dependencies
 COPY pyproject.toml .
+# [server] carries the API, DB and policy stack — the core install is the
+# client SDK only. [ml] is required for the pre-train step below: without
+# scikit-learn, HeuristicClassifier.train() catches ImportError and predict()
+# then returns 0.0 for every input, so the image would ship a silently
+# dead classifier instead of failing the build.
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir -e ".[langchain]"
+    pip install --no-cache-dir -e ".[server,ml,langchain]"
 
 # Copy application source
 COPY trust_mediator/ ./trust_mediator/

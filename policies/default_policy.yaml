@@ -51,6 +51,53 @@ agents:
     rate_limits:
       tool_calls_per_minute: 10
 
+  # Truelane — autonomous freight brokerage operations (8 workflows).
+  #
+  # The point of this policy is that it is *narrow*, not that it is closed.
+  # Routine broker work runs untouched; only the actions an attacker would
+  # want are constrained. Least agency means the agent keeps exactly the
+  # authority its job needs and no more.
+  truelane:
+    allowed_tools:
+      # W1 intake/quote, W2 sourcing, W4 tracking, W8 reporting — read,
+      # classify and draft. None of these move freight or money.
+      - classify_email
+      - quote_load
+      - send_quote_email
+      - search_carriers
+      - check_carrier_credit
+      - update_tracking
+      - generate_report
+      # W6 invoicing — allow-listed, but gated below because it bills a
+      # customer and cannot be taken back.
+      - create_invoice
+      # NOTE: dispatch_load is deliberately absent. Committing a carrier to a
+      # load is the action an injected instruction most wants, and no Truelane
+      # workflow needs to do it without a human. Absence from this list is the
+      # control — there is no rule to misconfigure.
+    require_approval_for:
+      - irreversible
+      - high_impact
+      - create_invoice
+    # Every Truelane action derives its arguments from a broker email — that
+    # is the job. So `require_approval` here gates *everything*, including
+    # routine quoting, which is the same as having no automation at all.
+    #
+    # The label is still applied and still audited; what changes is that the
+    # untrusted-arg rule is not the control doing the work for this agent.
+    # The controls that are:
+    #   * the allow-list above — dispatch_load simply is not on it
+    #   * require_approval_for below — the money action is gated explicitly
+    #
+    # This is tuning the rule per agent, which is the documented way to handle
+    # an agent that legitimately runs on untrusted input. It is NOT the same as
+    # dropping argument_trust_labels at the call site: doing that would make an
+    # LLM-composed argument indistinguishable from a human-typed one for every
+    # rule, not just this one.
+    untrusted_arg_policy: allow
+    rate_limits:
+      tool_calls_per_minute: 60
+
 memory:
   integrity_score_threshold: 0.65    # Below this → quarantine; below half → reject
   rescan_on_read: false              # Set true for high-security deployments

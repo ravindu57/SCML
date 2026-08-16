@@ -4,7 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "trust-mediator"
-version = "1.0.0"
+# Single-sourced from trust_mediator.__version__ so the version cannot drift
+# between the package metadata and what the code reports at runtime.
+dynamic = ["version"]
 description = "TrustMediator — A Trust-Aware Context Mediation Middleware for Securing Agentic AI and RAG Systems"
 readme = "README.md"
 license = { text = "MIT" }
@@ -21,14 +23,29 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
+# The core install is the CLIENT SDK and nothing else: an agent that calls a
+# mediator over HTTP needs a transport and the shared request/response models,
+# not a database driver or a web server. Keeping this list to two packages is
+# what makes `pip install trust-mediator` a few seconds rather than a few
+# hundred megabytes, which is the difference between a middleware someone
+# actually adds to their agent and one they don't.
+#
+# Everything the *server* needs lives in [server]. If you are running the
+# mediator (uvicorn, docker compose, exhibition.sh) or using the in-process
+# MediationPipeline, install [server] — or [dev], which pulls it in.
 dependencies = [
+    "httpx>=0.27.0",               # transport for the client SDK
+    "pydantic>=2.7.0",             # shared request/response models
+    "pydantic-settings>=2.3.0",    # TRUST_MEDIATOR_* env config (config.py)
+]
+
+[project.optional-dependencies]
+# Running the mediator itself: API, persistence, policy, observability.
+server = [
     # API
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
     "python-multipart>=0.0.9",
-    # Data validation
-    "pydantic>=2.7.0",
-    "pydantic-settings>=2.3.0",
     # Database
     "sqlalchemy[asyncio]>=2.0.30",
     "aiosqlite>=0.20.0",           # SQLite async driver (dev fallback)
@@ -36,29 +53,31 @@ dependencies = [
     "alembic>=1.13.0",
     # Caching
     "redis[asyncio]>=5.0.0",
+    # Rate limiting
+    "slowapi>=0.1.9",
     # Observability
     "opentelemetry-api>=1.25.0",
     "opentelemetry-sdk>=1.25.0",
     "opentelemetry-instrumentation-fastapi>=0.46b0",
     "prometheus-client>=0.20.0",
     "structlog>=24.2.0",
-    # Security / scanning utilities
-    "scikit-learn>=1.5.0",         # TF-IDF + logistic regression classifier
-    "numpy>=1.26.0",
     # Policy
     "pyyaml>=6.0.1",
     "jsonschema>=4.22.0",
-    # HTTP client (for SIEM forwarding, approval gates)
-    "httpx>=0.27.0",
-    # Async utilities
-    "anyio>=4.4.0",
-    "tenacity>=8.4.0",
-    # Rate limiting
-    "slowapi>=0.1.9",
 ]
-
-[project.optional-dependencies]
+# Alias for the in-process MediationPipeline (no HTTP hop). Same requirements
+# as running the server, because embedding runs the same modules and DB.
+embedded = [
+    "trust-mediator[server]",
+]
+# scikit-learn is imported lazily inside LLMClassifier._fit (classifier.py),
+# so only the TF-IDF scanner backend needs it. It is the single heaviest
+# dependency in the project and no import happens without it being selected.
+ml = [
+    "scikit-learn>=1.5.0",
+]
 dev = [
+    "trust-mediator[server,ml]",   # so the documented `pip install -e ".[dev]"` still gives a full stack
     "pytest>=8.2.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=5.0.0",
@@ -75,9 +94,10 @@ langchain = [
 kafka = [
     "aiokafka>=0.10.0",
 ]
-# Span export for NFR-OBS-01. The API/SDK ship in the core deps so the
-# instrumentation is always compiled in; only the OTLP wire exporter is
-# optional, since a deployment may scrape traces some other way.
+# Span export for NFR-OBS-01. The OTel API/SDK ship in [server] so the
+# instrumentation is always compiled into a running mediator; only the OTLP
+# wire exporter is separate, since a deployment may scrape traces some other
+# way. A client-only install has no spans to export.
 otlp = [
     "opentelemetry-exporter-otlp-proto-http>=1.25.0",
 ]
@@ -89,9 +109,14 @@ grpc = [
 [project.scripts]
 trust-mediator = "trust_mediator.api.app:main"
 
+[tool.setuptools.dynamic]
+version = { attr = "trust_mediator.__version__" }
+
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["trust_mediator*"]
+# `scml` is a thin alias package over `trust_mediator` so that the import name
+# matches the product name; both ship in the same distribution.
+include = ["trust_mediator*", "scml*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

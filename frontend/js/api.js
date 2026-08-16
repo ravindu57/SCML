@@ -1,5 +1,29 @@
 /* TrustMediator Frontend — API Client */
-const API_BASE = 'http://localhost:8000';
+
+/* Which mediator these pages talk to.
+   This was hardcoded to http://localhost:8000, which is right for the single
+   laptop case and wrong for every other one: an agent running on a second
+   machine reports to a mediator that is not on the viewer's localhost, so the
+   dashboard showed an empty page with no clue why. Resolution order is the
+   same as the session id — ?api= in the URL, then the last one used in this
+   browser, then localhost. So
+
+       audit.html?api=http://192.168.1.42:8000&session=truelane-live
+
+   pins a remote mediator and remembers it. */
+const DEFAULT_API_BASE = 'http://localhost:8000';
+
+const resolveApiBase = () => {
+  const q = new URLSearchParams(location.search).get('api');
+  if (q && q.trim()) {
+    const url = q.trim().replace(/\/+$/, '');
+    localStorage.setItem('tm_api_base', url);
+    return url;
+  }
+  return localStorage.getItem('tm_api_base') || DEFAULT_API_BASE;
+};
+
+const API_BASE = resolveApiBase();
 
 /* API key for production mode (X-API-Key). Stored in localStorage; on the
    first 401/403 the user is prompted once and the key is remembered. */
@@ -60,6 +84,49 @@ window.API = {
   mediateContext:    (d) => req('/v1/mediate/context',   { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(d) }),
   mediateToolCall:   (d) => req('/v1/mediate/tool-call', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(d) }),
 };
+
+/* ── Active audit session ───────────────────────────────────────────────────
+   The audit, traffic and overview pages are filtered by session id, and each
+   hardcoded "demo-traffic" — the session exhibition.sh seeds. That is right
+   for the seeded demo and wrong for everything else: a real integration (an
+   agent on another machine, say) uses its own session id, so its traffic
+   arrives in the database and the dashboard shows an empty table.
+
+   Resolution order: ?session= in the URL, then the last session used in this
+   browser, then the seeded default. So
+
+       audit.html?session=shipping-live
+
+   pins a live integration's session and remembers it across pages and
+   reloads, while opening the pages bare still shows the seeded demo. */
+const DEFAULT_SESSION = 'demo-traffic';
+
+window.SESSION = {
+  DEFAULT: DEFAULT_SESSION,
+  get() {
+    const q = new URLSearchParams(location.search).get('session');
+    if (q && q.trim()) {
+      localStorage.setItem('tm_session', q.trim());
+      return q.trim();
+    }
+    return localStorage.getItem('tm_session') || DEFAULT_SESSION;
+  },
+  set(s) {
+    if (s && s.trim()) localStorage.setItem('tm_session', s.trim());
+  },
+};
+
+/* Seed every page's session input from the resolved session and remember
+   edits. Runs before the pages' own DOMContentLoaded handlers because this
+   script is loaded first, so their initial load already uses the right id. */
+document.addEventListener('DOMContentLoaded', () => {
+  for (const id of ['session-filter', 'session-id', 'session-input']) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.value = window.SESSION.get();
+    el.addEventListener('change', () => window.SESSION.set(el.value));
+  }
+});
 
 /* Parse Prometheus text → { metricName: [{labels,value}] } */
 window.parseMetrics = (text) => {

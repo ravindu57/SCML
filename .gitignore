@@ -12,6 +12,15 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
+# Build artifacts (setuptools + the TypeScript client's compiled output and
+# packed tarball — `npm pack` runs `prepack`, so dist/ is always regenerated)
+build/
+dist/
+*.tgz
+
+# Node
+node_modules/
+
 # Runtime artifacts
 .logs/
 

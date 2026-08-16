@@ -21,7 +21,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install ruff
-      - run: ruff check trust_mediator/ tests/
+      - run: ruff check trust_mediator/ scml/ tests/
 
   test:
     runs-on: ubuntu-latest
@@ -41,7 +41,47 @@ jobs:
           # All unit suites map to PRD FR-IDs; a shrinking suite is a red flag.
           count=$(pytest tests/ --collect-only -q 2>/dev/null | grep -oE '[0-9]+ tests collected' | grep -oE '[0-9]+' || echo 0)
           echo "collected $count tests"
-          test "$count" -ge 208
+          test "$count" -ge 390
+
+  # The core install is the client SDK. This job is the only thing keeping it
+  # that way: a bare `pip install .` must not drag in the server stack, or
+  # adding SCML to somebody's agent goes back to being a ~400 MB decision.
+  client-install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the core (client) distribution only
+        run: pip install .
+      - name: Core install must import without the server stack
+        run: |
+          python - <<'PY'
+          import importlib.util, sys
+
+          import scml
+          import trust_mediator
+          print("imported trust_mediator", trust_mediator.__version__)
+          assert scml.__version__ == trust_mediator.__version__
+          assert scml.SCMLClient is trust_mediator.SCMLClient
+          print("scml alias resolves against a client-only install")
+
+          # If any of these resolve, a [server]/[ml] dependency has leaked back
+          # into `dependencies` in pyproject.toml.
+          server_only = ("fastapi", "uvicorn", "sqlalchemy", "redis",
+                         "sklearn", "structlog", "prometheus_client")
+          leaked = []
+          for name in server_only:
+              try:
+                  if importlib.util.find_spec(name) is not None:
+                      leaked.append(name)
+              except (ImportError, ValueError):
+                  pass
+          if leaked:
+              sys.exit(f"server dependencies leaked into the core install: {leaked}")
+          print("core install is thin")
+          PY
 
   docker:
     runs-on: ubuntu-latest

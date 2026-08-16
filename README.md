@@ -35,6 +35,77 @@ User Query ──► IngressInterceptor
             Agent Response ◄──
 ```
 
+## Install as a package
+
+SCML ships as a **thin client plus a server**. The engine — modules, database,
+audit hash chain — runs as a service; your agent installs a small client that
+talks to it. That split is deliberate: the audit chain needs a shared database
+with transactional row locks, so it cannot be a library inside every caller,
+and a client that dragged the whole stack along would be a ~400 MB decision
+nobody makes.
+
+**Python** (14 packages, ~10 s, ~32 MB):
+
+```bash
+pip install trust-mediator                 # client SDK only
+pip install "trust-mediator[server]"       # to run the mediator
+pip install "trust-mediator[embedded]"     # in-process MediationPipeline, no HTTP hop
+```
+
+```python
+from scml import SCMLClient          # or: from trust_mediator import SCMLClient
+
+scml = SCMLClient("http://localhost:8000", api_key="sk-...")
+
+ctx = scml.mediate_context(session_id="s1", content=supplier_document)
+decision = scml.mediate_tool_call(
+    session_id="s1",
+    tool_name="release_container",
+    arguments={"container_id": cid},
+    # Without labels, FR-PE-04 never fires and a model-composed argument is
+    # indistinguishable from a user-supplied one.
+    argument_trust_labels={"container_id": ctx.trust_label},
+    is_irreversible=True,
+)
+if not decision.allowed:
+    raise RuntimeError(decision.reason)
+```
+
+**Node / TypeScript** (zero runtime dependencies, Node 18+):
+
+```bash
+cd clients/typescript && npm pack        # → scml-client-1.0.0.tgz
+npm install ./scml-client-1.0.0.tgz      # works offline
+```
+
+```js
+const { SCML } = require('scml-client');
+const scml = new SCML({ url: process.env.SCML_URL });
+
+const ctx = await scml.mediateContext({ sessionId, content: supplierDocument });
+const d   = await scml.mediateToolCall({
+  sessionId, tool: 'release_container',
+  arguments: { containerId },
+  argumentTrustLabels: { containerId: ctx.trustLabel ?? 'untrusted_data' },
+});
+if (!d.allowed) throw new Error(d.reason);
+```
+
+Both SDKs expose the same methods and normalise every endpoint onto one
+`allowed` flag — necessary, because `/output` reports `blocked` and
+`/memory/write` reports `verdict`, so code branching on `decision` is silently
+wrong for three of the five endpoints. Side-effect calls **fail closed**: an
+unreachable mediator raises rather than returning something resembling an allow
+(PRD §9).
+
+Worked example against a live mediator:
+
+```bash
+node clients/typescript/examples/shipping-agent.js
+```
+
+See `clients/typescript/README.md` for the full API.
+
 ## Quick Start (Docker Compose)
 
 ```bash
@@ -93,9 +164,9 @@ Interactive docs: **http://localhost:8000/docs**
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -e ".[dev]"
+.venv/bin/pip install -e ".[dev]"       # [dev] pulls in [server] and [ml]
 .venv/bin/pytest tests/ -q
-# Expected: 297 passed, 1 skipped
+# Expected: 393 passed, 1 skipped
 ```
 
 The skip is `tests/integration/test_grpc_api.py`, which needs the optional gRPC
@@ -104,7 +175,14 @@ transport. Install that extra to run the full suite:
 ```bash
 .venv/bin/pip install -e ".[dev,grpc]"
 .venv/bin/pytest tests/ -q
-# Expected: 303 passed
+# Expected: 394 passed
+```
+
+The TypeScript client has its own suite (Node 18+, no test framework):
+
+```bash
+cd clients/typescript && npm install && npm run build && npm test
+# Expected: 18 passed
 ```
 
 ## Security Benchmarks

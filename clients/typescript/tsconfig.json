@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    // CommonJS output so the package works from both `require()` and `import`
+    // in Node. An ESM-only build would exclude every CJS consumer, and the
+    // shipping systems most likely to adopt this are not all ESM yet.
+    "module": "commonjs",
+    "moduleResolution": "node",
+    // DOM supplies the types for fetch/AbortController/Console, which are
+    // globals on Node 18+ but are not declared by the default Node libs.
+    "lib": ["ES2022", "DOM"],
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "test"]
+}

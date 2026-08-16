@@ -51,7 +51,7 @@ import logging
 import uuid
 from typing import Any, Union
 
-import httpx
+from trust_mediator.client import SCMLClient, Verdict, classify_decision
 
 logger = logging.getLogger(__name__)
 
@@ -128,9 +128,15 @@ class TrustMediatorGuard(BaseCallbackHandler):
         self.timeout   = timeout
         self.arg_trust_label = arg_trust_label
 
-        self._headers: dict[str, str] = {"Content-Type": "application/json"}
-        if api_key:
-            self._headers["X-API-Key"] = api_key
+        # Transport lives in the SDK client (trust_mediator.client). The guard
+        # keeps its own stats and strict-mode semantics on top of it, and
+        # passes fail_open=True because a callback that raises on an
+        # unreachable mediator would abort the agent run on a network blip —
+        # the guard reports transport failures through stats["errors"] instead.
+        self._client = SCMLClient(
+            self.api_url, api_key, agent_id=agent_id, timeout=timeout
+        )
+        self._headers: dict[str, str] = self._client.headers
 
         # Stats available for inspection after a run
         self.stats: dict[str, int] = {
@@ -154,34 +160,30 @@ class TrustMediatorGuard(BaseCallbackHandler):
     # ── Internal helpers ───────────────────────────────────────────────────────
 
     def _post(self, path: str, payload: dict) -> dict:
-        """Synchronous HTTP POST (LangChain callbacks are synchronous)."""
-        try:
-            r = httpx.post(
-                f"{self.api_url}{path}",
-                json=payload,
-                headers=self._headers,
-                timeout=self.timeout,
-            )
-            r.raise_for_status()
-            return r.json()
-        except httpx.HTTPStatusError as e:
-            logger.error("TrustMediator API error: %s %s", e.response.status_code, e.response.text)
+        """
+        Synchronous HTTP POST (LangChain callbacks are synchronous).
+
+        Delegates transport to the SDK client and preserves this class's
+        contract: transport failures come back as ``{"decision": "error"}``
+        and are counted, rather than raising and aborting the agent run.
+        """
+        result = self._client.request("POST", path, payload, fail_open=True)
+        if result.get("decision") == "error":
             self.stats["errors"] += 1
-            return {"decision": "error", "reason": str(e)}
-        except Exception as e:
-            logger.error("TrustMediator unreachable: %s", e)
-            self.stats["errors"] += 1
-            return {"decision": "error", "reason": str(e)}
+        return result
 
     def _handle_decision(self, result: dict, context: str) -> None:
         """Log the decision and raise if strict mode is on."""
         decision = result.get("decision", "").lower()
+        # Classification is shared with the SDK client so the guard and a
+        # direct API caller can never disagree about what a verdict means.
+        verdict = classify_decision(decision)
 
-        if decision in ("allow", "persist", "transform"):
+        if verdict is Verdict.ALLOW:
             self.stats["allowed"] += 1
             logger.debug("[TrustMediator] %s → %s", context, decision.upper())
 
-        elif decision in ("block", "reject", "deny") or decision.startswith("deny"):
+        elif verdict is Verdict.BLOCK:
             self.stats["blocked"] += 1
             reason  = result.get("reason", result.get("rationale", "—"))
             patterns = result.get("patterns_matched", [])
@@ -199,7 +201,7 @@ class TrustMediatorGuard(BaseCallbackHandler):
         # nothing and — worse — did not raise under strict mode. An agent
         # would sail straight through a gate policy had closed on an
         # irreversible action (FR-PE-03).
-        elif decision.startswith("require_approval"):
+        elif verdict is Verdict.APPROVAL_REQUIRED:
             self.stats["approval_required"] += 1
             reason = result.get("reason", "—")
             msg = (
@@ -210,16 +212,18 @@ class TrustMediatorGuard(BaseCallbackHandler):
             if self.strict:
                 raise TrustMediatorError(msg)
 
-        elif decision == "escalate":
+        elif verdict is Verdict.ESCALATE:
             self.stats["escalated"] += 1
             logger.warning("[TrustMediator] ESCALATE — %s | requires human review", context)
 
-        elif decision in ("", "error"):
+        elif verdict is Verdict.ERROR:
             pass  # transport failure — already counted in _post
 
         else:
             # Never silently ignore an unrecognised verdict: that is how the
-            # approval gap above went unnoticed.
+            # approval gap above went unnoticed. QUARANTINE lands here too —
+            # the guard has no memory-write hook, so a quarantine verdict
+            # arriving through a callback is genuinely unexpected.
             self.stats["unknown"] += 1
             logger.warning(
                 "[TrustMediator] UNRECOGNISED decision %r — %s | treating as unsafe",

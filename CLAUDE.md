@@ -11,7 +11,8 @@ are v1.0's and unaffected.
 
 ## Commands
 
-- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 208 passed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
+- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 394 passed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
+- TypeScript client tests: `cd clients/typescript && npm test` (expect 18 passed; run `npm install && npm run build` first)
 - Benchmarks: `.venv/bin/python -m benchmarks.cli --testbed memory_poisoning` (see `benchmarks/README.md`; the CLI pins its own env and DB, so it needs no env prefix)
 - Load/latency: `.venv/bin/python -m benchmarks.load` (§8.1/§8.2 NFRs; same self-pinning env)
 - Lint: `.venv/bin/ruff check trust_mediator/ tests/`
@@ -27,11 +28,17 @@ are v1.0's and unaffected.
 - **Audit everything:** every mediation decision emits an `AuditEvent` through `AuditLogger` (SHA-256 hash chain). New decision points must log.
 - **Async callers use `InjectionScanner.scan_async`, never `scan`.** `scan` runs stage 2 inline, and `LLMClassifier.predict` bridges to async by blocking on `Future.result()` — a 1s classifier call measured 4 event-loop iterations instead of ~100, stalling every concurrent request, not just its own. A backend that performs I/O must override `predict_async`; the base class default delegates to `predict`, which is correct only for CPU-bound backends. `test_scanner_async_path.py` asserts both call sites.
 - **Traceability convention:** cite PRD requirement IDs (FR-*/NFR-*) in module docstrings and test names, as existing code does.
+- **The core install is the client SDK; the server stack lives in extras.** `pip install trust-mediator` must stay ~14 packages (`httpx`, `pydantic`, `pydantic-settings`). Everything else is `[server]`, `[ml]` (scikit-learn only, imported lazily in `HeuristicClassifier.train`), `[embedded]`. `[dev]` self-references `[server,ml]` so `pip install -e ".[dev]"` still gives a full stack. The `client-install` CI job fails if a server dependency leaks back into core — if you add a core dependency, that job is the thing telling you not to.
+- **`__all__` in `trust_mediator/__init__.py` is the public API contract.** Adding to it is a minor version; removing or renaming is a major one. Everything under `modules/`, `db/`, `api/` is internal and free to change. `MediationPipeline` and `settings` resolve lazily via module `__getattr__` so a client-only install can import the package without the server stack — do not make them eager. `test_public_api.py` pins all of this.
+- **Never classify a mediation verdict inline.** `client.classify_decision` is the single implementation, shared by the SDK and the LangChain guard. `require_approval` and `deny` both arrive *suffixed* (`.irreversible`, `.schema_violation`), and an unrecognised verdict must map to `unknown`, never `allow` — matching `require_approval` exactly once let gated irreversible actions through (FR-PE-03). The TypeScript client mirrors the same branch order and must stay in sync.
 
 ## Layout
 
 - `trust_mediator/modules/` — the 8 PRD components (ingress, trust_router, injection_scanner, tool_policy, memory_integrity, output_redaction, audit_log, policy_store), one package each
 - `trust_mediator/core/pipeline.py` — wires the modules; the object API + SDK adapters use
+- `trust_mediator/client.py` — the client SDK (`SCMLClient`/`AsyncSCMLClient`). Normalises the five mediation endpoints, which return three different shapes: `/context` and `/tool-call` carry `decision`, `/output` carries `blocked` and **no `decision` at all**, `/memory/write` carries `verdict`. Callers branch on `result.allowed`, never on a raw field.
+- `scml/` — thin alias package so `from scml import SCMLClient` works; re-exports `trust_mediator` and adds no second implementation
+- `clients/typescript/` — zero-dependency Node/TS client mirroring the Python SDK method-for-method; `npm pack` produces the offline-installable tarball
 - `trust_mediator/api/` — FastAPI app, routers mirror PRD §10.2 endpoints
 - `policies/` — declarative YAML policy; `default` agent is deny-all by design
 - `tests/unit/` per module, `tests/integration/test_pipeline_e2e.py` end-to-end
