@@ -73,10 +73,11 @@ are v1.0's and unaffected.
 - Policy identity is per `agent_id`, and an unknown `agent_id` falls back to
   `default` (deny-all). That is the correct fail-closed default, but it means
   "install the SDK" never means "it works" — a new integration is fully denied
-  until someone writes policy for it. Grant authority per workflow, not per
-  system: `truelane-w1`…`truelane-w8` exist so a compromised intake step cannot
-  borrow the invoicing workflow's authority. A shared agent id makes the
-  allow-list the union of everything any workflow needs.
+  until someone writes policy for it. Grant authority per *capability*, not per
+  system: give each workflow or sub-agent its own id, so a compromised step
+  cannot borrow another's authority. One shared id makes the allow-list the
+  union of everything any part of the system needs, which is the opposite of
+  least agency. `demo-agent/` shows the pattern.
 - No TLS/mTLS between components (NFR-SEC-03) and no secrets manager (NFR-SEC-04)
 - ~~NFR-AVAIL-01 unmeasured~~ — **measured**: `benchmarks/soak/` injects six
   dependency failures into a live pipeline; committed result

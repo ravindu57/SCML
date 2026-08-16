@@ -1,0 +1,41 @@
+{
+  "agents": {
+    "default": {
+      "allowed_tools": [],
+      "require_approval_for": ["irreversible", "high_impact"],
+      "untrusted_arg_policy": "require_approval",
+      "rate_limits": { "tool_calls_per_minute": 60 }
+    },
+
+    "demo-agent-quoting": {
+      "allowed_tools": ["quote_shipment", "track_container", "lookup_customer"],
+      "require_approval_for": ["irreversible", "high_impact"],
+      "untrusted_arg_policy": "allow",
+      "rate_limits": { "tool_calls_per_minute": 60 }
+    },
+
+    "demo-agent-billing": {
+      "allowed_tools": ["issue_invoice"],
+      "require_approval_for": ["irreversible", "high_impact", "issue_invoice"],
+      "untrusted_arg_policy": "require_approval",
+      "rate_limits": { "tool_calls_per_minute": 10 }
+    }
+  },
+
+  "memory": {
+    "integrity_score_threshold": 0.65,
+    "rescan_on_read": false
+  },
+
+  "scanner": {
+    "shadow_mode": false,
+    "thresholds": { "block": 0.85, "escalate": 0.70, "transform": 0.50 }
+  },
+
+  "redaction": {
+    "pii_patterns_enabled": true,
+    "entropy_threshold": 4.5,
+    "protected_classes": ["pii", "secret", "credential"],
+    "data_flow_rules": {}
+  }
+}

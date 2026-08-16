@@ -1,0 +1,23 @@
+{
+  "name": "scml-demo-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A small autonomous freight-operations agent with SCML trust mediation on every edge. Type a prompt injection and watch the action get stopped.",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "dev": "tsc -p tsconfig.json && node dist/server.js",
+    "policy": "node scripts/load-policy.mjs"
+  },
+  "dependencies": {
+    "scml-client": "file:../clients/typescript/scml-client-1.0.0.tgz"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.12",
+    "typescript": "^5.7.3"
+  }
+}

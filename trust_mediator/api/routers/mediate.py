@@ -89,19 +89,36 @@ async def mediate_context(request: Request, body: ContextMediationRequest, pipel
     """
     interceptor = IngressInterceptor(session_id=body.session_id, agent_id=body.agent_id)
 
-    # Wrap content in the appropriate envelope based on source
-    source_map = {
-        "tool_result": interceptor.wrap_tool_result,
-        "rag_retrieval": lambda c, **kw: interceptor.wrap_retrieval(c, source_uri=body.source_uri or "unknown", **kw),
-        "web_content": lambda c, **kw: interceptor.wrap_web_content(c, url=body.source_uri or "unknown"),
-        "memory": lambda c, **kw: interceptor.wrap_memory_read(c, memory_id=body.source_uri or "unknown"),
+    # Wrap content in the appropriate envelope based on source.
+    #
+    # `source` is a free-form string on the request model, so callers do send
+    # values outside this set ("user_input" is the obvious one). Previously the
+    # fallback selected wrap_tool_result but the branch that supplies its
+    # required `tool_name` only fired on an exact "tool_result" match, so any
+    # unrecognised source raised TypeError and the endpoint returned 500. That
+    # is worse than it looks: a client that fails open on transport errors then
+    # proceeds with unmediated content, which is the outcome §9 exists to
+    # prevent. Unknown sources now take the tool_result path, whose label is
+    # the most restrictive of the four.
+    single_arg_wrappers = {
+        "rag_retrieval": lambda c: interceptor.wrap_retrieval(
+            c, source_uri=body.source_uri or "unknown"
+        ),
+        "web_content": lambda c: interceptor.wrap_web_content(
+            c, url=body.source_uri or "unknown"
+        ),
+        "memory": lambda c: interceptor.wrap_memory_read(
+            c, memory_id=body.source_uri or "unknown"
+        ),
     }
-    wrap_fn = source_map.get(body.source, source_map["tool_result"])
 
-    if body.source == "tool_result":
-        envelope = wrap_fn(body.content, tool_name=body.source_uri or "unknown_tool")
-    else:
+    wrap_fn = single_arg_wrappers.get(body.source)
+    if wrap_fn is not None:
         envelope = wrap_fn(body.content)
+    else:
+        envelope = interceptor.wrap_tool_result(
+            body.content, tool_name=body.source_uri or "unknown_tool"
+        )
 
     scanned = await pipeline.process_context(envelope)
 

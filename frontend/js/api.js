@@ -8,7 +8,7 @@
    same as the session id — ?api= in the URL, then the last one used in this
    browser, then localhost. So
 
-       audit.html?api=http://192.168.1.42:8000&session=truelane-live
+       audit.html?api=http://192.168.1.42:8000&session=agent-live
 
    pins a remote mediator and remembers it. */
 const DEFAULT_API_BASE = 'http://localhost:8000';
