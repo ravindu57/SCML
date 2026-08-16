@@ -62,6 +62,21 @@ are v1.0's and unaffected.
 - No AgentDojo testbed yet. The InjecAgent testbed **does** exist
   (`benchmarks/testbeds/injecagent/`, 1054 external cases) — see "Measured state"
 - No sandboxed tool executor (PRD §11) — tool execution stays in the host app
+- **The policy document is single-tenant.** `PUT /v1/policy` replaces the whole
+  document, `agents` map and all, so two teams administering different agents
+  on one mediator will clobber each other — last write wins, and the loser gets
+  silently deny-alled via the `default` fallback (`engine.py:74`). Today's
+  workable answers are one mediator per system, or one owner of the document.
+  A per-agent endpoint (`PUT /v1/policy/agents/{id}`) is the proper fix and is
+  not built. This matters the moment SCML is pitched as shared infrastructure:
+  the SDK installs in seconds, but onboarding a second team does not.
+- Policy identity is per `agent_id`, and an unknown `agent_id` falls back to
+  `default` (deny-all). That is the correct fail-closed default, but it means
+  "install the SDK" never means "it works" — a new integration is fully denied
+  until someone writes policy for it. Grant authority per workflow, not per
+  system: `truelane-w1`…`truelane-w8` exist so a compromised intake step cannot
+  borrow the invoicing workflow's authority. A shared agent id makes the
+  allow-list the union of everything any workflow needs.
 - No TLS/mTLS between components (NFR-SEC-03) and no secrets manager (NFR-SEC-04)
 - ~~NFR-AVAIL-01 unmeasured~~ — **measured**: `benchmarks/soak/` injects six
   dependency failures into a live pipeline; committed result

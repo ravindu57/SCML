@@ -51,50 +51,89 @@ agents:
     rate_limits:
       tool_calls_per_minute: 10
 
-  # Truelane — autonomous freight brokerage operations (8 workflows).
+  # ── Truelane — autonomous freight brokerage, one agent per workflow ───────
   #
-  # The point of this policy is that it is *narrow*, not that it is closed.
-  # Routine broker work runs untouched; only the actions an attacker would
-  # want are constrained. Least agency means the agent keeps exactly the
-  # authority its job needs and no more.
-  truelane:
-    allowed_tools:
-      # W1 intake/quote, W2 sourcing, W4 tracking, W8 reporting — read,
-      # classify and draft. None of these move freight or money.
-      - classify_email
-      - quote_load
-      - send_quote_email
-      - search_carriers
-      - check_carrier_credit
-      - update_tracking
-      - generate_report
-      # W6 invoicing — allow-listed, but gated below because it bills a
-      # customer and cannot be taken back.
-      - create_invoice
-      # NOTE: dispatch_load is deliberately absent. Committing a carrier to a
-      # load is the action an injected instruction most wants, and no Truelane
-      # workflow needs to do it without a human. Absence from this list is the
-      # control — there is no rule to misconfigure.
-    require_approval_for:
-      - irreversible
-      - high_impact
-      - create_invoice
-    # Every Truelane action derives its arguments from a broker email — that
-    # is the job. So `require_approval` here gates *everything*, including
-    # routine quoting, which is the same as having no automation at all.
-    #
-    # The label is still applied and still audited; what changes is that the
-    # untrusted-arg rule is not the control doing the work for this agent.
-    # The controls that are:
-    #   * the allow-list above — dispatch_load simply is not on it
-    #   * require_approval_for below — the money action is gated explicitly
-    #
-    # This is tuning the rule per agent, which is the documented way to handle
-    # an agent that legitimately runs on untrusted input. It is NOT the same as
-    # dropping argument_trust_labels at the call site: doing that would make an
-    # LLM-composed argument indistinguishable from a human-typed one for every
-    # rule, not just this one.
+  # Each of the eight workflows authorises under its own agent id rather than
+  # a shared "truelane" identity. A shared identity means the allow-list is the
+  # union of everything any workflow needs, so W8 reporting can reach the
+  # invoicing tool and only good manners stop it. Splitting the identity makes
+  # that structurally impossible, which is what least agency actually means.
+  #
+  # Note what is NOT here: `dispatch_load`, on any workflow. Committing a
+  # carrier to a load is the action an injected instruction most wants, and no
+  # workflow needs to do it unattended. Absence from every list is the control
+  # — there is no rule to misconfigure.
+  #
+  # `untrusted_arg_policy: allow` on the operational workflows is deliberate.
+  # Every Truelane argument derives from a broker email — that is the job — so
+  # `require_approval` there gates everything including routine quoting, which
+  # is the same as having no automation. The label is still applied and still
+  # audited; the controls doing the work are the narrow allow-lists and the
+  # explicit approval gates below. This is per-agent tuning of the rule, not
+  # dropping argument_trust_labels at the call site, which would blind every
+  # other rule too.
+
+  # W1 — email intake, classification, quoting. Reads and drafts only.
+  truelane-w1:
+    allowed_tools: [classify_email, quote_load, send_quote_email]
+    require_approval_for: [irreversible, high_impact]
     untrusted_arg_policy: allow
+    rate_limits: { tool_calls_per_minute: 60 }
+
+  # W2 — carrier sourcing and vetting. Read-only against external registries.
+  truelane-w2:
+    allowed_tools: [search_carriers, check_carrier_credit]
+    require_approval_for: [irreversible, high_impact]
+    untrusted_arg_policy: allow
+    rate_limits: { tool_calls_per_minute: 60 }
+
+  # W3 — rate confirmation. Sends the paperwork; does NOT commit the carrier.
+  truelane-w3:
+    allowed_tools: [send_rate_confirmation]
+    require_approval_for: [irreversible, high_impact]
+    untrusted_arg_policy: allow
+    rate_limits: { tool_calls_per_minute: 30 }
+
+  # W4 — in-transit tracking. Status updates only.
+  truelane-w4:
+    allowed_tools: [update_tracking]
+    require_approval_for: [irreversible, high_impact]
+    untrusted_arg_policy: allow
+    rate_limits: { tool_calls_per_minute: 120 }
+
+  # W5 — document parsing (PODs, BOLs). Handles the most hostile input in the
+  # system and holds no authority to act on it.
+  truelane-w5:
+    allowed_tools: [parse_document, store_document]
+    require_approval_for: [irreversible, high_impact]
+    untrusted_arg_policy: allow
+    rate_limits: { tool_calls_per_minute: 60 }
+
+  # W6 — invoicing. The money workflow: one tool, gated explicitly, and
+  # arguments derived from untrusted input must reach a human first.
+  truelane-w6:
+    allowed_tools: [create_invoice]
+    require_approval_for: [irreversible, high_impact, create_invoice]
+    untrusted_arg_policy: require_approval
+    rate_limits: { tool_calls_per_minute: 20 }
+
+  # W7 — collections. Chases customers, so every send is gated.
+  truelane-w7:
+    allowed_tools: [send_collection_notice]
+    require_approval_for: [irreversible, high_impact, send_collection_notice]
+    untrusted_arg_policy: require_approval
+    rate_limits: { tool_calls_per_minute: 20 }
+
+  # W8 — reporting. Internal reads; deliberately the weakest identity here.
+  truelane-w8:
+    allowed_tools: [generate_report]
+    require_approval_for: [irreversible, high_impact]
+    untrusted_arg_policy: allow
+    rate_limits: { tool_calls_per_minute: 30 }
+
+  # NOTE: there is no bare `truelane` agent. A caller that is not a recognised
+  # workflow sends that id, matches nothing, and falls back to `default` —
+  # deny-all. An unrecognised caller must not inherit authority.
     rate_limits:
       tool_calls_per_minute: 60
 
