@@ -1,0 +1,21 @@
+{
+  "name": "scml-orchestration",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A four-agent freight orchestration with SCML mediating every hop. Indirect prompt injection arrives in a retrieved document and taint follows it across agent boundaries.",
+  "type": "module",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "dev": "tsc -p tsconfig.json && node dist/server.js",
+    "policy": "node scripts/load-policy.mjs"
+  },
+  "dependencies": {
+    "scml-client": "file:../clients/typescript/scml-client-1.0.0.tgz"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.12",
+    "typescript": "^5.7.3"
+  }
+}
