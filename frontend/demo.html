@@ -271,179 +271,215 @@ body{background:#0b1326;color:#dae2fd;font-family:'Inter',sans-serif;height:100v
   </div>
 </div>
 
+<script src="js/api.js"></script>
 <script>
-// ── State ───────────────────────────────────────────────────────
+/* Live monitor, fed by the mediator's audit trail.
+
+   This page used to open an EventSource against http://localhost:3001, which
+   was orchestrator.py — a local simulator that invented its own events and was
+   never connected to the mediator. So it showed nothing whenever that script
+   was not running, and it could never show traffic from an agent on another
+   machine, which is the case that actually matters.
+
+   It now polls the audit replay endpoint and renders events as they land.
+   Polling at 1s rather than streaming is deliberate: the mediator has no SSE
+   endpoint, adding one touches the component everything else depends on, and
+   at this interval the difference is not visible. Every number below comes
+   from a real audit record — nothing here is synthesised. */
+
+const POLL_MS = 1000;
+
 const state = {
-  blocked:0, allowed:0, total:0,
-  injection:0, memory:0, tool:0,
-  step:0, session:'—'
+  blocked: 0, allowed: 0, total: 0,
+  injection: 0, memory: 0, tool: 0,
+  seen: new Set(),
+  lastSeq: 0,
 };
 
-// ── SSE Connection ──────────────────────────────────────────────
-function connect() {
-  const es = new EventSource('http://localhost:3001/events');
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c]));
 
-  es.addEventListener('mission_start', e => {
-    const d = JSON.parse(e.data);
-    state.session = d.session;
-    state.step = 0;
-    document.getElementById('mission-name').textContent    = d.mission;
-    document.getElementById('mission-agent').textContent   = d.agent;
-    document.getElementById('mission-session').textContent = d.session;
-    document.getElementById('thoughts-list').innerHTML = '<div class="text-dim/50 italic">Mission started…</div>';
-    document.getElementById('conn-status').textContent = 'LIVE';
-    setConnected(true);
-    updateStats();
-  });
+/* Module → the label this page shows as a "phase". */
+const PHASE = {
+  injection_scanner: 'INGRESS SCAN',
+  tool_policy:       'TOOL AUTHORISATION',
+  memory_integrity:  'MEMORY WRITE',
+  output_redaction:  'EGRESS CHECK',
+  trust_router:      'TRUST LABELLING',
+};
 
-  es.addEventListener('step_start', e => {
-    const d = JSON.parse(e.data);
-    document.getElementById('step-phase').textContent     = d.phase;
-    document.getElementById('step-label').textContent     = d.label;
-    document.getElementById('step-narrative').textContent = d.narrative;
-    document.getElementById('ev-phase').textContent       = d.phase;
-    document.getElementById('ev-label').textContent       = d.label;
-    document.getElementById('ev-narrative').textContent   = d.narrative;
-    document.getElementById('ev-badge').className         = 'mono text-[12px] px-3 py-1.5 rounded font-bold badge-skip';
-    document.getElementById('ev-badge').textContent       = 'PROCESSING…';
-    document.getElementById('ev-decision').textContent    = '—';
-    document.getElementById('ev-score').textContent       = '—';
-    document.getElementById('ev-latency').textContent     = '—';
-    document.getElementById('ev-patterns').classList.add('hidden');
-    document.getElementById('ev-reason').classList.add('hidden');
-    document.getElementById('thoughts-list').innerHTML    = '';
-  });
+/* Plain-English reading of a decision. Shown where the old page had "agent
+   thoughts", which had no real source once the simulator was gone. */
+function narrate(e) {
+  const d = (e.decision || '').toLowerCase();
+  const tool = e.details?.tool;
+  switch (e.module) {
+    case 'injection_scanner':
+      return d === 'block'
+        ? 'Scanner flagged this content. The agent still reads it — detection is not the control.'
+        : 'Scanner found nothing. Content is still labelled by origin, not by what it said.';
+    case 'tool_policy':
+      if (d === 'block') return `${tool || 'Action'} refused. Authority comes from policy, not from the content the agent read.`;
+      if (d === 'require_approval') return `${tool || 'Action'} held for a human. Allow-listed, but not unattended.`;
+      return `${tool || 'Action'} authorised by policy for ${e.agent_id || 'this agent'}.`;
+    case 'memory_integrity':
+      return d === 'persist' ? 'Memory write accepted.' : 'Memory write withheld from the agent.';
+    case 'output_redaction':
+      return (e.details?.redactions_count > 0)
+        ? `${e.details.redactions_count} value(s) redacted before leaving the system.`
+        : 'Outbound content checked; nothing to redact.';
+    default:
+      return e.details?.reason || '';
+  }
+}
 
-  es.addEventListener('thought', e => {
-    const d = JSON.parse(e.data);
-    const el = document.createElement('div');
-    el.className = 'slide-in flex items-start gap-1';
-    el.innerHTML = `<span class="text-blue/60 mt-0.5">›</span><span>${d.text}</span>`;
-    document.getElementById('thoughts-list').appendChild(el);
-  });
-
-  es.addEventListener('step_result', e => {
-    const d = JSON.parse(e.data);
-    state.step = d.id;
-    state.total++;
-
-    const dec = (d.decision||'skip').toUpperCase();
-    const isBlock = ['BLOCK','REJECT','DENY'].includes(dec);
-    const isAllow = ['ALLOW','PERSIST'].includes(dec);
-
-    if (isBlock) state.blocked++;
-    if (isAllow) state.allowed++;
-
-    // Categorise
-    if (isBlock) {
-      if (d.action_type === 'context')  state.injection++;
-      else if (d.action_type === 'memory') state.memory++;
-      else if (d.action_type === 'tool')   state.tool++;
-    }
-
-    // Update big event card
-    const card = document.getElementById('event-card');
-    card.className = 'glass m-4 rounded-xl p-6 transition-all ' +
-      (isBlock ? 'flash-red' : isAllow ? 'flash-green' : 'flash-amber');
-
-    const badge = document.getElementById('ev-badge');
-    badge.textContent  = dec;
-    badge.className    = `mono text-[12px] px-3 py-1.5 rounded font-bold badge-${dec.toLowerCase()}`;
-
-    document.getElementById('ev-decision').textContent = dec;
-    document.getElementById('ev-decision').className   = `mono font-bold text-sm decision-${dec}`;
-    document.getElementById('ev-score').textContent    = d.score != null ? d.score.toFixed(3) : '—';
-    document.getElementById('ev-latency').textContent  = d.elapsed_ms ? `${d.elapsed_ms} ms` : '—';
-
-    if (d.patterns && d.patterns.length) {
-      document.getElementById('ev-patterns').classList.remove('hidden');
-      document.getElementById('ev-patterns-val').textContent = d.patterns.join(', ');
-    }
-    if (d.reason) {
-      document.getElementById('ev-reason').classList.remove('hidden');
-      document.getElementById('ev-reason').textContent = d.reason;
-    }
-
-    // Flow particle colour
-    document.getElementById('flow1').className = `flow-particle ${isBlock ? 'bg-red/70' : 'bg-blue/70'}`;
-    document.getElementById('flow2').className = `flow-particle ${isAllow ? 'bg-teal/70' : 'bg-red/70'}`;
-
-    // Add to feed
-    addFeedItem(d, dec);
-    updateStats();
-    updateProgress();
-  });
-
-  es.addEventListener('audit_complete', e => {
-    const d = JSON.parse(e.data);
-    const chainEl = document.getElementById('chain-events');
-    chainEl.innerHTML = (d.events||[]).map(ev => {
-      const col = ['block','reject','deny'].includes(ev.decision) ? 'text-red' : 'text-teal';
-      return `<div class="flex justify-between slide-in">
-        <span class="text-dim/70">${ev.module||'—'}</span>
-        <span class="${col} font-bold">${(ev.decision||'').toUpperCase()}</span>
-        <span class="text-dim/50">${ev.hash}…</span>
-      </div>`;
-    }).join('');
-    document.getElementById('chain-status').innerHTML =
-      d.chain_valid
-        ? '<span class="material-symbols-outlined text-teal text-[16px]">verified</span><span class="mono text-[11px] text-teal">Chain valid — tamper-evident ✓</span>'
-        : '<span class="material-symbols-outlined text-red text-[16px]">error</span><span class="mono text-[11px] text-red">Chain INVALID</span>';
-  });
-
-  es.onopen = () => {
-    document.getElementById('conn-status').textContent = 'CONNECTED';
-    setConnected(true);
-  };
-  es.onerror = () => {
-    document.getElementById('conn-status').textContent = 'WAITING…';
-    setConnected(false);
+function classify(e) {
+  const d = (e.decision || '').toLowerCase();
+  return {
+    isBlock: ['block', 'reject', 'deny'].includes(d) || d.startsWith('deny'),
+    isAllow: ['allow', 'persist'].includes(d),
+    isGate:  d.startsWith('require_approval'),
   };
 }
 
-function setConnected(ok) {
-  const dot = document.querySelector('.live-dot');
-  if (dot) dot.style.background = ok ? '#00FFC2' : '#FFB800';
-}
+function render(e) {
+  const { isBlock, isAllow, isGate } = classify(e);
+  const dec = (e.decision || '—').toUpperCase();
+  const phase = PHASE[e.module] || (e.module || '—').toUpperCase();
+  const label = e.details?.tool || e.reason_code || e.module || '—';
+  const reason = e.details?.reason || e.details?.block_reason || '';
 
-function addFeedItem(d, dec) {
-  const feed = document.getElementById('event-feed');
-  if (feed.querySelector('.text-dim\\/50')) feed.innerHTML = '';
-  const isBlock = ['BLOCK','REJECT','DENY'].includes(dec);
-  const el = document.createElement('div');
-  el.className = 'glass rounded p-3 slide-in flex items-center justify-between gap-3';
-  el.innerHTML = `
+  $('mission-session').textContent = e.session_id || '—';
+  $('mission-agent').textContent = e.agent_id || '—';
+  $('step-phase').textContent = phase;
+  $('step-label').textContent = label;
+  $('step-narrative').textContent = narrate(e);
+
+  const card = $('event-card');
+  card.className = 'glass m-4 rounded-xl p-6 transition-all ' +
+    (isBlock ? 'flash-red' : isAllow ? 'flash-green' : 'flash-amber');
+
+  $('ev-phase').textContent = phase;
+  $('ev-label').textContent = label;
+  $('ev-narrative').textContent = narrate(e);
+
+  const badge = $('ev-badge');
+  badge.textContent = dec;
+  badge.className = `mono text-[12px] px-3 py-1.5 rounded font-bold badge-${isBlock ? 'block' : isAllow ? 'allow' : 'skip'}`;
+
+  $('ev-decision').textContent = dec;
+  $('ev-decision').className = `mono font-bold text-sm decision-${dec}`;
+  /* The audit record carries no score or latency — those were simulator
+     fields. Showing the policy identity and the chain position instead keeps
+     every tile backed by something real. */
+  $('ev-score').textContent = e.agent_id || '—';
+  $('ev-latency').textContent = `#${e.seq_no}`;
+
+  if (e.reason_code) {
+    $('ev-patterns').classList.remove('hidden');
+    $('ev-patterns-val').textContent = e.reason_code;
+  }
+  if (reason) {
+    $('ev-reason').classList.remove('hidden');
+    $('ev-reason').textContent = reason;
+  } else {
+    $('ev-reason').classList.add('hidden');
+  }
+
+  $('flow1').className = `flow-particle ${isBlock ? 'bg-red/70' : 'bg-blue/70'}`;
+  $('flow2').className = `flow-particle ${isAllow ? 'bg-teal/70' : 'bg-red/70'}`;
+
+  // Feed
+  const feed = $('event-feed');
+  if (feed.querySelector('.italic')) feed.innerHTML = '';
+  const row = document.createElement('div');
+  row.className = 'glass rounded p-3 slide-in flex items-center justify-between gap-3';
+  row.innerHTML = `
     <div class="flex-1 min-w-0">
-      <div class="mono text-[10px] text-dim/70 uppercase">${d.phase||'—'}</div>
-      <div class="text-[12px] font-medium truncate">${d.label||'—'}</div>
+      <div class="mono text-[10px] text-dim/70 uppercase">${esc(phase)}</div>
+      <div class="text-[12px] font-medium truncate">${esc(label)}</div>
     </div>
-    <div class="mono text-[11px] px-2 py-0.5 rounded font-bold badge-${dec.toLowerCase()} shrink-0">${dec}</div>
-    <div class="mono text-[10px] text-dim shrink-0">${d.elapsed_ms||0}ms</div>`;
-  feed.insertBefore(el, feed.firstChild);
-  // keep max 20
-  while (feed.children.length > 20) feed.removeChild(feed.lastChild);
+    <div class="mono text-[11px] px-2 py-0.5 rounded font-bold badge-${isBlock ? 'block' : isAllow ? 'allow' : 'skip'} shrink-0">${esc(dec)}</div>
+    <div class="mono text-[10px] text-dim shrink-0">#${e.seq_no}</div>`;
+  feed.insertBefore(row, feed.firstChild);
+  while (feed.children.length > 25) feed.removeChild(feed.lastChild);
+
+  // Counters
+  state.total++;
+  if (isBlock) {
+    state.blocked++;
+    if (e.module === 'injection_scanner') state.injection++;
+    else if (e.module === 'memory_integrity') state.memory++;
+    else if (e.module === 'tool_policy') state.tool++;
+  } else if (isAllow) {
+    state.allowed++;
+  } else if (isGate) {
+    state.tool++;   // an approval gate is the tool policy intervening
+  }
+  updateStats();
 }
 
 function updateStats() {
-  document.querySelector('#stat-blocked div').textContent = state.blocked;
-  document.querySelector('#stat-allowed div').textContent = state.allowed;
-  document.querySelector('#stat-events div').textContent  = state.total;
-  document.getElementById('big-blocked').textContent     = state.blocked;
-  document.getElementById('big-total').textContent       = state.total;
-  document.getElementById('cnt-injection').textContent   = state.injection;
-  document.getElementById('cnt-memory').textContent      = state.memory;
-  document.getElementById('cnt-tool').textContent        = state.tool;
-  document.getElementById('cnt-allowed').textContent     = state.allowed;
+  $('stat-blocked').querySelector('div').textContent = state.blocked;
+  $('stat-allowed').querySelector('div').textContent = state.allowed;
+  $('stat-events').querySelector('div').textContent  = state.total;
+  $('big-blocked').textContent   = state.blocked;
+  $('big-total').textContent     = state.total;
+  $('cnt-injection').textContent = state.injection;
+  $('cnt-memory').textContent    = state.memory;
+  $('cnt-tool').textContent      = state.tool;
+  $('cnt-allowed').textContent   = state.allowed;
+  /* The old "mission progress x/10" counted simulator steps out of a script
+     that no longer exists. Session event count is the honest equivalent. */
+  $('progress-steps').textContent = `${state.total} events`;
+  $('progress-bar').style.width = Math.min(100, state.total * 2) + '%';
 }
 
-function updateProgress() {
-  const pct = Math.round((state.step / 10) * 100);
-  document.getElementById('progress-steps').textContent = `${state.step} / 10`;
-  document.getElementById('progress-bar').style.width   = pct + '%';
+function setConnected(ok, text) {
+  $('conn-status').textContent = text;
+  const dot = document.querySelector('.live-dot');
+  if (dot) dot.style.background = ok ? '#00FFC2' : '#FFB800';
+  $('gateway-status').textContent = ok ? 'ACTIVE' : 'UNREACHABLE';
 }
 
-// Start connection
-connect();
+function renderChain(data) {
+  const evs = (data.events || []).slice(-8);
+  $('chain-events').innerHTML = evs.map(ev => {
+    const { isBlock } = classify(ev);
+    return `<div class="flex justify-between gap-2 slide-in">
+      <span class="text-dim/70 truncate">${esc(ev.module || '—')}</span>
+      <span class="${isBlock ? 'text-red' : 'text-teal'} font-bold">${esc((ev.decision || '').toUpperCase())}</span>
+      <span class="text-dim/50">${esc(String(ev.event_hash || '').slice(0, 8))}…</span>
+    </div>`;
+  }).join('') || '<div class="text-dim/50 italic">Awaiting events…</div>';
+
+  $('chain-status').innerHTML = data.chain_valid
+    ? '<span class="material-symbols-outlined text-teal text-[16px]">verified</span><span class="mono text-[11px] text-teal">Chain valid — tamper-evident ✓</span>'
+    : '<span class="material-symbols-outlined text-red text-[16px]">error</span><span class="mono text-[11px] text-red">Chain INVALID</span>';
+}
+
+async function poll() {
+  const session = window.SESSION.get();
+  $('mission-name').textContent = `Monitoring ${session}`;
+  try {
+    const data = await API.auditReplay(session);
+    setConnected(true, 'LIVE');
+    renderChain(data);
+    for (const e of data.events || []) {
+      if (state.seen.has(e.seq_no)) continue;
+      state.seen.add(e.seq_no);
+      render(e);
+    }
+  } catch (err) {
+    // A session with no events yet 404s; that is "nothing has happened",
+    // not a broken mediator.
+    const quiet = String(err.message || '').includes('404');
+    setConnected(quiet, quiet ? 'LIVE — no events yet' : 'MEDIATOR UNREACHABLE');
+  }
+}
+
+poll();
+setInterval(poll, POLL_MS);
 </script>
 </body>
 </html>
