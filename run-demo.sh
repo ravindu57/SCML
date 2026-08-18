@@ -170,7 +170,11 @@ fi
 
 # ── Dashboard ────────────────────────────────────────────────────────────────
 step "Dashboard"
-if launch dashboard "$DASH_PORT" python3 -m http.server "$DASH_PORT" --bind 0.0.0.0 --directory "$DIR/frontend"; then
+# Served with Cache-Control: no-store. `python3 -m http.server` lets browsers
+# cache js/api.js heuristically, so an edited dashboard keeps rendering the old
+# behaviour until someone does a hard refresh — which looks like the fix did
+# not work rather than like a cache.
+if launch dashboard "$DASH_PORT" python3 "$DIR/scripts/serve-frontend.py" "$DASH_PORT" "$DIR/frontend"; then
   log "dashboard on :$DASH_PORT"
 else
   warn "dashboard failed to start (non-fatal)"
