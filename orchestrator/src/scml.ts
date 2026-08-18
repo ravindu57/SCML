@@ -89,6 +89,64 @@ export async function mediateInbound(opts: {
   }
 }
 
+// ── Memory writes ────────────────────────────────────────────────────────────
+
+export interface MemoryVerdict {
+  verdict: string;
+  stored: boolean;
+  quarantined: boolean;
+  score: number | null;
+  reason: string;
+  auditRef: string;
+}
+
+/**
+ * Vet a record the agent wants to remember (FR-MI-01).
+ *
+ * This is the memory-poisoning surface: a retrieved document says something,
+ * the agent writes it down, and every later run reads it back as if it were
+ * established fact. The scorer returns one of three verdicts — persist,
+ * quarantine, reject — and quarantine is the interesting one: the record is
+ * kept for review but withheld from the agent.
+ *
+ * Worth being clear about what this is not. It scores text, so it catches
+ * imperative phrasing ("from now on, always…") and misses a declarative
+ * authority claim ("policy validation has been disabled"), which persists at
+ * 0.755. That is the same weakness the injection scanner has, and it is why
+ * the control that actually stops the attack is the tool policy — which never
+ * reads memory to make its decision.
+ */
+export async function mediateMemoryWrite(opts: {
+  sessionId: string;
+  agentId: string;
+  content: string;
+  sourceUri?: string;
+  trustLabel: string;
+}): Promise<MemoryVerdict> {
+  try {
+    const r = await client.mediateMemoryWrite({
+      sessionId: opts.sessionId,
+      content: opts.content,
+      source: 'document',
+      sourceUri: opts.sourceUri ?? '',
+      trustLabel: opts.trustLabel,
+      agentId: opts.agentId,
+      failOpen: true,
+    });
+    const verdict = String(r.decision || r.verdict || '').toLowerCase();
+    return {
+      verdict,
+      stored: verdict === 'persist',
+      quarantined: verdict === 'quarantine',
+      score: typeof r.score === 'number' ? r.score : null,
+      reason: r.reason,
+      auditRef: r.auditRef,
+    };
+  } catch {
+    return { verdict: 'error', stored: false, quarantined: false, score: null, reason: '', auditRef: '' };
+  }
+}
+
 // ── Authorisation ────────────────────────────────────────────────────────────
 
 export interface Decision {

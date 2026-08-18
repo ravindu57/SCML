@@ -112,7 +112,7 @@ async def memory_read(body: MemoryReadBody, pipeline: PipelineDep, _: AuthDep):
 
 
 @router.get("/quarantined", response_model=QuarantineListResponse, summary="List quarantined memory entries")
-async def list_quarantined(agent_id: str = "default", pipeline: PipelineDep = None):
+async def list_quarantined(agent_id: str | None = None, pipeline: PipelineDep = None):
     """FR-MI-05: Return all quarantined entries for human review."""
     records = await pipeline._memory.list_quarantined(agent_id=agent_id)
     return QuarantineListResponse(

@@ -21,7 +21,7 @@ export interface Event {
   seq: number;
   role: Role | 'system';
   agentId?: string;
-  stage: 'task' | 'retrieve' | 'ingress' | 'plan' | 'authorise' | 'execute' | 'egress' | 'done';
+  stage: 'task' | 'retrieve' | 'ingress' | 'memory' | 'plan' | 'authorise' | 'execute' | 'egress' | 'done';
   title: string;
   detail: string;
   label?: string;
@@ -185,6 +185,37 @@ export async function run(task: string, sessionId: string, emit: Emit): Promise<
       label,
       verdict: ctx.verdict,
       auditRef: ctx.auditRef,
+    });
+  }
+
+  // ── researcher writes down what it read ────────────────────────────────────
+  // An agent that retrieves and then forgets is not much of an agent. This is
+  // the memory-poisoning surface: whatever survives here is read back on later
+  // runs as established fact, by which point nobody remembers it came from a
+  // supplier email.
+  for (const doc of docs) {
+    const mem = await scml.mediateMemoryWrite({
+      sessionId,
+      agentId: AGENT_ID.researcher,
+      content: doc.body,
+      sourceUri: `corpus://${doc.id}`,
+      trustLabel: label,
+    });
+
+    push({
+      role: 'researcher',
+      agentId: AGENT_ID.researcher,
+      stage: 'memory',
+      title: `Remember ${doc.id} — ${mem.verdict || 'error'}`,
+      detail: mem.quarantined
+        ? `Held for review, not given to the agent. ${mem.reason}`
+        : mem.stored
+          ? `Stored${mem.score !== null ? ` (integrity ${mem.score})` : ''}. Note this is only storage — the mediator never reads memory to authorise an action.`
+          : `Rejected outright. ${mem.reason}`,
+      label,
+      verdict: mem.quarantined ? 'quarantine' : mem.stored ? 'allow' : 'block',
+      blocked: !mem.stored,
+      auditRef: mem.auditRef,
     });
   }
 

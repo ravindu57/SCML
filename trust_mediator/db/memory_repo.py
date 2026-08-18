@@ -104,14 +104,20 @@ class MemoryRepository:
             )
             await session.commit()
 
-    async def list_quarantined(self, agent_id: str = "default") -> list[MemoryRecord]:
+    async def list_quarantined(self, agent_id: str | None = None) -> list[MemoryRecord]:
+        """Quarantined records, for every agent unless one is named.
+
+        agent_id defaulted to "default", so the review queue only ever showed
+        records written by an agent literally called "default". Any deployment
+        that names its agents — which is the whole point of per-capability
+        identities — had a queue that was permanently empty, and a quarantined
+        record no human ever saw. FR-MI-05 calls for all entries.
+        """
+        conditions = [MemoryRecordORM.status == MemoryStatus.QUARANTINED.value]
+        if agent_id is not None:
+            conditions.append(MemoryRecordORM.agent_id == agent_id)
         async with AsyncSessionLocal() as session:
-            result = await session.execute(
-                select(MemoryRecordORM).where(
-                    MemoryRecordORM.status == MemoryStatus.QUARANTINED.value,
-                    MemoryRecordORM.agent_id == agent_id,
-                )
-            )
+            result = await session.execute(select(MemoryRecordORM).where(*conditions))
             return [row.to_pydantic() for row in result.scalars()]
 
     async def list_active(self, agent_id: str = "default") -> list[MemoryRecord]:

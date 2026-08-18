@@ -372,8 +372,8 @@ class MemoryIntegrityLayer:
 
     # ── Admin operations (FR-MI-05) ───────────────────────────────────────────
 
-    async def list_quarantined(self, agent_id: str = "default") -> list[MemoryRecord]:
-        """Return all quarantined entries for human review."""
+    async def list_quarantined(self, agent_id: str | None = None) -> list[MemoryRecord]:
+        """Quarantined entries for review; every agent unless one is named."""
         return await self._repo.list_quarantined(agent_id=agent_id)
 
     async def review_and_release(
