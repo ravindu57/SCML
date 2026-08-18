@@ -57,10 +57,8 @@
     class="fixed top-0 left-0 w-full z-50 h-16 flex items-center justify-between px-10 bg-surface-dim/80 backdrop-blur-xl border-b border-outline-variant/30">
     <div id="top-bar-title" class="text-mediation-blue font-bold text-xl tracking-tight">scml - middleware layer secure</div>
     <div class="flex items-center gap-4">
-      <button class="text-on-surface-variant hover:text-primary transition-colors"><span
-          class="material-symbols-outlined">notifications</span></button>
-      <button class="text-on-surface-variant hover:text-primary transition-colors"><span
-          class="material-symbols-outlined">account_circle</span></button>
+      
+      
     </div>
   </header>
 
@@ -275,7 +273,20 @@
     }
 
     document.getElementById('session-id').addEventListener('keydown', e => { if (e.key === 'Enter') replaySession(); });
-    replaySession();
+
+    /* Run the first replay only after api.js has resolved the session.
+       This script is inline at the end of the body, so calling replaySession()
+       directly executed it before DOMContentLoaded — while the input still
+       held its markup default of "demo-traffic". api.js then corrected the
+       field but nothing re-queried, so the page sat on "No events match
+       filter" for a session that had events, and every arrival needed a manual
+       Replay click. api.js registers its listener first, so it has already
+       written the resolved session by the time this fires. */
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => replaySession());
+    } else {
+      replaySession();
+    }
   </script>
 </body>
 

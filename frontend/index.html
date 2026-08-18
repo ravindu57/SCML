@@ -29,13 +29,10 @@ tailwind.config={darkMode:"class",theme:{extend:{colors:{"surface-container-low"
 <header class="fixed top-0 left-0 w-full z-50 h-16 flex items-center justify-between px-10 bg-surface-dim/80 backdrop-blur-xl border-b border-outline-variant/30">
   <div id="top-bar-title" class="text-mediation-blue font-bold text-xl tracking-tight">scml - middleware layer secure</div>
   <div class="flex items-center gap-4">
-    <div class="flex items-center bg-surface-container-low px-3 py-1.5 rounded border border-outline-variant/30 gap-2">
-      <span class="material-symbols-outlined text-outline text-[18px]">search</span>
-      <input class="bg-transparent border-none focus:ring-0 text-sm text-on-surface placeholder-outline w-40" placeholder="Search..." type="text"/>
-    </div>
-    <button class="text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">notifications</span></button>
-    <button class="text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">settings</span></button>
-    <button class="text-on-surface-variant hover:text-primary transition-colors"><span class="material-symbols-outlined">account_circle</span></button>
+    
+    
+    
+    
   </div>
 </header>
 
@@ -235,9 +232,18 @@ function renderInterventions(events) {
     </div>`).join('');
 }
 
+/* Open the full audit trail for the session an intervention came from.
+
+   This used to set the session input and re-run loadAudit(). Since the panel
+   only ever lists interventions from the session already displayed, that
+   reloaded the same rows into the same table — the button looked broken
+   because nothing observably happened, and its label promises a different
+   view anyway. It now goes to the audit page with the session pinned,
+   carrying the mediator address so the page does not fall back to localhost
+   when the dashboard is being viewed from another machine. */
 function viewSession(sid) {
-  document.getElementById('session-input').value = sid;
-  loadAudit();
+  const params = new URLSearchParams({ api: API_BASE, session: sid });
+  window.location.href = `audit.html?${params}`;
 }
 
 async function loadAll() {
