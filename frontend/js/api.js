@@ -162,7 +162,29 @@ window.calcThroughput = (m) => {
 };
 
 window.fmtTime = (iso) => iso ? new Date(iso).toLocaleTimeString('en-GB', {hour12:false}) : '—';
-window.fmtTs   = (iso) => iso ? new Date(iso).toISOString().replace('T',' ').slice(0,19)+' UTC' : '—';
+/* Format an API timestamp.
+
+   The API serialises naive datetimes — "2026-08-18T14:08:21.609399", with no
+   Z and no offset — and those values are UTC. But the ECMAScript spec says a
+   date-TIME string without an offset is parsed as LOCAL time, so
+   `new Date(...)` read them as local and .toISOString() then shifted them by
+   the viewer's offset: an event recorded at 14:08 UTC displayed as 08:38 UTC
+   in Asia/Colombo (UTC+5:30), five and a half hours in the past.
+
+   Nobody notices this in UTC+0. It is glaring anywhere else, and it makes the
+   audit trail look wrong at exactly the moment someone is checking whether
+   they can trust it.
+
+   Appending Z when there is no designator makes the parse match what the
+   server actually meant. Strings that already carry Z or an offset are left
+   alone, so this stays correct if the API is fixed to emit them. */
+window.fmtTs = (iso) => {
+  if (!iso) return '—';
+  const s = String(iso);
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(s);
+  const d = new Date(hasZone ? s : s + 'Z');
+  return isNaN(d) ? s : d.toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+};
 
 window.decisionColor = (d) => ({
   block: 'text-error', escalate: 'text-alert-amber', quarantine: 'text-quarantine-purple',
