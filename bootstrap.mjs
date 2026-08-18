@@ -24,7 +24,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -68,17 +68,20 @@ if (!existsSync(path.join(CLIENT, 'node_modules'))) {
 
 run(['run', 'build', '--silent']);
 
-// `npm pack` runs prepack, which rebuilds, so the tarball can never be older
-// than the source it was packed from.
-run(['pack', '--silent'], { capture: true });
-
-const tarball = readdirSync(CLIENT).find(f => f.startsWith('scml-client-') && f.endsWith('.tgz'));
-if (!tarball) {
-  console.error(`${c.red}npm pack produced no tarball${c.off}`);
+// The agent packages depend on this DIRECTORY (file:../clients/typescript),
+// not on a packed tarball. That matters: a tarball dependency records an
+// integrity hash in package-lock.json, and `npm pack` is not byte-reproducible
+// across machines — line endings and tar metadata differ — so a lockfile
+// committed from one OS fails EINTEGRITY on another. A directory dependency
+// carries no hash, so it works everywhere. All this step has to do is make
+// sure dist/ exists, since npm links the directory without building it.
+const built = path.join(CLIENT, 'dist', 'index.js');
+if (!existsSync(built)) {
+  console.error(`${c.red}Build produced no ${built}${c.off}`);
   process.exit(1);
 }
 
-console.log(`${c.green}  OK${c.off} ${path.join(CLIENT, tarball)}`);
+console.log(`${c.green}  OK${c.off} ${built}`);
 console.log(`\nNow install an agent package:\n`);
 console.log(`  cd ${path.join(DIR, 'orchestrator')}`);
 console.log(`  npm install`);

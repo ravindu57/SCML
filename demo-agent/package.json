@@ -14,7 +14,7 @@
     "policy": "node scripts/load-policy.mjs"
   },
   "dependencies": {
-    "scml-client": "file:../clients/typescript/scml-client-1.0.0.tgz"
+    "scml-client": "file:../clients/typescript"
   },
   "devDependencies": {
     "@types/node": "^20.17.12",
