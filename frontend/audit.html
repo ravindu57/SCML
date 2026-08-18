@@ -210,14 +210,26 @@
         document.getElementById('audit-tbody').innerHTML = `<tr><td colspan="8" class="py-10 text-center text-on-surface-variant">No events match filter</td></tr>`;
         return;
       }
-      document.getElementById('audit-tbody').innerHTML = filtered.map((e, i) => {
+      /* Newest first.
+
+         Chain verification above walks the events in chronological order and
+         is unaffected — only the display order changes here. Oldest-first
+         meant scrolling to the bottom to see what just happened, which is
+         backwards for a console someone watches during a live run, and gets
+         worse with every event: this session is already past 250.
+
+         The "← prev_hash" reference on each row now points at the row BELOW
+         it, since that is its predecessor. The chain-start marker (link_off)
+         is on the last row for the same reason. */
+      const rows = filtered.slice().reverse();
+      document.getElementById('audit-tbody').innerHTML = rows.map((e, i) => {
         const dColor = decisionColor(e.decision);
         const hasChain = e.prev_hash && e.prev_hash !== '';
         return `<tr class="border-b border-outline-variant/10 hover:bg-surface-charcoal/30 transition-colors">
       <td class="py-2.5 px-4 text-center">
         <span class="material-symbols-outlined text-[16px] ${hasChain ? 'text-security-teal' : 'text-outline'}" title="${hasChain ? 'Chained' : 'Chain start'}">${hasChain ? 'link' : 'link_off'}</span>
       </td>
-      <td class="py-2.5 px-4 text-outline">${e.seq_no ?? i + 1}</td>
+      <td class="py-2.5 px-4 text-outline">${e.seq_no ?? (rows.length - i)}</td>
       <td class="py-2.5 px-4 text-outline">${fmtTs(e.timestamp)}</td>
       <td class="py-2.5 px-4 text-on-surface">${e.module || '—'}</td>
       <td class="py-2.5 px-4 font-bold ${dColor}">${(e.decision || '').toUpperCase()}</td>
