@@ -14,7 +14,21 @@ tailwind.config={darkMode:"class",theme:{extend:{colors:{"surface-container-low"
 ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:#0b1326}::-webkit-scrollbar-thumb{background:#3f4753;border-radius:4px}::-webkit-scrollbar-thumb:hover{background:#0798FF}
 .scanlines::before{content:" ";display:block;position:absolute;top:0;left:0;bottom:0;right:0;background:linear-gradient(rgba(18,16,16,0) 50%,rgba(0,0,0,.18) 50%),linear-gradient(90deg,rgba(255,0,0,.04),rgba(0,255,0,.015),rgba(0,0,255,.04));z-index:2;background-size:100% 2px,3px 100%;pointer-events:none;opacity:.08}
 </style>
-<link rel="stylesheet" href="css/theme.css"/>
+<link rel="stylesheet" id="tm-theme" href="css/template1.css"/>
+<script>
+/* Apply the saved template before first paint. This runs immediately after
+   the link above is parsed, so a viewer who chose Template 2 never sees
+   Template 1 flash on the way in. Kept inline and dependency-free because
+   app.js loads at the end of the body, far too late for this. */
+(function () {
+  try {
+    var t = localStorage.getItem('tm_template');
+    if (t && /^template[123]$/.test(t)) {
+      document.getElementById('tm-theme').href = 'css/' + t + '.css';
+    }
+  } catch (e) { /* storage blocked — the default link already applied */ }
+})();
+</script>
 </head>
 <body class="bg-background text-on-surface font-sans antialiased overflow-x-hidden">
 

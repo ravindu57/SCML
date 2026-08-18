@@ -1,0 +1,44 @@
+/* ============================================================================
+   SCML dashboard — Template 2. RESERVED.
+
+   Not yet designed. It inherits Template 1 in full so that selecting it can
+   never produce an unstyled dashboard: the pages carry Tailwind utility
+   classes plus a handful of inline rules, and with no theme layer on top the
+   result is a broken-looking console. On an exhibition machine that is a
+   worse outcome than the slot simply looking familiar.
+
+   To design this template, delete the @import and write the same roles
+   Template 1 defines. Keeping the role list identical is what lets a viewer
+   switch mid-demo without any page needing to know which template is active:
+
+     Canvas          body background, ambient washes
+     Cards           .glass-panel / .glass — surface, border, radius, blur
+     Status accents  .status-teal / .status-amber / .status-purple
+     Type            headings, .text-label-caps, mono figures
+     Nav rail        nav a, active pill
+     Controls        button, input, textarea, select, focus ring
+     Tables          thead th, tbody tr, hover
+     Status ink      .text-security-teal / .text-error / .text-alert-amber /
+                     .text-quarantine-purple  and the .decision-* classes
+     Badges          [class*="badge-"]
+     Live cues       .live-dot, pulse-dot, flash-red/green/amber
+     Progress        [id$="progress-bar"]
+     Scrollbars      ::-webkit-scrollbar*
+     Motion          prefers-reduced-motion block
+
+   Two constraints any template must hold, because they are correctness rather
+   than taste:
+
+   1. The four verdict colours must clear WCAG AA text contrast against that
+      template's own surface. They tell a viewer whether an action was allowed,
+      blocked, quarantined or sent for approval. Verify against the surface the
+      template actually renders on — a palette that passes on near-black will
+      not necessarily pass on a light one.
+
+   2. Colour never carries a verdict alone. Every badge keeps its word beside
+      it, for colour-vision deficiency and for photographs of the screen.
+   ========================================================================= */
+
+@import url("template1.css");
+
+/* ── Template 2 overrides go below this line ───────────────────────────── */

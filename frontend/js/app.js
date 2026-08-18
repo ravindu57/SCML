@@ -33,6 +33,7 @@ window.renderNav = (activePage) => {
       </div>
     </div>
     <div class="flex-1 flex flex-col gap-1 overflow-y-auto px-2">${navLinks}</div>
+    ${renderTemplatePicker()}
     <div class="px-4 mt-6">
       <button id="emergency-lock" onclick="emergencyLock()" class="w-full bg-quarantine-purple/10 text-quarantine-purple border border-quarantine-purple/40 py-2.5 rounded font-label-caps text-label-caps hover:bg-quarantine-purple hover:text-white transition-all flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(124,77,255,0.15)]">
         <span class="material-symbols-outlined text-[18px]">lock</span> Emergency Lock
@@ -91,6 +92,57 @@ window.emergencyLock = async () => {
   } catch (err) {
     showToast(`Emergency lock FAILED: ${err.message}. Policy unchanged.`, 'error');
   }
+};
+
+/* ── Theme templates ───────────────────────────────────────────────────────
+   The active template is one stylesheet swapped at <link id="tm-theme">.
+
+   Every page carries that link plus a tiny inline script that sets its href
+   from localStorage before first paint, so switching survives navigation and
+   no page flashes the wrong theme on the way in.
+
+   Templates 2 and 3 are reserved and currently @import Template 1, so
+   selecting one is safe: the pages are Tailwind utilities plus a few inline
+   rules, and with no theme layer they render as a broken-looking console. A
+   reserved slot that looks familiar beats one that looks broken, particularly
+   on a machine someone is demonstrating from. */
+window.TEMPLATES = [
+  { id: 'template1', label: 'Template 1', note: 'Glass' },
+  { id: 'template2', label: 'Template 2', note: 'reserved' },
+  { id: 'template3', label: 'Template 3', note: 'reserved' },
+];
+
+window.getTemplate = () => localStorage.getItem('tm_template') || 'template1';
+
+window.setTemplate = (id) => {
+  if (!window.TEMPLATES.some(t => t.id === id)) return;
+  localStorage.setItem('tm_template', id);
+  const link = document.getElementById('tm-theme');
+  if (link) link.href = `css/${id}.css`;
+  document.querySelectorAll('[data-template-option]').forEach(el => {
+    const active = el.dataset.templateOption === id;
+    el.setAttribute('aria-current', active ? 'true' : 'false');
+  });
+  const t = window.TEMPLATES.find(x => x.id === id);
+  if (typeof showToast === 'function') showToast(`${t.label} applied`, 'info');
+};
+
+/* Rendered into the nav rail by renderNav(). A <select> rather than three
+   buttons: the rail is narrow, the set will grow, and a native control gets
+   keyboard and screen-reader behaviour without any work. */
+window.renderTemplatePicker = () => {
+  const current = window.getTemplate();
+  const options = window.TEMPLATES.map(t =>
+    `<option value="${t.id}" ${t.id === current ? 'selected' : ''}>${t.label}${t.note ? ` — ${t.note}` : ''}</option>`
+  ).join('');
+  return `
+    <div class="px-4 mt-4">
+      <label for="tm-template-select" class="block text-label-caps text-on-surface-variant mb-1.5">Theme</label>
+      <select id="tm-template-select" onchange="setTemplate(this.value)"
+        class="w-full bg-surface-container-high border border-outline-variant/40 text-on-surface text-body-sm rounded px-2 py-2">
+        ${options}
+      </select>
+    </div>`;
 };
 
 /* Shared Tailwind config — call injectTailwindConfig() in <head> script */

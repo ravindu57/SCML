@@ -21,7 +21,21 @@ tailwind.config={darkMode:"class",theme:{extend:{colors:{"surface-container-low"
 @keyframes pulse-dot{0%,100%{box-shadow:0 0 0 0 rgba(0,255,194,.4)}70%{box-shadow:0 0 0 6px rgba(0,255,194,0)}}
 .live-dot{animation:pulse-dot 2s infinite}
 </style>
-<link rel="stylesheet" href="css/theme.css"/>
+<link rel="stylesheet" id="tm-theme" href="css/template1.css"/>
+<script>
+/* Apply the saved template before first paint. This runs immediately after
+   the link above is parsed, so a viewer who chose Template 2 never sees
+   Template 1 flash on the way in. Kept inline and dependency-free because
+   app.js loads at the end of the body, far too late for this. */
+(function () {
+  try {
+    var t = localStorage.getItem('tm_template');
+    if (t && /^template[123]$/.test(t)) {
+      document.getElementById('tm-theme').href = 'css/' + t + '.css';
+    }
+  } catch (e) { /* storage blocked — the default link already applied */ }
+})();
+</script>
 </head>
 <body class="bg-background text-on-surface font-sans antialiased overflow-x-hidden">
 
