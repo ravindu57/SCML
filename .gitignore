@@ -29,3 +29,6 @@ node_modules/
 
 # Exhibition launcher runtime state (pids, logs)
 .exhibition/
+
+# run-demo.sh runtime state (pids, logs, merged policy)
+.demo/
