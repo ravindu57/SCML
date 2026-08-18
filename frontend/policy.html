@@ -104,34 +104,7 @@ tailwind.config={darkMode:"class",theme:{extend:{colors:{"surface-container-low"
             <span class="material-symbols-outlined text-[20px] text-mediation-blue cursor-pointer hover:text-primary">add_circle</span>
           </div>
           <div id="redaction-rules">
-            <!-- Rules are static UX - these would connect to a future redaction rules API -->
-            <div class="px-4 py-3 border-b border-outline-variant/10 flex flex-col gap-2 hover:bg-surface-charcoal/50 transition-colors">
-              <div class="flex justify-between items-center">
-                <span class="font-mono text-code-sm text-inverse-surface font-bold">AWS_ACCESS_KEY</span>
-                <span class="bg-security-teal/20 text-security-teal px-2 py-0.5 rounded text-label-caps text-[10px]">REGEX</span>
-              </div>
-              <div class="flex justify-between text-on-surface-variant font-mono text-[12px]">
-                <span>Action: [MASK]</span><span>Sink: Null</span>
-              </div>
-            </div>
-            <div class="px-4 py-3 border-b border-outline-variant/10 flex flex-col gap-2 hover:bg-surface-charcoal/50 transition-colors">
-              <div class="flex justify-between items-center">
-                <span class="font-mono text-code-sm text-inverse-surface font-bold">USER_PII (General)</span>
-                <span class="bg-alert-amber/20 text-alert-amber px-2 py-0.5 rounded text-label-caps text-[10px]">LLM EVAL</span>
-              </div>
-              <div class="flex justify-between text-on-surface-variant font-mono text-[12px]">
-                <span>Action: [REDACT]</span><span>Sink: AuditDB</span>
-              </div>
-            </div>
-            <div class="px-4 py-3 flex flex-col gap-2 hover:bg-surface-charcoal/50 transition-colors">
-              <div class="flex justify-between items-center">
-                <span class="font-mono text-code-sm text-inverse-surface font-bold">INTERNAL_IP_SPACE</span>
-                <span class="bg-security-teal/20 text-security-teal px-2 py-0.5 rounded text-label-caps text-[10px]">REGEX</span>
-              </div>
-              <div class="flex justify-between text-on-surface-variant font-mono text-[12px]">
-                <span>Action: [DROP_CHUNK]</span><span>Sink: Null</span>
-              </div>
-            </div>
+            <div class="px-4 py-6 text-center text-on-surface-variant text-body-sm">Loading…</div>
           </div>
         </div>
       </div>
@@ -237,30 +210,106 @@ function renderAgentCards(agents) {
 }
 
 function renderExfilLog(policy) {
-  // Show policy enforcement thresholds as a live log
-  const scanner = policy.scanner || {};
-  const memory = policy.memory_integrity || {};
-  const now = new Date();
-  const t1 = new Date(now - 180000).toLocaleTimeString('en-GB',{hour12:false});
-  const t2 = new Date(now - 90000).toLocaleTimeString('en-GB',{hour12:false});
-  const t3 = new Date(now - 30000).toLocaleTimeString('en-GB',{hour12:false});
+  renderRedaction(policy);
+  renderInterceptLog();
+}
 
-  document.getElementById('exfil-log').innerHTML = `
-    <div class="pb-1 mb-1 border-b border-surface-variant/30">
-      <span class="text-outline">[${t1}]</span> <span class="text-alert-amber">CONF</span>
-      Scanner backend: <span class="text-on-surface font-bold">${scanner.backend||'heuristic'}</span>
-      <br/><span class="pl-16 text-security-teal">BLOCK</span> threshold: <span class="text-primary">${scanner.block_threshold||0.85}</span>
-    </div>
-    <div class="pb-1 mb-1 border-b border-surface-variant/30">
-      <span class="text-outline">[${t2}]</span> <span class="text-error">CONF</span>
-      Memory integrity threshold: <span class="text-primary">${memory.integrity_threshold||0.65}</span>
-      <br/><span class="pl-16 text-alert-amber">QUARANTINE</span> below threshold enforced
-    </div>
-    <div class="pb-1 mb-1 border-b border-surface-variant/30">
-      <span class="text-outline">[${t3}]</span> <span class="text-outline-variant">INFO</span>
-      Deny-by-default: <span class="text-security-teal">ACTIVE</span> — empty allowlists → reject
-    </div>
-    <div><span class="text-outline">[${now.toLocaleTimeString('en-GB',{hour12:false})}]</span> <span class="text-outline-variant">INFO</span> Awaiting events… <span class="animate-pulse">_</span></div>`;
+/* Render the real redaction configuration.
+
+   This panel used to be hardcoded markup listing AWS_ACCESS_KEY, USER_PII and
+   INTERNAL_IP_SPACE with invented actions and sinks — none of which exist in
+   the policy document. The mediator's actual redaction config is four fields,
+   so that is what gets shown. An invented rule table on a security dashboard
+   is worse than an empty one: it invites a question with no true answer. */
+function renderRedaction(policy) {
+  const r = policy.redaction || {};
+  const classes = r.protected_classes || [];
+  const flows = r.data_flow_rules || {};
+
+  const row = (name, badge, badgeClass, left, right) => `
+    <div class="px-4 py-3 border-b border-outline-variant/10 flex flex-col gap-2 hover:bg-surface-charcoal/50 transition-colors">
+      <div class="flex justify-between items-center">
+        <span class="font-mono text-code-sm text-inverse-surface font-bold">${name}</span>
+        <span class="${badgeClass} px-2 py-0.5 rounded text-label-caps text-[10px]">${badge}</span>
+      </div>
+      <div class="flex justify-between text-on-surface-variant font-mono text-[12px]">
+        <span>${left}</span><span>${right}</span>
+      </div>
+    </div>`;
+
+  const on = 'bg-security-teal/20 text-security-teal';
+  const off = 'bg-outline-variant/20 text-on-surface-variant';
+
+  let html = row(
+    'PII_PATTERNS',
+    r.pii_patterns_enabled ? 'ENABLED' : 'DISABLED',
+    r.pii_patterns_enabled ? on : off,
+    'Action: [REDACT]', 'Emails, phones, cards, SSNs');
+
+  html += row(
+    'SECRET_ENTROPY',
+    'HEURISTIC',
+    'bg-alert-amber/20 text-alert-amber',
+    `Shannon threshold: ${r.entropy_threshold ?? '—'}`,
+    'Action: [REDACT]');
+
+  html += classes.length
+    ? row('PROTECTED_CLASSES', `${classes.length} CLASSES`, on,
+          classes.join(', '), 'Never leaves un-redacted')
+    : row('PROTECTED_CLASSES', 'NONE', off, 'No classes configured', '—');
+
+  const flowKeys = Object.keys(flows);
+  html += flowKeys.length
+    ? row('DATA_FLOW_RULES', `${flowKeys.length} RULES`, on,
+          flowKeys.join(', '), 'Per-destination limits')
+    : row('DATA_FLOW_RULES', 'NONE', off,
+          'No destination restrictions beyond redaction', '—');
+
+  document.getElementById('redaction-rules').innerHTML = html;
+}
+
+/* Show real egress and denial decisions from the audit trail.
+
+   This panel was styled as a live terminal — "LIVE_INTERCEPT // TTY1", a
+   pulsing REC dot — while printing configuration values under invented
+   timestamps (now minus 180s, 90s, 30s). Nothing was intercepted and nothing
+   was live. It now reads the audit trail for the active session and shows the
+   output_redaction and blocked tool_policy events that actually occurred. */
+async function renderInterceptLog() {
+  const el = document.getElementById('exfil-log');
+  const session = window.SESSION.get();
+  try {
+    const data = await API.auditReplay(session);
+    const events = (data.events || []).filter(e =>
+      e.module === 'output_redaction' ||
+      (e.module === 'tool_policy' && String(e.decision).toLowerCase() !== 'allow')
+    ).slice(-12).reverse();
+
+    if (!events.length) {
+      el.innerHTML = `<div class="text-outline">No egress or denial events yet for session
+        <span class="text-primary">${session}</span>. Run an agent and refresh.</div>`;
+      return;
+    }
+
+    el.innerHTML = events.map(e => {
+      const dec = String(e.decision || '').toUpperCase();
+      const blocked = dec !== 'ALLOW' && dec !== 'PERSIST';
+      const ts = window.fmtTs(e.timestamp).slice(11, 19);
+      const detail = e.details?.reason || e.details?.block_reason ||
+                     (e.details?.redactions_count ? `${e.details.redactions_count} value(s) redacted` : '') ||
+                     e.reason_code || '';
+      return `<div class="pb-1 mb-1 border-b border-surface-variant/30">
+        <span class="text-outline">[${ts}]</span>
+        <span class="${blocked ? 'text-error' : 'text-security-teal'}">${dec}</span>
+        <span class="text-on-surface">${e.module}</span>
+        <span class="text-outline">#${e.seq_no}</span>
+        ${detail ? `<br/><span class="pl-16 text-on-surface-variant">${detail}</span>` : ''}
+      </div>`;
+    }).join('');
+  } catch {
+    el.innerHTML = `<div class="text-outline">No events yet for session
+      <span class="text-primary">${session}</span>.</div>`;
+  }
 }
 
 function toggleYaml() {

@@ -39,7 +39,7 @@ window.renderNav = (activePage) => {
       </button>
     </div>
     <div class="flex flex-col gap-1 border-t border-outline-variant/20 pt-4 mt-4 px-4">
-      <a href="http://localhost:8000/docs" target="_blank" class="text-on-surface-variant hover:text-primary px-2 py-2 flex items-center gap-3 transition-all font-label-caps text-label-caps rounded hover:bg-surface-variant/30">
+      <a href="${API_BASE}/docs" target="_blank" class="text-on-surface-variant hover:text-primary px-2 py-2 flex items-center gap-3 transition-all font-label-caps text-label-caps rounded hover:bg-surface-variant/30">
         <span class="material-symbols-outlined text-[18px]">code</span> API Docs
       </a>
     </div>`;
@@ -47,9 +47,50 @@ window.renderNav = (activePage) => {
   document.getElementById('top-bar-title').textContent = 'scml - middleware layer secure';
 };
 
+/* Emergency lock — revoke every agent's tool authority.
+
+   This used to show a toast saying "all agents in shadow mode" and do nothing
+   at all. A security control that reports success without acting is worse than
+   no control: it is the one button someone reaches for when they believe
+   something is wrong.
+
+   It now writes a real policy version in which every agent's allowed_tools is
+   empty, so every tool call is denied by the same deny-by-default path an
+   unknown agent hits. It is reversible — the previous version stays in the
+   history and can be rolled back from this page.
+
+   Note it is NOT shadow mode. Shadow means observe-and-log without enforcing,
+   which is the opposite of what an emergency stop should do. */
 window.emergencyLock = async () => {
-  if (!confirm('⚠️ EMERGENCY LOCK: This will set all agents to SHADOW mode. Continue?')) return;
-  showToast('Emergency lock engaged — all agents in shadow mode', 'error');
+  if (!confirm(
+    'EMERGENCY LOCK\n\n' +
+    'Publishes a new policy version with every agent stripped of all tools. ' +
+    'All tool calls will be denied until you roll back.\n\nContinue?'
+  )) return;
+
+  try {
+    const current = await API.getPolicy();
+    const policy = JSON.parse(JSON.stringify(current.policy || current));
+    const agents = policy.agents || {};
+    for (const name of Object.keys(agents)) {
+      agents[name].allowed_tools = [];
+    }
+
+    const res = await API.updatePolicy({
+      policy_data: policy,
+      description: 'EMERGENCY LOCK — all tool authority revoked',
+      created_by: 'dashboard',
+      activate: true,
+      shadow: false,
+    });
+
+    showToast(
+      `Emergency lock active — policy v${res.version_number}. ` +
+      `Roll back from Version History to restore.`, 'error');
+    if (typeof loadPolicy === 'function') loadPolicy();
+  } catch (err) {
+    showToast(`Emergency lock FAILED: ${err.message}. Policy unchanged.`, 'error');
+  }
 };
 
 /* Shared Tailwind config — call injectTailwindConfig() in <head> script */
