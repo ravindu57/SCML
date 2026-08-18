@@ -1,0 +1,10 @@
+
+────────────────────────────────────────────────────────────────
+  SCML Demo Agent — freight operations
+────────────────────────────────────────────────────────────────
+  Chat        http://localhost:4000
+  Mediator    http://127.0.0.1:8000  ✔ trust-mediator v1.0.0 (development)
+  Session     agent-live
+  Intent      deterministic (no API key needed)
+────────────────────────────────────────────────────────────────
+

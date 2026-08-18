@@ -1,0 +1,12 @@
+127.0.0.1 - - [18/Aug/2026 17:55:32] "GET /audit.html?api=http://localhost:8000&session=orchestration-live HTTP/1.1" 200 -
+127.0.0.1 - - [18/Aug/2026 17:55:32] "GET /js/api.js HTTP/1.1" 200 -
+127.0.0.1 - - [18/Aug/2026 17:55:32] "GET /js/app.js HTTP/1.1" 200 -
+127.0.0.1 - - [18/Aug/2026 17:55:33] code 404, message File not found
+127.0.0.1 - - [18/Aug/2026 17:55:33] "GET /favicon.ico HTTP/1.1" 404 -
+127.0.0.1 - - [18/Aug/2026 17:55:40] "GET /index.html HTTP/1.1" 200 -
+127.0.0.1 - - [18/Aug/2026 17:55:43] "GET /demo.html HTTP/1.1" 200 -
+127.0.0.1 - - [18/Aug/2026 17:56:42] "GET /demo.html HTTP/1.1" 304 -
+127.0.0.1 - - [18/Aug/2026 17:56:56] "GET /policy.html HTTP/1.1" 200 -
+127.0.0.1 - - [18/Aug/2026 17:56:58] "GET /memory.html HTTP/1.1" 200 -
+127.0.0.1 - - [18/Aug/2026 17:57:02] "GET /audit.html HTTP/1.1" 200 -
+127.0.0.1 - - [18/Aug/2026 17:57:05] "GET /traffic.html HTTP/1.1" 200 -
