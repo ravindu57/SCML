@@ -95,14 +95,26 @@ window.emergencyLock = async () => {
 
 /* Shared Tailwind config — call injectTailwindConfig() in <head> script */
 window.TW_COLORS = {
-  "surface-container-low":"#131b2e","on-primary":"#003259","primary":"#a0c9ff",
-  "surface-bright":"#31394d","success-emerald":"#10B981","surface-dim":"#0b1326",
-  "outline-variant":"#3f4753","error":"#ffb4ab","surface-container-high":"#222a3d",
-  "on-surface":"#dae2fd","background":"#0b1326","mediation-blue":"#0798FF",
-  "security-teal":"#00FFC2","on-background":"#dae2fd","on-surface-variant":"#bfc7d5",
-  "surface-container":"#171f33","secondary":"#cdbdff","surface-variant":"#2d3449",
-  "surface-charcoal":"#1E293B","alert-amber":"#FFB800","error-container":"#93000a",
-  "surface":"#0b1326","primary-container":"#0798ff","outline":"#89919e","on-error":"#690005",
-  "quarantine-purple":"#7C4DFF","surface-container-highest":"#2d3449",
-  "inverse-surface":"#dae2fd"
+  "surface-container-low": "#121826",
+  "primary": "#60a5fa",
+  "surface-bright": "#232c3f",
+  "success-emerald": "#34d399",
+  "surface-dim": "#0b0f17",
+  "outline-variant": "#263043",
+  "error": "#f87171",
+  "surface-container-high": "#1b2333",
+  "on-surface": "#e8ecf5",
+  "background": "#0b0f17",
+  "mediation-blue": "#60a5fa",
+  "security-teal": "#34d399",
+  "on-surface-variant": "#95a3bd",
+  "surface-container": "#151c2c",
+  "surface-variant": "#1b2333",
+  "surface-charcoal": "#141b28",
+  "alert-amber": "#fbbf24",
+  "surface": "#0b0f17",
+  "primary-container": "#3b82f6",
+  "outline": "#5d6b85",
+  "quarantine-purple": "#a78bfa",
+  "inverse-surface": "#e8ecf5"
 };
