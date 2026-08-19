@@ -1,309 +1,50 @@
 /* ============================================================================
-   SCML dashboard — Template 2 "HUD".
+   Template 2 — "Jarvis".
 
-   A heads-up-display treatment: near-black with a blue cast, thin luminous
-   hairlines, corner brackets, and a faint instrument grid. Where Template 1
-   is glass — surfaces you look *at* — this is a readout you look *through*.
+   Cyan and indigo on a colder, darker field, with luminance turned up and the
+   neural background field enabled. Same cards, same radii, same spacing as
+   Template 1 — structure lives in base.css and is not this file's business.
+   What changes is temperature, glow and the living background.
 
-   Palette verified against this template's own surface (#04080f), because a
-   set that passes on one background does not automatically pass on another:
-
-     cyan accent  #22d3ee  11.10:1
-     allow        #2ee6a8  12.42:1
-     approval     #ffc53d  12.71:1
-     quarantine   #c084fc   7.59:1
-     block        #ff5c7c   6.76:1
-     ink          #d7ecfb  16.51:1
-     ink-soft     #8fb0c9   8.81:1
-
-   All clear WCAG AA for text. The four verdict colours also hold their
-   separation for colour-vision deficiency (worst adjacent ΔE 11.0 simulated,
-   20.8 unsimulated) — and every badge still carries its word, so the colour
-   is reinforcement, never the only signal.
-
-   Restraint is deliberate. Glow is applied to hairlines, small figures and
-   status ink; never to body copy or table text, where a halo costs legibility
-   for decoration. The background animation lives behind everything at low
-   opacity and stops entirely under prefers-reduced-motion.
+   Verified against this template's surface (#04080f):
+     allow 10.44:1 · block 7.25:1 · approval 12.02:1 · quarantine 7.37:1
+     accent 11.10:1 · ink 16.51:1 · ink-soft 8.81:1   — all WCAG AA for text.
    ========================================================================= */
 
 :root {
-  --bg:         #04080f;
-  --bg-2:       #060d18;
-  --surface-1:  rgba(34, 211, 238, 0.035);
-  --surface-2:  rgba(34, 211, 238, 0.075);
-  --hairline:   rgba(34, 211, 238, 0.22);
-  --hairline-2: rgba(34, 211, 238, 0.10);
+  --bg:            #04080f;
+  --bg-glow-1:     rgba(34,211,238,.11);
+  --bg-glow-2:     rgba(99,102,241,.09);
 
-  --ink:       #d7ecfb;
-  --ink-soft:  #8fb0c9;
-  --ink-mute:  #5b7893;
+  --surface-1:     rgba(34,211,238,.035);
+  --surface-2:     rgba(34,211,238,.075);
+  --hairline:      rgba(34,211,238,.16);
+  --hairline-soft: rgba(34,211,238,.09);
 
-  --accent:     #22d3ee;
-  --accent-2:   #6366f1;
-  --allow:      #2ee6a8;
-  --block:      #ff5c7c;
-  --approval:   #ffc53d;
-  --quarantine: #c084fc;
+  --ink:      #d7ecfb;
+  --ink-soft: #8fb0c9;
+  --ink-mute: #5b7893;
 
-  --r-lg: 4px;
-  --r-md: 3px;
-  --r-sm: 2px;
+  --accent:       #22d3ee;  --accent-rgb:   34,211,238;
+  --accent-2:     #6366f1;  --accent-2-rgb: 99,102,241;
 
-  --glow:    0 0 12px rgba(34,211,238,.35);
-  --glow-sm: 0 0 6px  rgba(34,211,238,.45);
-}
+  --allow:      #34d399;  --allow-rgb:      52,211,153;
+  --block:      #f87171;  --block-rgb:      248,113,113;
+  --approval:   #fbbf24;  --approval-rgb:   251,191,36;
+  --quarantine: #a78bfa;  --quarantine-rgb: 167,139,250;
 
-/* ── Canvas ───────────────────────────────────────────────────────────────
-   Instrument grid plus two cool washes. The grid is 2% opacity — present at
-   a glance, invisible when reading. */
-body {
-  background:
-    linear-gradient(rgba(34,211,238,.020) 1px, transparent 1px) 0 0 / 44px 44px,
-    linear-gradient(90deg, rgba(34,211,238,.020) 1px, transparent 1px) 0 0 / 44px 44px,
-    radial-gradient(1100px 700px at 82% -10%, rgba(34,211,238,.10), transparent 62%),
-    radial-gradient(800px 600px at 6% 108%, rgba(99,102,241,.09), transparent 60%),
-    var(--bg) !important;
-  background-attachment: fixed;
-  color: var(--ink);
-  -webkit-font-smoothing: antialiased;
+  --glow-strength: 1;   /* full luminance on hairlines, figures, status ink */
+  --fx: 1;              /* neural field + drifting figures */
 }
 
-/* ── Panels ───────────────────────────────────────────────────────────────
-   Sharp corners, a luminous hairline, and bracket marks at two corners —
-   the HUD frame. Brackets are drawn with gradients on pseudo-elements so no
-   markup changes. */
-.glass-panel, .glass {
-  position: relative;
-  background: linear-gradient(180deg, var(--surface-1), rgba(4,8,15,.55)) !important;
-  border: 1px solid var(--hairline-2) !important;
-  border-radius: var(--r-lg) !important;
-  backdrop-filter: blur(10px) saturate(1.25) !important;
-  -webkit-backdrop-filter: blur(10px) saturate(1.25) !important;
-  box-shadow: inset 0 1px 0 rgba(34,211,238,.10), 0 10px 30px rgba(0,0,0,.45);
-}
-.glass-panel.rounded-lg, .glass-panel.rounded-xl,
-.glass.rounded-lg, .glass.rounded-xl { border-radius: var(--r-lg) !important; }
-
-.glass-panel::before, .glass::before,
-.glass-panel::after,  .glass::after {
-  content: ""; position: absolute; width: 14px; height: 14px;
-  pointer-events: none; opacity: .75;
-}
-.glass-panel::before, .glass::before {
-  top: -1px; left: -1px;
-  border-top: 1px solid var(--accent); border-left: 1px solid var(--accent);
-  box-shadow: -1px -1px 8px rgba(34,211,238,.35);
-}
-.glass-panel::after, .glass::after {
-  bottom: -1px; right: -1px;
-  border-bottom: 1px solid var(--accent); border-right: 1px solid var(--accent);
-  box-shadow: 1px 1px 8px rgba(34,211,238,.35);
-}
-
-.status-teal, .status-amber, .status-purple { border-left: none !important; }
-.status-teal   { box-shadow: inset 2px 0 0 var(--allow),      0 0 18px rgba(46,230,168,.10); }
-.status-amber  { box-shadow: inset 2px 0 0 var(--approval),   0 0 18px rgba(255,197,61,.10); }
-.status-purple { box-shadow: inset 2px 0 0 var(--quarantine), 0 0 18px rgba(192,132,252,.10); }
-
-.glass-panel > .absolute.rounded-full.blur-2xl,
-.glass-panel > .absolute.rounded-full.blur-3xl { display: none !important; }
-.glow-teal { background: none !important; }
-
-/* ── Type ─────────────────────────────────────────────────────────────────
-   Wide tracking on labels, glow on figures only. */
-h1, h2, .text-headline-xl, .text-headline-lg, .text-headline-md {
-  letter-spacing: .01em;
-}
-.text-headline-xl {
-  font-weight: 600 !important;
-  text-shadow: 0 0 22px rgba(34,211,238,.30);
-  font-variant-numeric: tabular-nums;
-}
-.text-headline-lg { font-variant-numeric: tabular-nums; }
-.text-label-caps {
-  letter-spacing: .16em !important;
-  color: var(--ink-mute) !important;
-  text-transform: uppercase;
-}
-.font-mono, .mono { font-feature-settings: "zero" 1; }
-
-/* ── Nav rail ─────────────────────────────────────────────────────────────*/
-nav a, aside a {
-  border-radius: var(--r-md) !important;
-  border-left: none !important;
-  transform: none !important;
-  margin: 1px 8px;
-  letter-spacing: .1em;
-  transition: background .16s ease, color .16s ease, box-shadow .16s ease;
-}
-nav a:hover, aside a:hover {
-  background: var(--surface-2) !important;
-  box-shadow: inset 2px 0 0 var(--accent);
-}
-nav a.bg-primary-container\/20, aside a.bg-primary-container\/20 {
-  background: linear-gradient(90deg, rgba(34,211,238,.18), transparent) !important;
-  color: var(--accent) !important;
-  box-shadow: inset 2px 0 0 var(--accent), 0 0 20px rgba(34,211,238,.10);
-  text-shadow: 0 0 10px rgba(34,211,238,.45);
-}
-
-/* ── Controls ─────────────────────────────────────────────────────────────*/
-button, .btn { border-radius: var(--r-md) !important; letter-spacing: .06em; }
-input[type="text"], input[type="search"], textarea, select {
-  background: rgba(34,211,238,.05) !important;
-  border: 1px solid var(--hairline-2) !important;
-  border-radius: var(--r-md) !important;
-  color: var(--ink) !important;
-}
-input::placeholder, textarea::placeholder { color: var(--ink-mute) !important; }
-input:focus, textarea:focus, select:focus {
-  outline: none !important;
-  border-color: var(--accent) !important;
-  box-shadow: 0 0 0 1px rgba(34,211,238,.35), var(--glow) !important;
-}
-
-/* ── Tables ───────────────────────────────────────────────────────────────*/
-table { border-collapse: separate; border-spacing: 0; }
-thead th {
-  font-size: 10.5px !important;
-  letter-spacing: .16em; text-transform: uppercase;
-  color: var(--accent) !important; font-weight: 600;
-  border-bottom: 1px solid var(--hairline) !important;
-  background: rgba(4,8,15,.72) !important;
-  position: sticky; top: 0; z-index: 1; backdrop-filter: blur(10px);
-}
-tbody tr { border-bottom: 1px solid var(--hairline-2) !important; }
-tbody tr:hover { background: rgba(34,211,238,.055) !important; }
-tbody td { color: var(--ink-soft); }
-
-/* ── Status ink ───────────────────────────────────────────────────────────*/
-.text-security-teal, .decision-ALLOW, .decision-PERSIST {
-  color: var(--allow) !important; text-shadow: 0 0 9px rgba(46,230,168,.45);
-}
-.text-error, .decision-BLOCK, .decision-DENY, .decision-REJECT {
-  color: var(--block) !important; text-shadow: 0 0 9px rgba(255,92,124,.45);
-}
-.text-alert-amber, .decision-REQUIRE_APPROVAL, .decision-ESCALATE {
-  color: var(--approval) !important; text-shadow: 0 0 9px rgba(255,197,61,.40);
-}
-.text-quarantine-purple, .decision-QUARANTINE {
-  color: var(--quarantine) !important; text-shadow: 0 0 9px rgba(192,132,252,.45);
-}
-.text-mediation-blue, .text-primary { color: var(--accent) !important; }
-.text-on-surface { color: var(--ink) !important; }
-.text-on-surface-variant { color: var(--ink-soft) !important; }
-.text-outline, .text-outline-variant { color: var(--ink-mute) !important; }
-
-[class*="badge-"] {
-  border-radius: var(--r-sm) !important;
-  padding: 3px 8px !important;
-  font-weight: 600 !important;
-  letter-spacing: .1em;
-  border: 1px solid currentColor;
-}
-.badge-allow, .badge-persist { background: rgba(46,230,168,.10) !important;  color: var(--allow) !important; }
-.badge-block, .badge-deny, .badge-reject { background: rgba(255,92,124,.10) !important; color: var(--block) !important; }
-.badge-skip, .badge-escalate { background: rgba(255,197,61,.10) !important;  color: var(--approval) !important; }
-.badge-quarantine { background: rgba(192,132,252,.10) !important; color: var(--quarantine) !important; }
-
-/* ── Live cues ────────────────────────────────────────────────────────────*/
-.live-dot { box-shadow: 0 0 0 0 rgba(46,230,168,.5); }
-@keyframes pulse-dot {
-  0%,100% { box-shadow: 0 0 0 0 rgba(46,230,168,.45); }
-  70%     { box-shadow: 0 0 0 8px rgba(46,230,168,0); }
-}
-@keyframes flash-red   { from { background: rgba(255,92,124,.14); box-shadow: 0 0 26px rgba(255,92,124,.20);} to { background: transparent; } }
-@keyframes flash-green { from { background: rgba(46,230,168,.14); box-shadow: 0 0 26px rgba(46,230,168,.20);} to { background: transparent; } }
-@keyframes flash-amber { from { background: rgba(255,197,61,.14); box-shadow: 0 0 26px rgba(255,197,61,.20);} to { background: transparent; } }
-.flash-red{animation:flash-red 1s ease-out}
-.flash-green{animation:flash-green 1s ease-out}
-.flash-amber{animation:flash-amber 1s ease-out}
-
-/* ── Progress ─────────────────────────────────────────────────────────────*/
-[id$="progress-bar"], [class*="bg-mediation-blue"][class*="h-"] {
-  background: linear-gradient(90deg, var(--accent), var(--accent-2)) !important;
-  box-shadow: 0 0 12px rgba(34,211,238,.45);
-  border-radius: 1px !important;
-}
-
-/* ── Telemetry rail (demo.html: AI AGENT → MEDIATING → ENVIRONMENT) ───────
-   The connector between the three nodes becomes a data bus. A pulse is
-   injected per real mediation decision and tinted by that decision's verdict,
-   so the motion carries the same information as the colour beside it rather
-   than being ambient decoration. */
-.flow-particle {
-  position: relative;
-  height: 2px !important;
-  background: linear-gradient(90deg, transparent, var(--hairline), transparent) !important;
-  overflow: visible;
-}
-.tm-pulse {
-  position: absolute; top: 50%; left: 0;
-  width: 34px; height: 2px; margin-top: -1px;
-  border-radius: 2px;
-  background: linear-gradient(90deg, transparent, currentColor, transparent);
-  box-shadow: 0 0 14px currentColor;
-  animation: tm-travel 1.15s cubic-bezier(.4,0,.5,1) forwards;
-  pointer-events: none;
-}
-.tm-pulse.reverse { animation-name: tm-travel-back; }
-@keyframes tm-travel      { from { left: -8%;  opacity: 0; } 12% { opacity: 1; } 88% { opacity: 1; } to { left: 100%; opacity: 0; } }
-@keyframes tm-travel-back { from { left: 100%; opacity: 0; } 12% { opacity: 1; } 88% { opacity: 1; } to { left: -8%;  opacity: 0; } }
-
-.tm-pulse.v-allow      { color: var(--allow); }
-.tm-pulse.v-block      { color: var(--block); }
-.tm-pulse.v-approval   { color: var(--approval); }
-.tm-pulse.v-quarantine { color: var(--quarantine); }
-.tm-pulse.v-neutral    { color: var(--accent); }
-
-/* Node boxes either side of the bus. */
-#event-card { border-radius: var(--r-lg) !important; }
-
-/* ── Background field ─────────────────────────────────────────────────────
-   Canvas mounted by js/fx.js. Fixed, behind everything, non-interactive, and
-   low enough in opacity that text over it is unaffected. */
-#tm-fx {
-  position: fixed; inset: 0;
-  width: 100%; height: 100%;
-  z-index: 0; pointer-events: none;
-  opacity: .55;
-}
-body > *:not(#tm-fx) { position: relative; z-index: 1; }
-
-/* ── Scanline sweep ───────────────────────────────────────────────────────
-   One slow pass. Long period on purpose: a fast sweep is the single most
-   distracting thing a HUD can do next to text someone is reading. */
+/* One slow pass, and only here. A long period is deliberate: a fast sweep is
+   the most distracting thing a HUD can do beside text someone is reading. */
 body::after {
   content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 2;
+  height: 140px;
   background: linear-gradient(rgba(34,211,238,0) 0%, rgba(34,211,238,.045) 50%, rgba(34,211,238,0) 100%);
-  height: 140px; animation: tm-scan 11s linear infinite;
+  animation: tm-scan 11s linear infinite;
 }
 @keyframes tm-scan { from { transform: translateY(-160px); } to { transform: translateY(100vh); } }
 
-.scanlines { background: rgba(0,0,0,.30) !important; }
-.scanlines::after { display: none !important; }
-
-/* ── Scrollbars ───────────────────────────────────────────────────────────*/
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: rgba(34,211,238,.04); }
-::-webkit-scrollbar-thumb {
-  background: rgba(34,211,238,.28); border-radius: 1px;
-  border: 2px solid transparent; background-clip: content-box;
-}
-::-webkit-scrollbar-thumb:hover { background: rgba(34,211,238,.5); background-clip: content-box; }
-
-/* ── Motion ───────────────────────────────────────────────────────────────
-   Every animation here is decorative; the information is in the text and the
-   colour. Someone who has asked the OS to stop motion gets a static HUD with
-   identical content, and js/fx.js declines to mount its canvas at all. */
-@media (prefers-reduced-motion: reduce) {
-  body::after { display: none !important; }
-  #tm-fx { display: none !important; }
-  .tm-pulse { display: none !important; }
-  *, *::before, *::after {
-    animation-duration: .001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: .001ms !important;
-  }
-}
+@media (prefers-reduced-motion: reduce) { body::after { display: none !important; } }

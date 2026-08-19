@@ -1,0 +1,252 @@
+/* ============================================================================
+   SCML dashboard — shared structure.
+
+   Loaded on every page, always, before the active template. This file owns
+   *layout*: surface treatment, radii, spacing, type scale, nav, controls,
+   tables, badges, motion. It names no colours of its own — every value comes
+   from a custom property that the template supplies.
+
+   The split exists because the first attempt at a second template redesigned
+   the architecture as well as the palette: sharp corners, bracket marks and a
+   grid, which read as a different product rather than a different skin. With
+   structure here, a template can only change what it is supposed to change,
+   and three themes cannot drift apart over time.
+
+   A template therefore defines tokens and nothing structural:
+
+     --bg --bg-glow-1 --bg-glow-2   canvas and its two ambient washes
+     --surface-1 --surface-2        card fill, raised fill
+     --hairline --hairline-soft     borders
+     --ink --ink-soft --ink-mute    text
+     --accent --accent-2           primary and its gradient partner
+     --allow --block --approval --quarantine   the four verdicts
+     --glow-strength               0 for flat, 1 for full luminance
+
+   Two constraints are correctness rather than taste, and every template must
+   hold them: the four verdict colours clear WCAG AA text contrast against that
+   template's own surface, and colour never carries a verdict alone — each
+   badge keeps its word beside it.
+   ========================================================================= */
+
+:root {
+  --r-lg: 18px;
+  --r-md: 14px;
+  --r-sm: 10px;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 28px rgba(0,0,0,.28);
+  --glow-strength: 0;
+}
+
+* { box-sizing: border-box; }
+
+/* ── Canvas ───────────────────────────────────────────────────────────────
+   Two low-opacity washes bleeding in from the edges. Fixed attachment keeps
+   them still while content scrolls, so they read as light in the room rather
+   than as objects on the page. */
+body {
+  background:
+    radial-gradient(900px 600px at 88% -8%,  var(--bg-glow-1), transparent 60%),
+    radial-gradient(700px 500px at 4% 104%,  var(--bg-glow-2), transparent 62%),
+    var(--bg) !important;
+  background-attachment: fixed;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Cards ────────────────────────────────────────────────────────────────*/
+.glass-panel, .glass {
+  background: var(--surface-1) !important;
+  border: 1px solid var(--hairline) !important;
+  border-radius: var(--r-lg) !important;
+  backdrop-filter: blur(16px) saturate(1.15) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.15) !important;
+  box-shadow: var(--shadow);
+}
+.glass-panel.rounded-lg, .glass-panel.rounded-xl,
+.glass.rounded-lg, .glass.rounded-xl { border-radius: var(--r-lg) !important; }
+
+.status-teal, .status-amber, .status-purple { border-left: none !important; }
+.status-teal   { box-shadow: inset 3px 0 0 var(--allow),      var(--shadow); }
+.status-amber  { box-shadow: inset 3px 0 0 var(--approval),   var(--shadow); }
+.status-purple { box-shadow: inset 3px 0 0 var(--quarantine), var(--shadow); }
+
+/* The pages place decorative blur blobs inside panels; the canvas washes
+   already do that job and stacking both muddies the surface. */
+.glass-panel > .absolute.rounded-full.blur-2xl,
+.glass-panel > .absolute.rounded-full.blur-3xl { display: none !important; }
+.glow-teal { background: none !important; }
+
+/* ── Type ─────────────────────────────────────────────────────────────────*/
+h1, h2, .text-headline-xl, .text-headline-lg, .text-headline-md { letter-spacing: -0.02em; }
+.text-headline-xl { font-weight: 600 !important; }
+.text-headline-xl, .text-headline-lg { font-variant-numeric: tabular-nums; }
+.text-label-caps { letter-spacing: .09em !important; color: var(--ink-mute); }
+.font-mono, .mono { font-feature-settings: "zero" 1, "cv01" 1; }
+
+/* Luminance is a template dial, not a structural choice. At --glow-strength 0
+   these resolve to no shadow at all. */
+.text-headline-xl {
+  text-shadow: 0 0 calc(22px * var(--glow-strength)) rgba(var(--accent-rgb), calc(.32 * var(--glow-strength)));
+}
+
+/* ── Nav rail ─────────────────────────────────────────────────────────────*/
+nav a, aside a {
+  border-radius: var(--r-md) !important;
+  border-left: none !important;
+  transform: none !important;
+  margin: 1px 8px;
+  transition: background .16s ease, color .16s ease;
+}
+nav a:hover, aside a:hover { background: var(--surface-2) !important; }
+nav a.bg-primary-container\/20, aside a.bg-primary-container\/20 {
+  background: linear-gradient(135deg,
+    rgba(var(--accent-rgb), .20), rgba(var(--accent-2-rgb), .14)) !important;
+  color: var(--ink) !important;
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), .28),
+              0 0 calc(20px * var(--glow-strength)) rgba(var(--accent-rgb), calc(.16 * var(--glow-strength)));
+}
+
+/* ── Controls ─────────────────────────────────────────────────────────────*/
+button, .btn { border-radius: var(--r-md) !important; transition: background .16s ease, border-color .16s ease, opacity .16s ease; }
+input[type="text"], input[type="search"], textarea, select {
+  background: var(--surface-2) !important;
+  border: 1px solid var(--hairline) !important;
+  border-radius: var(--r-md) !important;
+  color: var(--ink) !important;
+}
+input::placeholder, textarea::placeholder { color: var(--ink-mute) !important; }
+input:focus, textarea:focus, select:focus {
+  outline: none !important;
+  border-color: rgba(var(--accent-rgb), .55) !important;
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), .12) !important;
+}
+
+/* ── Tables ───────────────────────────────────────────────────────────────
+   Hairline plus hover only. Striping, borders and a coloured decision column
+   would be three signals doing one job. */
+table { border-collapse: separate; border-spacing: 0; }
+thead th {
+  font-size: 11px !important;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--ink-mute) !important;
+  font-weight: 600;
+  border-bottom: 1px solid var(--hairline) !important;
+  background: transparent !important;
+  position: sticky; top: 0; z-index: 1;
+  backdrop-filter: blur(12px);
+}
+tbody tr { border-bottom: 1px solid var(--hairline-soft) !important; }
+tbody tr:hover { background: var(--surface-2) !important; }
+tbody td { color: var(--ink-soft); }
+
+/* ── Status ink ───────────────────────────────────────────────────────────*/
+.text-security-teal, .decision-ALLOW, .decision-PERSIST {
+  color: var(--allow) !important;
+  text-shadow: 0 0 calc(9px * var(--glow-strength)) rgba(var(--allow-rgb), calc(.5 * var(--glow-strength)));
+}
+.text-error, .decision-BLOCK, .decision-DENY, .decision-REJECT {
+  color: var(--block) !important;
+  text-shadow: 0 0 calc(9px * var(--glow-strength)) rgba(var(--block-rgb), calc(.5 * var(--glow-strength)));
+}
+.text-alert-amber, .decision-REQUIRE_APPROVAL, .decision-ESCALATE {
+  color: var(--approval) !important;
+  text-shadow: 0 0 calc(9px * var(--glow-strength)) rgba(var(--approval-rgb), calc(.45 * var(--glow-strength)));
+}
+.text-quarantine-purple, .decision-QUARANTINE {
+  color: var(--quarantine) !important;
+  text-shadow: 0 0 calc(9px * var(--glow-strength)) rgba(var(--quarantine-rgb), calc(.5 * var(--glow-strength)));
+}
+.text-mediation-blue, .text-primary { color: var(--accent) !important; }
+.text-on-surface { color: var(--ink) !important; }
+.text-on-surface-variant { color: var(--ink-soft) !important; }
+.text-outline, .text-outline-variant { color: var(--ink-mute) !important; }
+
+/* ── Badges ───────────────────────────────────────────────────────────────*/
+[class*="badge-"] {
+  border-radius: 999px !important;
+  padding: 3px 9px !important;
+  font-weight: 600 !important;
+  letter-spacing: .04em;
+}
+.badge-allow, .badge-persist { background: rgba(var(--allow-rgb), .14) !important; color: var(--allow) !important; }
+.badge-block, .badge-deny, .badge-reject { background: rgba(var(--block-rgb), .14) !important; color: var(--block) !important; }
+.badge-skip, .badge-escalate { background: rgba(var(--approval-rgb), .14) !important; color: var(--approval) !important; }
+.badge-quarantine { background: rgba(var(--quarantine-rgb), .14) !important; color: var(--quarantine) !important; }
+
+/* ── Live cues ────────────────────────────────────────────────────────────*/
+.live-dot { box-shadow: 0 0 0 0 rgba(var(--allow-rgb), .45); }
+@keyframes pulse-dot {
+  0%,100% { box-shadow: 0 0 0 0 rgba(var(--allow-rgb), .40); }
+  70%     { box-shadow: 0 0 0 7px rgba(var(--allow-rgb), 0); }
+}
+@keyframes flash-red   { from { background: rgba(var(--block-rgb), .10); }    to { background: var(--surface-1); } }
+@keyframes flash-green { from { background: rgba(var(--allow-rgb), .10); }    to { background: var(--surface-1); } }
+@keyframes flash-amber { from { background: rgba(var(--approval-rgb), .10); } to { background: var(--surface-1); } }
+.flash-red{animation:flash-red .9s ease-out}
+.flash-green{animation:flash-green .9s ease-out}
+.flash-amber{animation:flash-amber .9s ease-out}
+
+/* ── Progress ─────────────────────────────────────────────────────────────*/
+.h-1, .h-1\.5, .h-2 { border-radius: 999px; }
+[id$="progress-bar"], [class*="bg-mediation-blue"][class*="h-"] {
+  background: linear-gradient(90deg, var(--accent), var(--accent-2)) !important;
+  border-radius: 999px !important;
+  box-shadow: 0 0 calc(12px * var(--glow-strength)) rgba(var(--accent-rgb), calc(.45 * var(--glow-strength)));
+}
+
+/* ── Telemetry rail (demo.html) ───────────────────────────────────────────
+   The connector between AI AGENT, MEDIATING and ENVIRONMENT. One pulse per
+   real mediation decision, tinted by that decision's verdict — the motion
+   carries the same information as the colour beside it, rather than running
+   as ambience regardless of what the mediator is doing. */
+.flow-particle { position: relative; overflow: visible; }
+.tm-pulse {
+  position: absolute; top: 50%; left: 0;
+  width: 34px; height: 2px; margin-top: -1px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, currentColor, transparent);
+  box-shadow: 0 0 14px currentColor;
+  animation: tm-travel 1.15s cubic-bezier(.4,0,.5,1) forwards;
+  pointer-events: none;
+}
+.tm-pulse.reverse { animation-name: tm-travel-back; }
+@keyframes tm-travel      { from { left: -8%;  opacity: 0; } 12% { opacity: 1; } 88% { opacity: 1; } to { left: 100%; opacity: 0; } }
+@keyframes tm-travel-back { from { left: 100%; opacity: 0; } 12% { opacity: 1; } 88% { opacity: 1; } to { left: -8%;  opacity: 0; } }
+.tm-pulse.v-allow      { color: var(--allow); }
+.tm-pulse.v-block      { color: var(--block); }
+.tm-pulse.v-approval   { color: var(--approval); }
+.tm-pulse.v-quarantine { color: var(--quarantine); }
+.tm-pulse.v-neutral    { color: var(--accent); }
+
+/* ── Background field ─────────────────────────────────────────────────────
+   Canvas mounted by js/fx.js on templates that opt in via --fx: 1. */
+#tm-fx {
+  position: fixed; inset: 0; width: 100%; height: 100%;
+  z-index: 0; pointer-events: none; opacity: .5;
+}
+body > *:not(#tm-fx) { position: relative; z-index: 1; }
+
+/* ── Misc ─────────────────────────────────────────────────────────────────*/
+.scanlines { background: rgba(0,0,0,.22) !important; }
+.scanlines::after { display: none !important; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(var(--accent-rgb), .18);
+  border-radius: 999px; border: 2px solid transparent; background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(var(--accent-rgb), .34); background-clip: content-box; }
+
+/* ── Motion ───────────────────────────────────────────────────────────────
+   Everything animated here is decorative; the information is in the text and
+   the colour. Someone who has asked the OS to stop motion gets a static
+   dashboard with identical content. */
+@media (prefers-reduced-motion: reduce) {
+  #tm-fx, .tm-pulse { display: none !important; }
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}

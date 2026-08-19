@@ -1,241 +1,41 @@
 /* ============================================================================
-   SCML dashboard — Template 1 "Glass" (default).
+   Template 1 — "Aurora" (default).
 
-   Loaded after each page's inline <style>, so it wins without those blocks
-   needing to be edited. Every rule here restyles existing markup — no element
-   ids, classes or structure change, because the pages are wired to live data
-   and a restyle must not put that at risk.
+   Blue and violet on a near-black navy. Calm, flat, no luminance: the theme
+   recedes and the data is the only thing that glows.
 
-   Palette: status colours, not a categorical series. Each one names a state a
-   viewer must read correctly — allow, block, quarantine, approval — so they
-   were chosen for contrast against this surface and verified, not picked by
-   eye. Against #0b0f17:
+   Structure comes from base.css, which every template shares. This file
+   supplies tokens only, so the three themes cannot drift apart in layout.
 
-     allow      #34d399   9.98:1
-     approval   #fbbf24  11.49:1
-     quarantine #a78bfa   7.05:1
-     block      #f87171   6.93:1
-     accent     #60a5fa   7.54:1
-     body text  #95a3bd   7.54:1
-
-   All clear WCAG AA for text. Colour never carries a verdict alone here —
-   every badge pairs it with the word.
+   Verified against this template's surface (#0b0f17):
+     allow 9.98:1 · block 6.93:1 · approval 11.49:1 · quarantine 7.05:1
+     accent 7.54:1 · ink 16.21:1 · ink-soft 7.54:1     — all WCAG AA for text.
    ========================================================================= */
 
 :root {
   --bg:            #0b0f17;
-  --surface-1:     rgba(255, 255, 255, 0.028);
-  --surface-2:     rgba(255, 255, 255, 0.045);
-  --hairline:      rgba(255, 255, 255, 0.07);
-  --hairline-soft: rgba(255, 255, 255, 0.045);
+  --bg-glow-1:     rgba(96,165,250,.10);
+  --bg-glow-2:     rgba(167,139,250,.08);
 
-  --ink:        #e8ecf5;
-  --ink-soft:   #95a3bd;
-  --ink-mute:   #5d6b85;
+  --surface-1:     rgba(255,255,255,.028);
+  --surface-2:     rgba(255,255,255,.045);
+  --hairline:      rgba(255,255,255,.07);
+  --hairline-soft: rgba(255,255,255,.045);
 
-  --accent:     #60a5fa;
-  --accent-2:   #a78bfa;
-  --allow:      #34d399;
-  --block:      #f87171;
-  --approval:   #fbbf24;
-  --quarantine: #a78bfa;
+  --ink:      #e8ecf5;
+  --ink-soft: #95a3bd;
+  --ink-mute: #5d6b85;
 
-  --r-lg: 18px;
-  --r-md: 14px;
-  --r-sm: 10px;
+  --accent:       #60a5fa;  --accent-rgb:   96,165,250;
+  --accent-2:     #a78bfa;  --accent-2-rgb: 167,139,250;
 
-  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 28px rgba(0,0,0,.28);
-}
+  /* Reserved status colours. Identical in all three templates on purpose —
+     switching theme must never change what red means. */
+  --allow:      #34d399;  --allow-rgb:      52,211,153;
+  --block:      #f87171;  --block-rgb:      248,113,113;
+  --approval:   #fbbf24;  --approval-rgb:   251,191,36;
+  --quarantine: #a78bfa;  --quarantine-rgb: 167,139,250;
 
-/* ── Canvas ───────────────────────────────────────────────────────────────
-   Two very low-opacity radial washes. The reference has colour bleeding in
-   from the edges rather than a flat field; fixed attachment keeps them still
-   while content scrolls, so they read as light in the room, not as objects. */
-body {
-  background:
-    radial-gradient(900px 600px at 88% -8%,  rgba(96,165,250,.10), transparent 60%),
-    radial-gradient(700px 500px at 4% 104%, rgba(167,139,250,.08), transparent 62%),
-    var(--bg) !important;
-  background-attachment: fixed;
-  color: var(--ink);
-  -webkit-font-smoothing: antialiased;
-}
-
-/* ── Cards ────────────────────────────────────────────────────────────────
-   One surface treatment, used everywhere. The old panels were an opaque navy
-   with a hard 1px border; these are a near-transparent wash over the canvas
-   so the ambient gradient shows through, which is what makes the reference
-   feel like glass rather than like boxes. */
-.glass-panel,
-.glass {
-  background: var(--surface-1) !important;
-  border: 1px solid var(--hairline) !important;
-  border-radius: var(--r-lg) !important;
-  backdrop-filter: blur(16px) saturate(1.15) !important;
-  -webkit-backdrop-filter: blur(16px) saturate(1.15) !important;
-  box-shadow: var(--shadow);
-}
-
-/* Tailwind rounding utilities on a panel would fight the radius above. */
-.glass-panel.rounded-lg,
-.glass-panel.rounded-xl,
-.glass.rounded-lg,
-.glass.rounded-xl { border-radius: var(--r-lg) !important; }
-
-/* The accent bar the stat tiles use. A 3px inset edge reads as a highlight;
-   the old 4px hard border read as a table rule. */
-.status-teal, .status-amber, .status-purple { border-left: none !important; }
-.status-teal   { box-shadow: inset 3px 0 0 var(--allow),      var(--shadow); }
-.status-amber  { box-shadow: inset 3px 0 0 var(--approval),   var(--shadow); }
-.status-purple { box-shadow: inset 3px 0 0 var(--quarantine), var(--shadow); }
-
-/* Kill the decorative blur blobs the pages place inside panels — the canvas
-   washes already do that job, and stacking both muddies the surface. */
-.glass-panel > .absolute.rounded-full.blur-2xl,
-.glass-panel > .absolute.rounded-full.blur-3xl { display: none !important; }
-
-.glow-teal { background: none !important; }
-
-/* ── Type ─────────────────────────────────────────────────────────────────
-   The reference leads with a large, plain, almost conversational heading and
-   keeps every supporting label small and quiet. Tightening the tracking on
-   the big sizes is most of what makes it feel considered. */
-h1, h2, .text-headline-xl, .text-headline-lg, .text-headline-md {
-  letter-spacing: -0.02em;
-}
-.text-headline-xl { font-weight: 600 !important; }
-.text-label-caps  { letter-spacing: .09em !important; color: var(--ink-mute); }
-.font-mono, .mono { font-feature-settings: "zero" 1, "cv01" 1; }
-
-/* Numbers are the content on this dashboard; let them sit optically aligned. */
-.text-headline-xl, .text-headline-lg { font-variant-numeric: tabular-nums; }
-
-/* ── Navigation rail ──────────────────────────────────────────────────────
-   The reference rail is a column of soft rounded targets with one filled
-   active pill, rather than a left-border indicator. */
-nav a, aside a {
-  border-radius: var(--r-md) !important;
-  border-left: none !important;
-  transform: none !important;
-  margin: 1px 8px;
-  transition: background .16s ease, color .16s ease;
-}
-nav a:hover, aside a:hover { background: var(--surface-2) !important; }
-
-nav a.bg-primary-container\/20,
-aside a.bg-primary-container\/20 {
-  background: linear-gradient(135deg, rgba(96,165,250,.20), rgba(167,139,250,.14)) !important;
-  color: var(--ink) !important;
-  box-shadow: inset 0 0 0 1px rgba(96,165,250,.28);
-}
-
-/* ── Buttons & inputs ─────────────────────────────────────────────────────*/
-button, .btn {
-  border-radius: var(--r-md) !important;
-  transition: background .16s ease, border-color .16s ease, opacity .16s ease;
-}
-input[type="text"], input[type="search"], textarea, select {
-  background: var(--surface-2) !important;
-  border: 1px solid var(--hairline) !important;
-  border-radius: var(--r-md) !important;
-  color: var(--ink) !important;
-}
-input::placeholder, textarea::placeholder { color: var(--ink-mute) !important; }
-input:focus, textarea:focus, select:focus {
-  outline: none !important;
-  border-color: rgba(96,165,250,.55) !important;
-  box-shadow: 0 0 0 3px rgba(96,165,250,.12) !important;
-}
-
-/* ── Tables ───────────────────────────────────────────────────────────────
-   Row separation by hairline and hover only. Zebra striping plus borders plus
-   a coloured decision column is three signals doing one job. */
-table { border-collapse: separate; border-spacing: 0; }
-thead th {
-  font-size: 11px !important;
-  letter-spacing: .09em;
-  text-transform: uppercase;
-  color: var(--ink-mute) !important;
-  font-weight: 600;
-  border-bottom: 1px solid var(--hairline) !important;
-  background: transparent !important;
-  position: sticky; top: 0; z-index: 1;
-  backdrop-filter: blur(12px);
-}
-tbody tr { border-bottom: 1px solid var(--hairline-soft) !important; }
-tbody tr:hover { background: var(--surface-2) !important; }
-tbody td { color: var(--ink-soft); }
-
-/* ── Status ink ───────────────────────────────────────────────────────────
-   These map onto the verdicts the mediator returns. Held to the validated
-   steps so a viewer reading the colour and a viewer reading the word get the
-   same answer. */
-.text-security-teal, .decision-ALLOW, .decision-PERSIST { color: var(--allow) !important; }
-.text-error, .decision-BLOCK, .decision-DENY, .decision-REJECT { color: var(--block) !important; }
-.text-alert-amber, .decision-REQUIRE_APPROVAL, .decision-ESCALATE { color: var(--approval) !important; }
-.text-quarantine-purple, .decision-QUARANTINE { color: var(--quarantine) !important; }
-.text-mediation-blue, .text-primary { color: var(--accent) !important; }
-.text-on-surface { color: var(--ink) !important; }
-.text-on-surface-variant { color: var(--ink-soft) !important; }
-.text-outline, .text-outline-variant { color: var(--ink-mute) !important; }
-
-/* Badges: tinted fill, no hard border, always beside their label. */
-[class*="badge-"] {
-  border-radius: 999px !important;
-  padding: 3px 9px !important;
-  font-weight: 600 !important;
-  letter-spacing: .04em;
-}
-.badge-allow, .badge-persist   { background: rgba(52,211,153,.14) !important; color: var(--allow) !important; }
-.badge-block, .badge-deny,
-.badge-reject                   { background: rgba(248,113,113,.14) !important; color: var(--block) !important; }
-.badge-skip, .badge-escalate    { background: rgba(251,191,36,.14) !important; color: var(--approval) !important; }
-.badge-quarantine               { background: rgba(167,139,250,.14) !important; color: var(--quarantine) !important; }
-
-/* ── Live indicators ──────────────────────────────────────────────────────*/
-.live-dot { box-shadow: 0 0 0 0 rgba(52,211,153,.45); }
-@keyframes pulse-dot {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(52,211,153,.40); }
-  70%      { box-shadow: 0 0 0 7px rgba(52,211,153,0); }
-}
-
-/* Flash on a new event — brief tint, no layout shift. */
-@keyframes flash-red   { from { background: rgba(248,113,113,.10); } to { background: var(--surface-1); } }
-@keyframes flash-green { from { background: rgba(52,211,153,.10); }  to { background: var(--surface-1); } }
-@keyframes flash-amber { from { background: rgba(251,191,36,.10); }  to { background: var(--surface-1); } }
-.flash-red   { animation: flash-red   .9s ease-out; }
-.flash-green { animation: flash-green .9s ease-out; }
-.flash-amber { animation: flash-amber .9s ease-out; }
-
-/* ── Progress ─────────────────────────────────────────────────────────────*/
-.h-1, .h-1\.5, .h-2 { border-radius: 999px; }
-[id$="progress-bar"], [class*="bg-mediation-blue"][class*="h-"] {
-  background: linear-gradient(90deg, var(--accent), var(--accent-2)) !important;
-  border-radius: 999px !important;
-}
-
-/* ── Terminal-style log ───────────────────────────────────────────────────*/
-.scanlines { background: rgba(0,0,0,.22) !important; }
-.scanlines::after { display: none !important; }
-
-/* ── Scrollbars ───────────────────────────────────────────────────────────*/
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,.09);
-  border-radius: 999px;
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.16); background-clip: content-box; }
-
-/* ── Motion ───────────────────────────────────────────────────────────────
-   Everything above that moves is decorative. Someone who has asked the OS to
-   stop animations gets a static dashboard with identical information. */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: .001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: .001ms !important;
-  }
+  --glow-strength: 0;   /* flat */
+  --fx: 0;              /* no background field */
 }

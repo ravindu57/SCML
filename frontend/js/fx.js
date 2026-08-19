@@ -1,5 +1,5 @@
 /* ============================================================================
-   Background field for Template 2 "HUD".
+   Background field for themes that opt in via --fx: 1.
 
    A slow neural lattice with occasional drifting figures, painted to a fixed
    canvas behind the interface.
@@ -14,23 +14,29 @@
       found on a spatial grid rather than by testing all pairs, so cost grows
       linearly rather than quadratically. Paused entirely when the tab is
       hidden, so a backgrounded dashboard costs nothing.
-   3. **Optional.** Declines to mount under prefers-reduced-motion, and only
-      mounts when Template 2 is the active theme. It is removed on switching
-      away, rather than left running invisibly.
+   3. **Optional.** Declines to mount under prefers-reduced-motion, and mounts
+      only for a theme whose --fx token is 1. It reads --accent-rgb from the
+      active theme, so Jarvis draws in cyan and Obsidian in steel with no
+      second code path. Removed on switching away, rather than left running
+      invisibly.
    ========================================================================= */
 
 (function () {
   'use strict';
 
-  const TEMPLATE = 'template2';
   const CANVAS_ID = 'tm-fx';
 
-  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
-
-  const activeTemplate = () => {
-    try { return localStorage.getItem('tm_template') || 'template1'; }
-    catch (e) { return 'template1'; }
+  /* Whether to paint, and in what colour, both come from the active theme:
+     --fx is 1 to opt in, and --accent-rgb / --accent-2-rgb give the palette.
+     Reading them here rather than hardcoding cyan is what lets Obsidian draw
+     the same field in steel without a second code path. */
+  const themeVar = (name, fallback) => {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
   };
+  const fxEnabled = () => themeVar('--fx', '0') === '1';
+
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
 
   let raf = null;
   let canvas = null;
@@ -41,8 +47,8 @@
   let cell = 130;              // spatial-hash cell; also the link radius
   let lastGlyph = 0;
 
-  const CY = '34,211,238';     // accent cyan, matching the theme's --accent
-  const IN = '99,102,241';     // indigo, the theme's --accent-2
+  let CY = '34,211,238';      // resolved from --accent-rgb on mount
+  let IN = '99,102,241';      // resolved from --accent-2-rgb on mount
 
   function size() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);   // 2 is plenty; 3 costs 2.25x for no visible gain
@@ -184,10 +190,14 @@
     canvas.setAttribute('aria-hidden', 'true');   // decoration: keep it out of the a11y tree
     document.body.insertBefore(canvas, document.body.firstChild);
     ctx = canvas.getContext('2d', { alpha: true });
+    CY = themeVar('--accent-rgb', '34,211,238');
+    IN = themeVar('--accent-2-rgb', '99,102,241');
     size();
     window.addEventListener('resize', size, { passive: true });
     lastGlyph = performance.now();
-    raf = requestAnimationFrame(frame);
+    // No loop while hidden — requestAnimationFrame would not fire anyway, and
+    // visibilitychange restarts it.
+    if (!document.hidden) raf = requestAnimationFrame(frame);
   }
 
   function stop() {
@@ -198,16 +208,38 @@
     canvas = null; ctx = null; nodes = []; glyphs = [];
   }
 
-  function sync() {
-    if (activeTemplate() === TEMPLATE && !reduced.matches) start();
-    else stop();
+  function sync(attempt) {
+    /* Decide now, and retry on a timer if the theme has not applied yet.
+
+       This used to defer to requestAnimationFrame, which does not fire at all
+       in a hidden tab — so a dashboard opened in a background tab, or in an
+       embedded preview, never mounted the field and never retried. setTimeout
+       still runs there, so the decision is made either way and the loop simply
+       waits for the tab to be shown. */
+    const n = attempt || 0;
+    if (fxEnabled() && !reduced.matches) {
+      if (canvas) { CY = themeVar('--accent-rgb', CY); IN = themeVar('--accent-2-rgb', IN); }
+      else start();
+    } else if (!themeVar('--fx', '') && n < 10) {
+      // Token unreadable: the theme stylesheet is still in flight. Retry
+      // briefly rather than concluding this theme has no field.
+      setTimeout(() => sync(n + 1), 60);
+    } else {
+      stop();
+    }
   }
 
   // A hidden tab should cost nothing; requestAnimationFrame already throttles,
   // but releasing the loop entirely is cheaper and predictable.
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) { if (raf) { cancelAnimationFrame(raf); raf = null; } }
-    else if (canvas && !raf) raf = requestAnimationFrame(frame);
+    if (document.hidden) {
+      if (raf) { cancelAnimationFrame(raf); raf = null; }
+    } else if (canvas && !raf) {
+      raf = requestAnimationFrame(frame);
+    } else if (!canvas) {
+      // Became visible having never mounted — a tab opened in the background.
+      sync();
+    }
   });
 
   if (reduced.addEventListener) reduced.addEventListener('change', sync);

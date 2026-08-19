@@ -1,44 +1,49 @@
 /* ============================================================================
-   SCML dashboard — Template 3. RESERVED.
+   Template 3 — "Obsidian".
 
-   Not yet designed. It inherits Template 1 in full so that selecting it can
-   never produce an unstyled dashboard: the pages carry Tailwind utility
-   classes plus a handful of inline rules, and with no theme layer on top the
-   result is a broken-looking console. On an exhibition machine that is a
-   worse outcome than the slot simply looking familiar.
+   Near-monochrome. Steel and slate on neutral black, with every hue removed
+   from the chrome so that the only colour on screen is a verdict.
 
-   To design this template, delete the @import and write the same roles
-   Template 1 defines. Keeping the role list identical is what lets a viewer
-   switch mid-demo without any page needing to know which template is active:
+   That is the point rather than a limitation. The four verdict colours —
+   green, amber, violet, red — already occupy most of the wheel, so any third
+   accent hue would sit next to one of them: fuchsia beside quarantine violet,
+   gold beside approval amber, lime beside allow green. Draining the chrome
+   sidesteps the collision and makes the status colours louder than they are
+   in either other theme, because nothing else competes.
 
-     Canvas          body background, ambient washes
-     Cards           .glass-panel / .glass — surface, border, radius, blur
-     Status accents  .status-teal / .status-amber / .status-purple
-     Type            headings, .text-label-caps, mono figures
-     Nav rail        nav a, active pill
-     Controls        button, input, textarea, select, focus ring
-     Tables          thead th, tbody tr, hover
-     Status ink      .text-security-teal / .text-error / .text-alert-amber /
-                     .text-quarantine-purple  and the .decision-* classes
-     Badges          [class*="badge-"]
-     Live cues       .live-dot, pulse-dot, flash-red/green/amber
-     Progress        [id$="progress-bar"]
-     Scrollbars      ::-webkit-scrollbar*
-     Motion          prefers-reduced-motion block
+   Structure comes from base.css. This file supplies tokens only.
 
-   Two constraints any template must hold, because they are correctness rather
-   than taste:
-
-   1. The four verdict colours must clear WCAG AA text contrast against that
-      template's own surface. They tell a viewer whether an action was allowed,
-      blocked, quarantined or sent for approval. Verify against the surface the
-      template actually renders on — a palette that passes on near-black will
-      not necessarily pass on a light one.
-
-   2. Colour never carries a verdict alone. Every badge keeps its word beside
-      it, for colour-vision deficiency and for photographs of the screen.
+   Verified against this template's surface (#08090c):
+     allow 10.36:1 · block 7.20:1 · approval 11.93:1 · quarantine 7.32:1
+     accent 13.41:1 · ink 18.17:1 · ink-soft 7.77:1   — all WCAG AA for text.
    ========================================================================= */
 
-@import url("template1.css");
+:root {
+  --bg:            #08090c;
+  --bg-glow-1:     rgba(203,213,225,.055);
+  --bg-glow-2:     rgba(148,163,184,.040);
 
-/* ── Template 3 overrides go below this line ───────────────────────────── */
+  --surface-1:     rgba(255,255,255,.030);
+  --surface-2:     rgba(255,255,255,.055);
+  --hairline:      rgba(255,255,255,.085);
+  --hairline-soft: rgba(255,255,255,.05);
+
+  --ink:      #f1f5f9;
+  --ink-soft: #94a3b8;
+  --ink-mute: #64748b;
+
+  --accent:       #cbd5e1;  --accent-rgb:   203,213,225;
+  --accent-2:     #94a3b8;  --accent-2-rgb: 148,163,184;
+
+  --allow:      #34d399;  --allow-rgb:      52,211,153;
+  --block:      #f87171;  --block-rgb:      248,113,113;
+  --approval:   #fbbf24;  --approval-rgb:   251,191,36;
+  --quarantine: #a78bfa;  --quarantine-rgb: 167,139,250;
+
+  --glow-strength: .35;   /* a trace, so figures lift off the surface */
+  --fx: 1;                /* neural field, drawn in steel */
+}
+
+/* Slightly heavier hairlines carry the structure here, since there is no hue
+   doing that work. */
+.glass-panel, .glass { box-shadow: inset 0 1px 0 rgba(255,255,255,.05), var(--shadow); }

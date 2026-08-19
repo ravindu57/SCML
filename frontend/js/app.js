@@ -107,9 +107,9 @@ window.emergencyLock = async () => {
    reserved slot that looks familiar beats one that looks broken, particularly
    on a machine someone is demonstrating from. */
 window.TEMPLATES = [
-  { id: 'template1', label: 'Template 1', note: 'Glass' },
-  { id: 'template2', label: 'Template 2', note: 'reserved' },
-  { id: 'template3', label: 'Template 3', note: 'reserved' },
+  { id: 'template1', label: 'Template 1', note: 'Aurora' },
+  { id: 'template2', label: 'Template 2', note: 'Jarvis' },
+  { id: 'template3', label: 'Template 3', note: 'Obsidian' },
 ];
 
 window.getTemplate = () => localStorage.getItem('tm_template') || 'template1';
@@ -118,14 +118,20 @@ window.setTemplate = (id) => {
   if (!window.TEMPLATES.some(t => t.id === id)) return;
   localStorage.setItem('tm_template', id);
   const link = document.getElementById('tm-theme');
-  if (link) link.href = `css/${id}.css`;
+  if (link) {
+    /* Announce the change only once the new stylesheet has actually applied.
+       Dispatching immediately raced the swap: fx.js would read --fx off the
+       *old* theme, decide there was nothing to mount, and never re-check — so
+       switching to a theme with a background field left the field absent. */
+    link.addEventListener('load', () => {
+      window.dispatchEvent(new CustomEvent('tm:template', { detail: { id } }));
+    }, { once: true });
+    link.href = `css/${id}.css`;
+  }
   document.querySelectorAll('[data-template-option]').forEach(el => {
     const active = el.dataset.templateOption === id;
     el.setAttribute('aria-current', active ? 'true' : 'false');
   });
-  // fx.js listens for this so the background field follows the theme without
-  // needing a page reload.
-  window.dispatchEvent(new CustomEvent('tm:template', { detail: { id } }));
   const t = window.TEMPLATES.find(x => x.id === id);
   if (typeof showToast === 'function') showToast(`${t.label} applied`, 'info');
 };
