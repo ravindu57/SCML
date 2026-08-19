@@ -226,7 +226,7 @@ input.addEventListener('keydown', e => {
 
   const dash = document.createElement('a');
   dash.className = 'pill'; dash.textContent = 'audit trail ↗';
-  dash.href = `${CFG.mediator.replace(/:\d+$/, ':3000')}/audit.html?api=${encodeURIComponent(CFG.mediator)}&session=${encodeURIComponent(CFG.session)}`;
+  dash.href = `${CFG.dashboard}/audit.html?api=${encodeURIComponent(CFG.mediator)}&session=${encodeURIComponent(CFG.session)}`;
   dash.target = '_blank';
   $('#p-audit').replaceWith(dash);
 

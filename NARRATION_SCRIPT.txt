@@ -1,0 +1,183 @@
+===============================================================================
+ SCML  —  FULL VIDEO NARRATION SCRIPT
+ Team: TRUST ME
+===============================================================================
+
+HOW TO USE THIS SCRIPT
+----------------------
+The video plays in this order:
+
+   ANIMATION (intro -> architecture -> mediation)   ~2:15
+   LIVE DEMO (real screen recording, spliced in)     ~3:00
+   ANIMATION (features -> closing)                   ~1:45
+                                                     --------
+                                                     ~7:00 total
+
+Two ways to voice it:
+  (A) Let the animation narrate itself (press V in the HTML) for the animation
+      parts, and read only the LIVE DEMO part yourself. The animation's built-in
+      narration matches the ANIMATION lines below word-for-word.
+  (B) Mute the animation (press V to toggle off) and read the WHOLE script below
+      in your own voice, for one consistent narrator.
+
+Timings are approximate. Speak at a calm, even pace. [ ] = stage direction.
+
+Honesty guardrails (keep these true on camera):
+  - The scanner is a heuristic + policy engine, NOT a trained AI model.
+  - Enforcement, the audit chain, and fail-closed behaviour are the real,
+    provable parts. Don't claim detection accuracy — that's future scope.
+
+
+===============================================================================
+ PART 1 — ANIMATION : SOLUTION OVERVIEW   (~0:00 – 2:15)
+===============================================================================
+
+--- INTRO  (0:00 – 0:28) -------------------------------------------------------
+[TRUST ME title / "Presented by TRUST ME" appears]
+
+"An AI agent reads everything you give it — your question, a retrieved document,
+ the output of a tool, its own memory. To the model, all of that is just text.
+ A retrieved document can issue orders, and the model cannot tell the difference.
+ SCML is a secure middleware layer built for exactly this problem."
+
+
+--- ARCHITECTURE / THE LAYERS  (0:28 – 1:28) -----------------------------------
+[the 3D machine assembles; six layers pull apart]
+
+"Seen as one block, the system looks simple. Pull it apart, and six layers
+ appear. The host application — where your agent and its tools actually run —
+ sits outside the trust boundary. Then transport and ingress. The mediation
+ pipeline itself. Policy and governance. Evidence and audit. And the runtime it
+ all stands on. One thing stays outside: tool execution stays in the host
+ application. SCML authorises a tool call — it never executes one."
+
+
+--- MEDIATION / THE MODULES  (1:28 – 2:15) -------------------------------------
+[the five module cards appear; the decision chips fan out]
+
+"Five modules make the decision. The trust router labels and separates. The
+ injection scanner scores content against known manipulation patterns and
+ thresholds the result. The tool policy engine checks the allow-list, the
+ argument schema, and the rate limit. The memory layer quarantines and scores
+ candidate writes. And the redactor strips secrets on the way out. The answer is
+ not simply allow or block — it can transform, escalate, quarantine, reject, or
+ hold for a human. And every one of those outcomes is audited."
+
+
+===============================================================================
+ PART 2 — LIVE DEMO : THE REAL SYSTEM   (~2:15 – 5:15)
+ [Cut from the animation to your screen recording here]
+===============================================================================
+
+--- 2.1  SWAGGER API  (~0:00 – 0:25 of the live section) -----------------------
+[Browser on http://localhost:8000/docs. Expand POST /v1/mediate/tool-call,
+ Try it out, send tool_name "delete_all_files", agent "default", Execute.]
+
+"SCML isn't a mockup — it's a running service. Every mediation decision is a real
+ endpoint. Here I ask the gateway to authorise a destructive tool call... and it
+ returns 'deny — not allowlisted'. Anything not explicitly permitted is refused."
+
+
+--- 2.2  DASHBOARD  (~0:25 – 0:50) ---------------------------------------------
+[Switch to the Command Center, index.html. Point at the top status row.]
+
+"This is the security command center. The gateway is active, and fail-closed is
+ ready — if the mediator ever errors, side effects are denied by default. Live
+ latency, total requests, and a running audit trail — all pulled from the live
+ API."
+
+
+--- 2.3  LIVE AGENT DEMO  (~0:50 – 1:45) ---------------------------------------
+[Switch to the Live Agent Demo. Wait for a fresh mission to start from step 1.
+ Let it play; follow the event history as decisions land.]
+
+"Now a real autonomous agent runs a research mission through the gateway, and
+ every step is mediated live. A safe web search — allowed. Then the attacks: a
+ prompt injection hidden in retrieved content — blocked. A memory-poisoning write
+ — rejected. An unauthorised tool, and a destructive tool — both denied. Four
+ threats intercepted, the legitimate work allowed. And every single decision is
+ written to a tamper-evident chain, shown here on the right."
+
+
+--- 2.4  TRAFFIC  (~1:45 – 2:10) -----------------------------------------------
+[Nav to Traffic. It auto-loads the demo session. Click a BLOCKED row to open
+ Scanner Details.]
+
+"Every value entering the agent is intercepted and labelled by where it came
+ from. Here's a session's ingress feed, bucketed into trust zones — clean,
+ escalated, blocked. Click any envelope, and the scanner shows the score and the
+ exact patterns it matched. This is the provenance and injection-scanning layer,
+ in the open."
+
+
+--- 2.5  TOOL POLICIES  (~2:10 – 2:35) -----------------------------------------
+[Nav to Tool Policies. Point at research-agent's four tools and the deny-all
+ default agent.]
+
+"Agents get least agency by default. Each agent carries a declarative allow-list:
+ the research agent may call only these four tools — everything else is denied.
+ The default policy allows no tools at all. And policies are versioned, so every
+ change is tracked and reversible."
+
+
+--- 2.6  MEMORY INTEGRITY  (~2:35 – 3:00) --------------------------------------
+[Nav to Memory Integrity. Show the quarantined entries. Hover Release / Purge.]
+
+"Long-term memory is where a poisoning attack persists, so every candidate write
+ is scored before it's stored. High-risk writes are rejected outright; borderline
+ ones are quarantined for human review — here are two, held pending approval. A
+ reviewer can release or purge each. Nothing suspicious reaches memory silently."
+
+
+--- 2.7  AUDIT LOGS  (~3:00 – 3:15) --------------------------------------------
+[Nav to Audit Logs. It auto-loads the session. Point at the chained events and
+ the 'chain valid' indicator.]
+
+"Finally, the evidence. Every decision in a session is SHA-256 hash-chained —
+ each entry linked to the one before it. The whole session can be replayed and
+ verified: chain valid. Tamper with a single record, and verification fails.
+ That's the auditable core of SCML."
+
+
+===============================================================================
+ PART 3 — ANIMATION : FEATURES & CLOSING   (~5:15 – 7:00)
+ [Cut back to the animation here]
+===============================================================================
+
+--- FEATURES & TECH STACK  (~5:15 – 6:00) --------------------------------------
+[the ten feature cards and the technology stack appear]
+
+"One layer, several defences. Provenance labelling and taint propagation.
+ Injection scanning. Least-agency tool policy. Human-in-the-loop escalation.
+ Memory integrity. Output redaction. And a tamper-evident audit chain behind all
+ of it — fail-closed by default. Built on FastAPI, PostgreSQL and Redis.
+ Containerised, and ready to deploy. Every technology named here is one this
+ project actually uses."
+
+
+--- CLOSING : IMPACT  (~6:00 – 6:30) -------------------------------------------
+["Labelled. Mediated. Auditable." then the impact beat]
+
+"Labelled. Mediated. Auditable. Agentic AI is being deployed faster than it is
+ being secured — and the core weakness, instructions and data sharing one
+ channel, has no fix inside the model. SCML gives teams one auditable control
+ point between the agent and the real world: every action labelled, mediated,
+ and logged to a tamper-evident chain. It turns 'trust the model' into 'verify
+ every side effect'."
+
+
+--- CLOSING : FUTURE SCOPE & SIGN-OFF  (~6:30 – 7:00) --------------------------
+[the future-scope roadmap rows, then the SCML title reveal]
+
+"What's next: a trained classifier to drive injection attack-success-rate toward
+ the sub-ten-percent target, and external validation on the AgentDojo and
+ InjecAgent benchmarks. Then a sandboxed tool executor, and production hardening
+ with TLS and a secrets manager. The layer is built; the roadmap is making its
+ detection provably strong.
+
+ SCML — a secure middleware layer for agentic AI. Built for a safer digital
+ future."
+
+===============================================================================
+ END
+===============================================================================

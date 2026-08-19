@@ -15,6 +15,9 @@ import { corpusIndex, TOOLS, AGENT_ID, TOOLLESS_ROLES } from './agents.js';
 import * as scml from './scml.js';
 
 const PORT = Number(process.env.PORT || 4100);
+/* Where the dashboard is served. Defaults to the mediator's host on 3100,
+   which is what run-demo.sh starts; override when it lives elsewhere. */
+const DASHBOARD_URL = (process.env.DASHBOARD_URL || '').replace(/\/+$/, '');
 const SESSION = process.env.SCML_SESSION || 'orchestration-live';
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 
@@ -79,6 +82,7 @@ const server = http.createServer(async (req, res) => {
         mediatorHealthy: h.ok,
         mediatorDetail: h.detail,
         mode: process.env.ANTHROPIC_API_KEY ? 'llm' : 'deterministic',
+        dashboard: DASHBOARD_URL || scml.mediatorUrl.replace(/:\d+$/, ':3100'),
         corpus: corpusIndex(),
         agents: Object.entries(AGENT_ID).map(([role, id]) => {
           const reachable = TOOLS.filter(t => t.role === role).map(t => t.name);

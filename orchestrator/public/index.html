@@ -199,7 +199,7 @@ form.addEventListener('submit', e => {
   $('#p-mode').textContent = 'planner: ' + CFG.mode;
   $('#p-sess').textContent = 'session: ' + CFG.session;
   $('#p-audit').href =
-    `${CFG.mediator.replace(/:\d+$/, ':3000')}/audit.html?api=${encodeURIComponent(CFG.mediator)}&session=${encodeURIComponent(CFG.session)}`;
+    `${CFG.dashboard}/audit.html?api=${encodeURIComponent(CFG.mediator)}&session=${encodeURIComponent(CFG.session)}`;
 
   // `granted` is what policy allows. `denied` is what the agent will still
   // try to call — the tools that make the demo work. Showing them as one list
