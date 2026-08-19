@@ -2,7 +2,7 @@
 
 **Trust-Aware Context Mediation Middleware for Securing Agentic AI and RAG Systems**
 
-[![Tests](https://img.shields.io/badge/tests-297%20passed%20%7C%20303%20with%20grpc-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-405%20passed-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ---
 
@@ -121,27 +121,54 @@ The service will be live at **http://localhost:8000**.
 
 ## Dashboard
 
-`deploy.sh` starts the API only. To bring up the API **and** the web dashboard
-together:
+One command brings up the mediator, the dashboard and both agent systems:
 
 ```bash
-bash start.sh     # API :8000 + dashboard :3000 + agent orchestrator :3001
-bash stop.sh      # tear it all down
+bash run-demo.sh          # mediator :8000, dashboard :3100, agents :4000 and :4100
+bash run-demo.sh --stop   # tear down only what it started
 ```
 
-Six pages, all reading live data from the API:
+It merges the two agent policy documents before loading them — `PUT /v1/policy`
+replaces the whole document, so loading them separately would silently
+deny-all whichever went first — and finishes by running an injection end to
+end, failing loudly if nothing gets blocked.
 
 | Page | URL | Shows |
 |---|---|---|
-| Command Center | http://localhost:3000/index.html | Latency, throughput, live audit trail |
-| Live Agent Demo | http://localhost:3000/demo.html | An agent driven through the mediator in real time |
-| Traffic | http://localhost:3000/traffic.html | Per-decision feed: allow / block / quarantine |
-| Tool Policies | http://localhost:3000/policy.html | Per-agent allow-lists, redaction rules, version history |
-| Memory Integrity | http://localhost:3000/memory.html | Quarantined writes awaiting review, integrity scores |
-| Audit Logs | http://localhost:3000/audit.html | Full replay with hash-chain verification |
+| Command Center | http://localhost:3100/index.html | Mediation calls, latency, live audit trail |
+| Live Agent Demo | http://localhost:3100/demo.html | Every decision as it lands, polled from the audit trail |
+| Traffic | http://localhost:3100/traffic.html | Per-decision feed: allow / block / quarantine |
+| Tool Policies | http://localhost:3100/policy.html | Per-agent allow-lists, redaction config, version history |
+| Memory Integrity | http://localhost:3100/memory.html | Quarantined writes awaiting review, integrity scores |
+| Audit Logs | http://localhost:3100/audit.html | Full replay with hash-chain verification |
 
-The dashboard is static HTML — no build step. It talks to `http://localhost:8000`,
-so the API must be running.
+The dashboard is static HTML — no build step. Pass `?api=` and `?session=` to
+point it at a mediator that is not on localhost, which is the normal case when
+an agent runs on a second machine:
+
+```
+audit.html?api=http://192.168.1.42:8000&session=orchestration-live
+```
+
+Three themes ship (Aurora, Jarvis, Obsidian), selectable from the nav rail;
+structure is shared in `css/base.css` so they differ only in palette.
+
+### Agent systems
+
+| | Port | What it demonstrates |
+|---|---|---|
+| [`demo-agent/`](demo-agent/) | 4000 | Single agent, chat box — you type the injection |
+| [`orchestrator/`](orchestrator/) | 4100 | Four agents; the injection arrives inside a document the agent fetches |
+
+### Fail-closed demonstration
+
+Stop the mediator while leaving the agents running, and every action is
+refused — including harmless ones — because authorisation cannot be obtained:
+
+```bash
+bash run-demo.sh --stop-mediator    # agents stay up
+bash run-demo.sh --start-mediator   # recovers in seconds
+```
 
 ## API Endpoints
 
@@ -166,7 +193,7 @@ Interactive docs: **http://localhost:8000/docs**
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"       # [dev] pulls in [server] and [ml]
 .venv/bin/pytest tests/ -q
-# Expected: 393 passed, 1 skipped
+# Expected: 404 passed, 1 skipped
 ```
 
 The skip is `tests/integration/test_grpc_api.py`, which needs the optional gRPC
@@ -175,7 +202,7 @@ transport. Install that extra to run the full suite:
 ```bash
 .venv/bin/pip install -e ".[dev,grpc]"
 .venv/bin/pytest tests/ -q
-# Expected: 394 passed
+# Expected: 405 passed
 ```
 
 The TypeScript client has its own suite (Node 18+, no test framework):
