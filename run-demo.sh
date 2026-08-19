@@ -49,19 +49,31 @@ ORCH_PORT=4100
 # `--stop` would take the agents down too, which just shows a dead website.
 # The point of the demonstration is the opposite: the agent is alive and
 # willing, and still cannot act, because it cannot obtain authorisation.
+# Find the mediator by what it is running, not by a recorded pid.
+#
+# The pid file is unreliable here: processes are launched through `setsid`,
+# which forks and lets the parent exit, so `$!` captures a pid that is already
+# dead by the time anyone reads it. Matching the uvicorn command line is exact
+# — it cannot select anything but this mediator — and it survives the process
+# being restarted by any means.
+mediator_pids() { pgrep -f "uvicorn trust_mediator.api.app:app" 2>/dev/null; }
+
 if [[ "${1:-}" == "--stop-mediator" ]]; then
-  pid=$(cat "$RUN/mediator.pid" 2>/dev/null || echo)
-  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-    kill "$pid" 2>/dev/null
-    for _ in $(seq 1 20); do
-      (exec 3<>"/dev/tcp/127.0.0.1/8000") 2>/dev/null || break
-      sleep 0.3
-    done
-    echo -e "\n${R}  ✖ mediator stopped${N} — agents on :4000 and :4100 are still running."
-    echo -e "    Run any task now: every action fails CLOSED.\n"
-  else
+  pids=$(mediator_pids)
+  if [[ -z "$pids" ]]; then
     warn "mediator was not running"
+    exit 0
   fi
+  kill $pids 2>/dev/null
+  for _ in $(seq 1 20); do
+    mediator_pids >/dev/null || break
+    sleep 0.3
+  done
+  # Anything still holding on gets a firmer request.
+  pids=$(mediator_pids) && [[ -n "$pids" ]] && kill -9 $pids 2>/dev/null
+  rm -f "$RUN/mediator.pid"
+  echo -e "\n${R}  ✖ mediator stopped${N} — agents on :4000 and :4100 are still running."
+  echo -e "    Run any task now: every action fails CLOSED.\n"
   exit 0
 fi
 
@@ -72,11 +84,12 @@ if [[ "${1:-}" == "--start-mediator" ]]; then
       TRUST_MEDIATOR_API_KEYS="" \
       "$VENV/bin/uvicorn" trust_mediator.api.app:app --host 0.0.0.0 --port 8000 \
       > "$RUN/mediator.log" 2>&1 < /dev/null &
-  echo $! > "$RUN/mediator.pid"
   for _ in $(seq 1 40); do
     curl -sf "http://127.0.0.1:8000/health" >/dev/null 2>&1 && break
     sleep 0.5
   done
+  # Record the pid that is actually serving, not setsid's short-lived parent.
+  mediator_pids | head -1 > "$RUN/mediator.pid" 2>/dev/null || true
   if curl -sf "http://127.0.0.1:8000/health" >/dev/null 2>&1; then
     echo -e "\n${G}  ✔ mediator restored${N} — $(curl -s http://127.0.0.1:8000/health)"
     echo -e "    Run the same task again: it now completes.\n"
