@@ -146,19 +146,46 @@ window.parseMetrics = (text) => {
   return out;
 };
 
-/* Avg latency in ms across all /v1/ endpoints */
+/* Mean latency of a mediation decision, in ms.
+
+   Scoped to /v1/mediate/* for the same reason as the count below: averaging
+   across all /v1/* let audit-replay polling dominate the figure, so the tile
+   described how fast this page reads its own history rather than how long the
+   mediator takes to decide. The latter is the number that matters on a
+   security console, and the one an NFR is written against. */
 window.calcAvgLatencyMs = (m) => {
   const sums   = m['trustmediator_request_duration_seconds_sum']   || [];
   const counts = m['trustmediator_request_duration_seconds_count'] || [];
+  const mediation = x => (x.labels.endpoint || '').startsWith('/v1/mediate/');
   let s = 0, c = 0;
-  sums.filter(x => (x.labels.endpoint||'').startsWith('/v1/')).forEach(x => s += x.value);
-  counts.filter(x => (x.labels.endpoint||'').startsWith('/v1/')).forEach(x => c += x.value);
+  sums.filter(mediation).forEach(x => s += x.value);
+  counts.filter(mediation).forEach(x => c += x.value);
   return c ? (s / c * 1000).toFixed(1) : '—';
 };
 
+/* Mediation calls the agent actually made.
+
+   This counted every /v1/* request, which meant it counted the dashboard. This
+   page polls /v1/audit/replay/<session> every 10 seconds, so the tile climbed
+   on its own with no agent running at all — at one point 1013 of 1042 "requests"
+   were this page refreshing itself, against 14 real mediation calls. A console
+   that reports its own polling as agent traffic is measuring the observer.
+
+   Restricted to /v1/mediate/*: context, tool-call, output, memory read/write.
+   Those are decisions the mediator made about an agent's behaviour, which is
+   what the tile is read as meaning. Audit replay, policy reads and health are
+   the dashboard talking to itself and are excluded.
+
+   The mediator declares trustmediator_requests_total ("Total mediation
+   requests") with a decision label, which would be the right source, but
+   nothing increments it — it has a HELP line and no samples. Until that is
+   wired up, the latency histogram's count is the only per-endpoint tally
+   available. */
 window.calcThroughput = (m) => {
   const counts = m['trustmediator_request_duration_seconds_count'] || [];
-  return counts.filter(x => (x.labels.endpoint||'').startsWith('/v1/')).reduce((a,x) => a + x.value, 0);
+  return counts
+    .filter(x => (x.labels.endpoint || '').startsWith('/v1/mediate/'))
+    .reduce((a, x) => a + x.value, 0);
 };
 
 window.fmtTime = (iso) => iso ? new Date(iso).toLocaleTimeString('en-GB', {hour12:false}) : '—';
