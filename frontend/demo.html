@@ -399,6 +399,7 @@ function render(e) {
 
   $('flow1').className = `flow-particle ${isBlock ? 'bg-red/70' : 'bg-blue/70'}`;
   $('flow2').className = `flow-particle ${isAllow ? 'bg-teal/70' : 'bg-red/70'}`;
+  emitPulse(e, isBlock, isAllow, isGate);
 
   // Feed
   const feed = $('event-feed');
@@ -428,6 +429,44 @@ function render(e) {
     state.tool++;   // an approval gate is the tool policy intervening
   }
   updateStats();
+}
+
+/* Send a pulse along the AI AGENT → MEDIATING → ENVIRONMENT bus for each real
+   decision, tinted by that decision's verdict.
+
+   The motion is tied to data on purpose. An ambient animation that runs
+   regardless of what the mediator is doing would be a decoration pretending to
+   be telemetry, and on a security console that is the same mistake as a panel
+   of invented numbers. One pulse here means one audited event, and its colour
+   is the colour of the verdict shown beside it.
+
+   Direction carries meaning too: an allowed action continues outward to the
+   environment, a refused one is turned back toward the agent.
+
+   No-ops unless the active template styles .tm-pulse, so Template 1 is
+   unaffected. */
+function emitPulse(e, isBlock, isAllow, isGate) {
+  const rails = [$('flow1'), $('flow2')].filter(Boolean);
+  if (!rails.length) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  const tone = isBlock ? 'v-block'
+             : isGate  ? 'v-approval'
+             : isAllow ? 'v-allow'
+             : e.verdict === 'quarantine' ? 'v-quarantine'
+             : 'v-neutral';
+
+  rails.forEach((rail, i) => {
+    const pulse = document.createElement('span');
+    // A refused action is turned back: outbound on the first rail, returning
+    // on the second.
+    pulse.className = `tm-pulse ${tone}` + (isBlock && i === 1 ? ' reverse' : '');
+    pulse.style.animationDelay = `${i * 180}ms`;
+    rail.appendChild(pulse);
+    // Remove on completion — an accumulating DOM would leak across a long run.
+    pulse.addEventListener('animationend', () => pulse.remove(), { once: true });
+    setTimeout(() => pulse.remove(), 2600);   // belt and braces if the event is missed
+  });
 }
 
 function updateStats() {
@@ -492,5 +531,6 @@ async function poll() {
 poll();
 setInterval(poll, POLL_MS);
 </script>
+<script src="js/fx.js"></script>
 </body>
 </html>

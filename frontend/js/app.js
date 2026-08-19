@@ -123,6 +123,9 @@ window.setTemplate = (id) => {
     const active = el.dataset.templateOption === id;
     el.setAttribute('aria-current', active ? 'true' : 'false');
   });
+  // fx.js listens for this so the background field follows the theme without
+  // needing a page reload.
+  window.dispatchEvent(new CustomEvent('tm:template', { detail: { id } }));
   const t = window.TEMPLATES.find(x => x.id === id);
   if (typeof showToast === 'function') showToast(`${t.label} applied`, 'info');
 };
