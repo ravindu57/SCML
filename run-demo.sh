@@ -5,6 +5,10 @@
 #   bash run-demo.sh          start everything and verify it
 #   bash run-demo.sh --stop   shut down only what this script started
 #
+#   Fail-closed demonstration (agents stay up, mediator does not):
+#   bash run-demo.sh --stop-mediator
+#   bash run-demo.sh --start-mediator
+#
 # Run this in YOUR OWN terminal. Processes started here are detached with
 # setsid so they survive the shell that launched them.
 #
@@ -38,6 +42,50 @@ MEDIATOR_PORT=8000
 DASH_PORT=3100
 AGENT_PORT=4000
 ORCH_PORT=4100
+
+# ── Fail-closed demonstration ────────────────────────────────────────────────
+# Stop and start ONLY the mediator, leaving the agent consoles running.
+#
+# `--stop` would take the agents down too, which just shows a dead website.
+# The point of the demonstration is the opposite: the agent is alive and
+# willing, and still cannot act, because it cannot obtain authorisation.
+if [[ "${1:-}" == "--stop-mediator" ]]; then
+  pid=$(cat "$RUN/mediator.pid" 2>/dev/null || echo)
+  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null
+    for _ in $(seq 1 20); do
+      (exec 3<>"/dev/tcp/127.0.0.1/8000") 2>/dev/null || break
+      sleep 0.3
+    done
+    echo -e "\n${R}  ✖ mediator stopped${N} — agents on :4000 and :4100 are still running."
+    echo -e "    Run any task now: every action fails CLOSED.\n"
+  else
+    warn "mediator was not running"
+  fi
+  exit 0
+fi
+
+if [[ "${1:-}" == "--start-mediator" ]]; then
+  VENV="$DIR/.venv"
+  [[ -x "$VENV/bin/uvicorn" ]] || VENV="$(cd "$DIR/../../.." && pwd)/.venv"
+  setsid nohup env DATABASE_URL="" TRUST_MEDIATOR_ENV=development REDIS_URL="" \
+      TRUST_MEDIATOR_API_KEYS="" \
+      "$VENV/bin/uvicorn" trust_mediator.api.app:app --host 0.0.0.0 --port 8000 \
+      > "$RUN/mediator.log" 2>&1 < /dev/null &
+  echo $! > "$RUN/mediator.pid"
+  for _ in $(seq 1 40); do
+    curl -sf "http://127.0.0.1:8000/health" >/dev/null 2>&1 && break
+    sleep 0.5
+  done
+  if curl -sf "http://127.0.0.1:8000/health" >/dev/null 2>&1; then
+    echo -e "\n${G}  ✔ mediator restored${N} — $(curl -s http://127.0.0.1:8000/health)"
+    echo -e "    Run the same task again: it now completes.\n"
+  else
+    err "mediator did not come back. Log: $RUN/mediator.log"
+    exit 1
+  fi
+  exit 0
+fi
 
 # ── Stop ─────────────────────────────────────────────────────────────────────
 if [[ "${1:-}" == "--stop" ]]; then
@@ -239,6 +287,7 @@ fi
 
 cat <<EOF
 
+  Fail-closed demo: ${W}bash run-demo.sh --stop-mediator${N}  then  ${W}--start-mediator${N}
   Stop everything:  ${W}bash run-demo.sh --stop${N}
   Logs:             $RUN/
 ${C}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${N}
