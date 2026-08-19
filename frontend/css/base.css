@@ -220,11 +220,19 @@ tbody td { color: var(--ink-soft); }
 
 /* ── Background field ─────────────────────────────────────────────────────
    Canvas mounted by js/fx.js on templates that opt in via --fx: 1. */
+/* Negative z-index puts the field behind in-flow content without touching the
+   content at all.
+
+   The previous approach raised every direct child of <body> with
+   `body > *:not(#tm-fx) { position: relative }`. That silently overrode the
+   Tailwind `fixed` class on the header and the nav rail, dropping both into
+   normal flow: they stacked vertically, pushed <main> down by ~800px, and left
+   a large blank band across every page. A layering fix has no business
+   changing anyone's positioning. */
 #tm-fx {
   position: fixed; inset: 0; width: 100%; height: 100%;
-  z-index: 0; pointer-events: none; opacity: .5;
+  z-index: -1; pointer-events: none; opacity: .5;
 }
-body > *:not(#tm-fx) { position: relative; z-index: 1; }
 
 /* ── Misc ─────────────────────────────────────────────────────────────────*/
 .scanlines { background: rgba(0,0,0,.22) !important; }
