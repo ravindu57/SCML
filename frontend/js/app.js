@@ -6,7 +6,7 @@ const PAGES = [
   { id: 'traffic',   label: 'Traffic',            icon: 'security',        href: 'traffic.html' },
   { id: 'policy',    label: 'Tool Policies',      icon: 'shield_lock',     href: 'policy.html' },
   { id: 'memory',    label: 'Memory Integrity',   icon: 'memory',          href: 'memory.html' },
-  { id: 'redaction', label: 'Output Redaction',   icon: 'visibility_off',  href: 'policy.html#redaction' },
+  { id: 'redaction', label: 'Output Redaction',   icon: 'visibility_off',  href: 'redaction.html' },
   { id: 'audit',     label: 'Audit Logs',         icon: 'receipt_long',    href: 'audit.html' },
 ];
 

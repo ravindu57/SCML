@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>scml - middleware layer secure — Output Redaction</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+<script>
+tailwind.config={darkMode:"class",theme:{extend:{colors:{"surface-container-low":"#121826","primary":"#60a5fa","surface-bright":"#232c3f","success-emerald":"#34d399","surface-dim":"#0b0f17","outline-variant":"#263043","error":"#f87171","surface-container-high":"#1b2333","on-surface":"#e8ecf5","background":"#0b0f17","mediation-blue":"#60a5fa","security-teal":"#34d399","on-surface-variant":"#95a3bd","surface-container":"#151c2c","surface-variant":"#1b2333","surface-charcoal":"#141b28","alert-amber":"#fbbf24","surface":"#0b0f17","primary-container":"#3b82f6","outline":"#5d6b85","quarantine-purple":"#a78bfa","inverse-surface":"#e8ecf5"},fontFamily:{mono:["JetBrains Mono","monospace"]},fontSize:{"headline-xl":["48px",{lineHeight:"1.2",fontWeight:"700"}],"headline-lg":["32px",{lineHeight:"1.3",fontWeight:"600"}],"headline-md":["24px",{lineHeight:"1.4",fontWeight:"600"}],"label-caps":["12px",{lineHeight:"1.2",letterSpacing:"0.1em",fontWeight:"600"}],"code-sm":["13px",{lineHeight:"1.5"}],"body-sm":["14px",{lineHeight:"1.5"}]}}}}
+</script>
+<style>
+.glass-panel{background:rgba(19,27,46,.8);backdrop-filter:blur(12px);border:1px solid rgba(63,71,83,.3)}
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:#0b1326}::-webkit-scrollbar-thumb{background:#3f4753;border-radius:4px}::-webkit-scrollbar-thumb:hover{background:#0798FF}
+.scanlines::before{content:" ";display:block;position:absolute;top:0;left:0;bottom:0;right:0;background:linear-gradient(rgba(18,16,16,0) 50%,rgba(0,0,0,.18) 50%),linear-gradient(90deg,rgba(255,0,0,.04),rgba(0,255,0,.015),rgba(0,0,255,.04));z-index:2;background-size:100% 2px,3px 100%;pointer-events:none;opacity:.08}
+</style>
+<link rel="stylesheet" href="css/base.css"/>
+<link rel="stylesheet" id="tm-theme" href="css/template1.css"/>
+<script>
+/* Apply the saved template before first paint — see policy.html for why this
+   is inline rather than in app.js. */
+(function () {
+  try {
+    var t = localStorage.getItem('tm_template');
+    if (t && /^template[123]$/.test(t)) {
+      document.getElementById('tm-theme').href = 'css/' + t + '.css';
+    }
+  } catch (e) { /* storage blocked — the default link already applied */ }
+})();
+</script>
+</head>
+<body class="bg-background text-on-surface font-sans antialiased overflow-x-hidden">
+
+<header class="fixed top-0 left-0 w-full z-50 h-16 flex items-center justify-between px-10 bg-surface-dim/80 backdrop-blur-xl border-b border-outline-variant/30">
+  <div id="top-bar-title" class="text-mediation-blue font-bold text-xl tracking-tight">scml - middleware layer secure</div>
+</header>
+
+<nav id="side-nav" class="fixed left-0 top-0 h-full z-40 flex flex-col pt-20 pb-8 bg-surface-container-low/90 backdrop-blur-md border-r border-outline-variant/20 w-64"></nav>
+
+<main class="ml-64 pt-20 px-6 pb-12 min-h-screen">
+
+  <!-- Header -->
+  <div class="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-8 border-b border-outline-variant/30 pb-4">
+    <div>
+      <h1 class="text-headline-lg text-on-surface font-bold tracking-tight flex items-center gap-3">
+        <span class="material-symbols-outlined text-alert-amber text-[32px]" style="font-variation-settings:'FILL' 1">visibility_off</span>
+        Output Redaction
+      </h1>
+      <p class="text-body-sm text-on-surface-variant mt-2 max-w-2xl">
+        The last gate before content leaves the system. Every outbound response is
+        scanned for protected values and either redacted or blocked — this is the
+        control that fires when an agent has already been convinced to leak.
+      </p>
+    </div>
+    <div class="flex items-center gap-3">
+      <div class="flex items-center glass-panel rounded-lg px-3 py-2 gap-2">
+        <span class="material-symbols-outlined text-[18px] text-outline">manage_search</span>
+        <input id="session-filter" type="text" value="agent-live" placeholder="Session ID…"
+          class="bg-transparent border-none focus:ring-0 text-code-sm text-on-surface w-36 placeholder:text-outline"/>
+      </div>
+      <button onclick="loadRedaction()" class="bg-transparent border border-outline-variant text-on-surface-variant px-4 py-2 rounded text-label-caps hover:border-primary hover:text-primary transition-all flex items-center gap-2">
+        <span class="material-symbols-outlined text-[18px]">refresh</span> Reload
+      </button>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+    <div class="glass-panel rounded-lg p-4 flex flex-col gap-1">
+      <div class="text-label-caps text-on-surface-variant">Egress Checks</div>
+      <div id="stat-checks" class="text-headline-xl text-mediation-blue">—</div>
+    </div>
+    <div class="glass-panel rounded-lg p-4 flex flex-col gap-1">
+      <div class="text-label-caps text-on-surface-variant">Values Redacted</div>
+      <div id="stat-redacted" class="text-headline-xl text-alert-amber">—</div>
+    </div>
+    <div class="glass-panel rounded-lg p-4 flex flex-col gap-1">
+      <div class="text-label-caps text-on-surface-variant">Egress Blocked</div>
+      <div id="stat-egress-blocked" class="text-headline-xl text-error">—</div>
+    </div>
+    <div class="glass-panel rounded-lg p-4 flex flex-col gap-1">
+      <div class="text-label-caps text-on-surface-variant">PII Patterns</div>
+      <div id="stat-pii" class="text-headline-xl text-security-teal">—</div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+
+    <!-- Active configuration -->
+    <div class="xl:col-span-5">
+      <h2 class="text-headline-md text-on-surface flex items-center gap-2 mb-4">
+        <span class="material-symbols-outlined text-alert-amber">rule</span> Active Rules
+      </h2>
+      <div class="glass-panel rounded-lg overflow-hidden relative">
+        <div class="absolute -top-10 -right-10 w-32 h-32 bg-alert-amber/10 rounded-full blur-2xl pointer-events-none"></div>
+        <div class="p-4 border-b border-outline-variant/20 bg-surface-dim/40">
+          <span class="text-label-caps text-on-surface-variant">From the active policy document</span>
+        </div>
+        <div id="redaction-rules">
+          <div class="px-4 py-6 text-center text-on-surface-variant text-body-sm">Loading…</div>
+        </div>
+      </div>
+
+      <div class="glass-panel rounded-lg p-4 mt-4 border-l-2 border-mediation-blue/50">
+        <div class="text-label-caps text-on-surface-variant mb-2">Why this is the last gate, not the first</div>
+        <p class="text-body-sm text-on-surface-variant leading-relaxed">
+          Redaction runs on content the agent has already decided to send. It cannot
+          tell whether the agent was tricked — only whether what it is about to emit
+          contains something protected. That makes it the backstop behind tool
+          policy, not a substitute for it: an action that was never authorised
+          never produces output to redact.
+        </p>
+      </div>
+    </div>
+
+    <!-- Live egress log -->
+    <div class="xl:col-span-7">
+      <h2 class="text-headline-md text-on-surface flex items-center gap-2 mb-4">
+        <span class="material-symbols-outlined text-error">gpp_bad</span> Egress Decisions
+      </h2>
+      <div class="glass-panel rounded-lg overflow-hidden relative scanlines flex flex-col" style="min-height:420px">
+        <div class="bg-surface-charcoal px-4 py-2 border-b border-outline-variant/30 flex justify-between items-center font-mono text-[11px] text-outline">
+          <span>LIVE_INTERCEPT // <span id="log-session">—</span></span>
+          <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-error animate-pulse"></span> REC</span>
+        </div>
+        <div id="exfil-log" class="p-4 font-mono text-[12px] flex flex-col gap-2 overflow-y-auto flex-1" style="color:#bfc7d5;max-height:520px">
+          <div class="text-outline animate-pulse">Loading intercept log…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+<script>
+renderNav('redaction');
+
+/* Output redaction had no page. The nav pointed at policy.html#redaction, so
+   clicking it landed on the Policy Control Center with "Tool Policies"
+   highlighted and the redaction panel a sub-card in the right column — the
+   nav item appeared to do nothing, or worse, to be broken.
+
+   The four fields it renders are the mediator's real redaction config; the
+   invented rule table that used to be here is described in policy.html's
+   history. The counters come from audit events, not from configuration. */
+async function loadRedaction() {
+  const session = document.getElementById('session-filter').value.trim() || window.SESSION.DEFAULT;
+  window.SESSION.set(session);
+  document.getElementById('log-session').textContent = session;
+
+  try {
+    const data = await API.getPolicy();
+    renderRedaction(data.policy || data);
+  } catch (e) {
+    document.getElementById('redaction-rules').innerHTML =
+      `<div class="px-4 py-6 text-center text-error text-body-sm">Policy unavailable: ${esc(e.message)}</div>`;
+  }
+
+  renderInterceptLog(session);
+}
+
+/* Same four fields the policy page shows, rendered here as the page's subject
+   rather than a side panel. Kept in sync deliberately: this reads the live
+   policy document, so there is one source and two views of it. */
+function renderRedaction(policy) {
+  const r = policy.redaction || {};
+  const classes = r.protected_classes || [];
+  const flows = r.data_flow_rules || {};
+
+  document.getElementById('stat-pii').textContent = r.pii_patterns_enabled ? 'ON' : 'OFF';
+  document.getElementById('stat-pii').className =
+    `text-headline-xl ${r.pii_patterns_enabled ? 'text-security-teal' : 'text-error'}`;
+
+  const row = (name, badge, badgeClass, left, right) => `
+    <div class="px-4 py-3 border-b border-outline-variant/10 flex flex-col gap-2 hover:bg-surface-charcoal/50 transition-colors">
+      <div class="flex justify-between items-center">
+        <span class="font-mono text-code-sm text-inverse-surface font-bold">${esc(name)}</span>
+        <span class="${badgeClass} px-2 py-0.5 rounded text-label-caps text-[10px]">${esc(badge)}</span>
+      </div>
+      <div class="flex justify-between gap-3 text-on-surface-variant font-mono text-[12px]">
+        <span>${esc(left)}</span><span class="text-right">${esc(right)}</span>
+      </div>
+    </div>`;
+
+  const on = 'bg-security-teal/20 text-security-teal';
+  const off = 'bg-outline-variant/20 text-on-surface-variant';
+
+  let html = row('PII_PATTERNS',
+    r.pii_patterns_enabled ? 'ENABLED' : 'DISABLED',
+    r.pii_patterns_enabled ? on : off,
+    'Action: [REDACT]', 'Emails, phones, cards, SSNs');
+
+  html += row('SECRET_ENTROPY', 'HEURISTIC', 'bg-alert-amber/20 text-alert-amber',
+    `Shannon threshold: ${r.entropy_threshold ?? '—'}`, 'Action: [REDACT]');
+
+  html += classes.length
+    ? row('PROTECTED_CLASSES', `${classes.length} CLASSES`, on, classes.join(', '), 'Never leaves un-redacted')
+    : row('PROTECTED_CLASSES', 'NONE', off, 'No classes configured', '—');
+
+  const flowKeys = Object.keys(flows);
+  html += flowKeys.length
+    ? row('DATA_FLOW_RULES', `${flowKeys.length} RULES`, on, flowKeys.join(', '), 'Per-destination limits')
+    : row('DATA_FLOW_RULES', 'NONE', off, 'No destination restrictions beyond redaction', '—');
+
+  document.getElementById('redaction-rules').innerHTML = html;
+}
+
+/* Real egress and denial decisions from the audit trail — never synthesised.
+   The counters above are derived from the same events, so a number on this
+   page can always be traced to a row in the log below it. */
+async function renderInterceptLog(session) {
+  const el = document.getElementById('exfil-log');
+  try {
+    const data = await API.auditReplay(session);
+    const all = data.events || [];
+
+    const egress = all.filter(e => e.module === 'output_redaction');
+    const redacted = egress.reduce((n, e) => n + (e.details?.redactions_count || 0), 0);
+    const blocked = egress.filter(e => String(e.decision).toLowerCase() !== 'allow').length;
+
+    document.getElementById('stat-checks').textContent = egress.length;
+    document.getElementById('stat-redacted').textContent = redacted;
+    document.getElementById('stat-egress-blocked').textContent = blocked;
+
+    const events = all.filter(e =>
+      e.module === 'output_redaction' ||
+      (e.module === 'tool_policy' && String(e.decision).toLowerCase() !== 'allow')
+    ).slice(-25).reverse();
+
+    if (!events.length) {
+      el.innerHTML = `<div class="text-outline">No egress or denial events yet for session
+        <span class="text-primary">${esc(session)}</span>. Run an agent and reload.</div>`;
+      return;
+    }
+
+    el.innerHTML = events.map(e => {
+      const dec = String(e.decision || '').toUpperCase();
+      const isBlocked = dec !== 'ALLOW' && dec !== 'PERSIST';
+      const ts = window.fmtTs(e.timestamp).slice(11, 19);
+      const detail = e.details?.reason || e.details?.block_reason ||
+                     (e.details?.redactions_count ? `${e.details.redactions_count} value(s) redacted` : '') ||
+                     e.reason_code || '';
+      return `<div class="pb-1 mb-1 border-b border-surface-variant/30">
+        <span class="text-outline">[${esc(ts)}]</span>
+        <span class="${isBlocked ? 'text-error' : 'text-security-teal'}">${esc(dec)}</span>
+        <span class="text-on-surface">${esc(e.module)}</span>
+        <span class="text-outline">#${esc(e.seq_no)}</span>
+        ${detail ? `<br/><span class="pl-16 text-on-surface-variant">${esc(detail)}</span>` : ''}
+      </div>`;
+    }).join('');
+  } catch {
+    ['stat-checks', 'stat-redacted', 'stat-egress-blocked'].forEach(id =>
+      document.getElementById(id).textContent = '0');
+    el.innerHTML = `<div class="text-outline">No events yet for session
+      <span class="text-primary">${esc(session)}</span>.</div>`;
+  }
+}
+
+document.getElementById('session-filter').addEventListener('change', loadRedaction);
+loadRedaction();
+setInterval(loadRedaction, 10000);
+</script>
+</body>
+</html>
