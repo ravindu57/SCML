@@ -74,6 +74,14 @@ body{background:#0b1326;color:#dae2fd;font-family:'Inter',sans-serif;height:100v
 <!-- Top bar -->
 <header class="h-14 flex items-center justify-between px-6 glass border-b border-outline/30 relative z-50">
   <div class="flex items-center gap-3">
+    <!-- This page runs full-screen with no side nav, so the browser's back
+         button was the only way out — and it does not exist on a kiosk display
+         or when the page is opened directly. -->
+    <a href="index.html" title="Back to dashboard"
+       class="flex items-center gap-1.5 mr-1 px-2.5 py-1.5 rounded border border-outline/30 text-dim hover:text-blue hover:border-blue/50 transition-colors">
+      <span class="material-symbols-outlined text-[18px]">arrow_back</span>
+      <span class="mono text-[11px] uppercase tracking-widest">Dashboard</span>
+    </a>
     <span class="material-symbols-outlined text-blue text-[22px]" style="font-variation-settings:'FILL' 1">shield</span>
     <span class="font-bold text-blue text-lg tracking-tight">scml - middleware layer secure</span>
     <span class="mono text-[11px] text-dim border border-outline/30 px-2 py-0.5 rounded ml-2">LIVE AGENT DEMO</span>
