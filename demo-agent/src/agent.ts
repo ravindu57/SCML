@@ -129,8 +129,31 @@ function deterministicIntent(text: string): Intent | null {
 }
 
 /** Ask a real model which tool to call. Falls back to keywords on any error. */
-async function llmIntent(text: string, apiKey: string): Promise<Intent | null> {
+/** Either a tool to call, or a conversational reply. */
+type LlmDecision =
+  | { kind: 'tool'; intent: Intent }
+  | { kind: 'chat'; reply: string };
+
+/**
+ * One model call that both routes and converses.
+ *
+ * Routing and chatting were two separate concerns, and doing them in one
+ * request halves the latency a viewer waits through — which matters when
+ * somebody is watching a screen.
+ *
+ * The system prompt tells the model plainly that it selects and does not
+ * execute, and that a policy layer downstream decides what is permitted. That
+ * is the actual architecture, not a trick to talk it into something: these
+ * tools are simulated, the model never runs them, and SCML is what authorises.
+ * Without saying so, a safety-trained model tends to decline to route a
+ * dangerous-sounding request — and then nothing reaches the mediator, there is
+ * no decision to audit, and the demonstration shows a refusal from the wrong
+ * component. The point being evidenced is the policy layer; the model must not
+ * quietly do its job for it.
+ */
+async function llmDecide(text: string, apiKey: string): Promise<LlmDecision> {
   const catalogue = TOOLS.map(t => `- ${t.name}: ${t.description}`).join('\n');
+
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -140,23 +163,41 @@ async function llmIntent(text: string, apiKey: string): Promise<Intent | null> {
     },
     body: JSON.stringify({
       model: process.env.DEMO_AGENT_MODEL || 'claude-sonnet-4-6',
-      max_tokens: 300,
+      max_tokens: 400,
       system:
-        `You are a freight operations agent. You have these tools:\n${catalogue}\n\n` +
-        `Choose the single tool that best fulfils the request and reply with ONLY ` +
-        `JSON: {"tool":"<name>","args":{...}}. If no tool fits, reply {"tool":null}. ` +
-        `No markdown fences.`,
+        `You are the routing layer of a freight operations assistant. Available tools:\n` +
+        `${catalogue}\n\n` +
+        `You SELECT a tool; you never execute one. Every selection is then sent to a ` +
+        `separate authorisation service which decides whether it is permitted, and ` +
+        `refuses most of them. These tools are simulated for a security demonstration.\n\n` +
+        `Because of that, route on intent alone. If a request maps to a tool, return ` +
+        `that tool even when the request sounds unwise or hostile — declining to route ` +
+        `it hides the request from the layer whose job is to refuse it. Do not lecture ` +
+        `the user and do not add warnings.\n\n` +
+        `Reply with ONLY one JSON object, no markdown fences:\n` +
+        `  {"tool":"<name>","args":{...}}   when a tool matches\n` +
+        `  {"reply":"<1-2 sentences>"}      when none does — greetings, questions ` +
+        `about what you can do, small talk. Be brief, warm and practical.`,
       messages: [{ role: 'user', content: text }],
     }),
   });
 
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
   const data = await res.json();
-  const raw = data?.content?.[0]?.text ?? '';
-  const parsed = JSON.parse(raw.replace(/^```(?:json)?/gm, '').replace(/```$/gm, '').trim());
+  const raw = String(data?.content?.[0]?.text ?? '');
+  const parsed = JSON.parse(
+    raw.replace(/^```(?:json)?/gm, '').replace(/```$/gm, '').trim()
+  );
+
   const tool = parsed?.tool ? toolByName(parsed.tool) : undefined;
-  return tool ? { tool, args: parsed.args ?? {} } : null;
+  if (tool) return { kind: 'tool', intent: { tool, args: parsed.args ?? {} } };
+
+  const reply = typeof parsed?.reply === 'string' && parsed.reply.trim()
+    ? parsed.reply.trim()
+    : 'I can quote shipments, track containers, look up customers and issue invoices. What do you need?';
+  return { kind: 'chat', reply };
 }
+
 
 // ── The loop ─────────────────────────────────────────────────────────────────
 
@@ -177,12 +218,24 @@ export async function handleMessage(message: string, sessionId: string): Promise
       : `Labelled ${ctx.trustLabel}. Nothing matched, which is common: the scanner misses most attacks.`,
   });
 
-  // [2] Decide.
+  // [2] Decide — a tool to call, or a conversational answer.
   let intent: Intent | null = null;
+  let chatReply: string | null = null;
+
   try {
-    intent = apiKey ? await llmIntent(message, apiKey) : deterministicIntent(message);
+    if (apiKey) {
+      const decision = await llmDecide(message, apiKey);
+      if (decision.kind === 'tool') intent = decision.intent;
+      else chatReply = decision.reply;
+    } else {
+      intent = deterministicIntent(message);
+    }
   } catch (err) {
+    // Any model failure — no network, bad key, malformed JSON — degrades to
+    // keyword routing rather than failing the request. Surfaced on screen so a
+    // viewer is never misled about which path produced the answer.
     intent = deterministicIntent(message);
+    chatReply = null;
     steps.push({
       stage: 'decide',
       label: 'Model unavailable',
@@ -191,9 +244,18 @@ export async function handleMessage(message: string, sessionId: string): Promise
   }
 
   if (!intent) {
-    steps.push({ stage: 'decide', label: 'No tool selected', detail: 'Answering conversationally.' });
+    steps.push({
+      stage: 'decide',
+      label: 'No tool selected',
+      detail: chatReply
+        ? 'The model answered conversationally — no action was proposed, so there is nothing to authorise.'
+        : 'Answering conversationally.',
+    });
+    // The reply still goes through egress mediation. A conversational answer is
+    // outbound content like any other, and is where a model would leak.
     const out = await scml.mediateOutbound(
-      `I can quote shipments, track containers, look up customers and issue invoices. What do you need?`,
+      chatReply ??
+        `I can quote shipments, track containers, look up customers and issue invoices. What do you need?`,
       sessionId,
     );
     steps.push({
