@@ -10,7 +10,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { handleMessage } from './agent.js';
+import { handleMessage, llmConfig } from './agent.js';
 import { SCENARIOS } from './scenarios.js';
 import { TOOLS } from './tools.js';
 import * as scml from './scml.js';
@@ -64,7 +64,7 @@ const server = http.createServer(async (req, res) => {
         mediator: scml.mediatorUrl,
         mediatorHealthy: h.ok,
         mediatorDetail: h.detail,
-        mode: process.env.ANTHROPIC_API_KEY ? 'llm' : 'deterministic',
+        mode: llmConfig() ? 'llm' : 'deterministic',
         dashboard: DASHBOARD_URL || scml.mediatorUrl.replace(/:\d+$/, ':3100'),
         scenarios: SCENARIOS,
         tools: TOOLS.map(t => ({ name: t.name, tier: t.tier, agentId: t.agentId, description: t.description })),
@@ -114,7 +114,8 @@ server.listen(PORT, '0.0.0.0', async () => {
   console.log(`  Chat        http://localhost:${PORT}`);
   console.log(`  Mediator    ${scml.mediatorUrl}  ${h.ok ? '✔ ' + h.detail : '✖ ' + h.detail}`);
   console.log(`  Session     ${SESSION}`);
-  console.log(`  Intent      ${process.env.ANTHROPIC_API_KEY ? 'LLM (ANTHROPIC_API_KEY set)' : 'deterministic (no API key needed)'}`);
+  const cfg = llmConfig();
+  console.log(`  Intent      ${cfg ? `LLM — ${cfg.provider} ${cfg.model} @ ${cfg.baseUrl}` : 'deterministic (no API key needed)'}`);
   if (!h.ok) {
     console.log(`\n  The mediator is not reachable. Actions will fail CLOSED, which is`);
     console.log(`  correct but makes for a dull demo. Start SCML, then reload.`);

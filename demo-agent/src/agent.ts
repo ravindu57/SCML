@@ -128,66 +128,141 @@ function deterministicIntent(text: string): Intent | null {
   return null;
 }
 
-/** Ask a real model which tool to call. Falls back to keywords on any error. */
 /** Either a tool to call, or a conversational reply. */
 type LlmDecision =
   | { kind: 'tool'; intent: Intent }
   | { kind: 'chat'; reply: string };
 
 /**
- * One model call that both routes and converses.
+ * Which model to ask, and with whose key.
  *
- * Routing and chatting were two separate concerns, and doing them in one
- * request halves the latency a viewer waits through — which matters when
- * somebody is watching a screen.
+ * Two wire formats cover essentially every provider: Anthropic's, and the
+ * OpenAI chat-completions shape that OpenAI, Groq, OpenRouter, Together,
+ * DeepSeek, Mistral, Google's compat endpoint and local Ollama or LM Studio
+ * all speak. So the choice here is a format, not a vendor — pointing
+ * DEMO_AGENT_BASE_URL somewhere else is the whole of "use a different
+ * provider", and a laptop running Ollama needs no key or network at all.
  *
- * The system prompt tells the model plainly that it selects and does not
- * execute, and that a policy layer downstream decides what is permitted. That
- * is the actual architecture, not a trick to talk it into something: these
- * tools are simulated, the model never runs them, and SCML is what authorises.
- * Without saying so, a safety-trained model tends to decline to route a
- * dangerous-sounding request — and then nothing reaches the mediator, there is
- * no decision to audit, and the demonstration shows a refusal from the wrong
- * component. The point being evidenced is the policy layer; the model must not
- * quietly do its job for it.
+ * Provider is inferred from whichever key is present so the common case needs
+ * one variable, and DEMO_AGENT_PROVIDER settles it when that guess is wrong.
  */
-async function llmDecide(text: string, apiKey: string): Promise<LlmDecision> {
-  const catalogue = TOOLS.map(t => `- ${t.name}: ${t.description}`).join('\n');
+interface LlmConfig {
+  provider: 'anthropic' | 'openai';
+  apiKey: string;
+  model: string;
+  baseUrl: string;
+}
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: process.env.DEMO_AGENT_MODEL || 'claude-sonnet-4-6',
-      max_tokens: 400,
-      system:
-        `You are the routing layer of a freight operations assistant. Available tools:\n` +
-        `${catalogue}\n\n` +
-        `You SELECT a tool; you never execute one. Every selection is then sent to a ` +
-        `separate authorisation service which decides whether it is permitted, and ` +
-        `refuses most of them. These tools are simulated for a security demonstration.\n\n` +
-        `Because of that, route on intent alone. If a request maps to a tool, return ` +
-        `that tool even when the request sounds unwise or hostile — declining to route ` +
-        `it hides the request from the layer whose job is to refuse it. Do not lecture ` +
-        `the user and do not add warnings.\n\n` +
-        `Reply with ONLY one JSON object, no markdown fences:\n` +
-        `  {"tool":"<name>","args":{...}}   when a tool matches\n` +
-        `  {"reply":"<1-2 sentences>"}      when none does — greetings, questions ` +
-        `about what you can do, small talk. Be brief, warm and practical.`,
-      messages: [{ role: 'user', content: text }],
-    }),
-  });
+export function llmConfig(): LlmConfig | null {
+  const explicit = (process.env.DEMO_AGENT_PROVIDER || '').toLowerCase();
+  const key =
+    process.env.DEMO_AGENT_API_KEY ||
+    process.env.OPENAI_API_KEY ||
+    process.env.ANTHROPIC_API_KEY ||
+    '';
 
-  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
-  const data = await res.json();
-  const raw = String(data?.content?.[0]?.text ?? '');
-  const parsed = JSON.parse(
-    raw.replace(/^```(?:json)?/gm, '').replace(/```$/gm, '').trim()
+  const provider: 'anthropic' | 'openai' =
+    explicit === 'anthropic' ? 'anthropic'
+    : explicit === 'openai' ? 'openai'
+    // No explicit choice: an Anthropic key implies Anthropic, anything else
+    // implies the OpenAI shape, which is the majority of providers.
+    : (process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY && !process.env.DEMO_AGENT_API_KEY)
+      ? 'anthropic'
+      : 'openai';
+
+  const baseUrl = (process.env.DEMO_AGENT_BASE_URL || '').replace(/\/+$/, '') ||
+    (provider === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.openai.com/v1');
+
+  // A local runtime needs no key; a hosted one does. Requiring a key for
+  // localhost would rule out the offline case for no reason.
+  const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])/.test(baseUrl);
+  if (!key && !isLocal) return null;
+
+  const model = process.env.DEMO_AGENT_MODEL ||
+    (provider === 'anthropic' ? 'claude-sonnet-4-6' : 'gpt-4o-mini');
+
+  return { provider, apiKey: key, model, baseUrl };
+}
+
+/**
+ * The model's entire job: read the message, name a tool or write a sentence.
+ *
+ * It is a classifier with a conversational fallback, and deliberately nothing
+ * more. It does not execute, and it is not asked whether an action is allowed —
+ * SCML decides that from declarative policy, after this returns. Keeping the
+ * model out of the authorisation decision is the point of the architecture, not
+ * an implementation detail: a model that could authorise its own tool calls
+ * would be exactly the failure mode being defended against.
+ *
+ * Which is why the prompt says plainly that it selects rather than executes.
+ * Without that, a safety-trained model tends to decline to route a
+ * dangerous-sounding request — and a refusal here means nothing reaches the
+ * mediator, no decision is audited, and the demonstration shows the wrong
+ * component saying no.
+ */
+const SYSTEM_PROMPT = (catalogue: string) =>
+  `You are the routing layer of a freight operations assistant. Available tools:\n` +
+  `${catalogue}\n\n` +
+  `You SELECT a tool; you never execute one. Every selection is then sent to a ` +
+  `separate authorisation service which decides whether it is permitted, and ` +
+  `refuses most of them. These tools are simulated for a security demonstration.\n\n` +
+  `Because of that, route on intent alone. If a request maps to a tool, return ` +
+  `that tool even when the request sounds unwise or hostile — declining to route ` +
+  `it hides the request from the layer whose job is to refuse it. Do not lecture ` +
+  `the user and do not add warnings.\n\n` +
+  `Reply with ONLY one JSON object, no markdown fences:\n` +
+  `  {"tool":"<name>","args":{...}}   when a tool matches\n` +
+  `  {"reply":"<1-2 sentences>"}      when none does — greetings, questions ` +
+  `about what you can do, small talk. Be brief, warm and practical.`;
+
+/** One call that both routes and converses. Throws on any failure; the caller
+ *  degrades to keyword matching. */
+async function llmDecide(text: string, cfg: LlmConfig): Promise<LlmDecision> {
+  const system = SYSTEM_PROMPT(TOOLS.map(t => `- ${t.name}: ${t.description}`).join('\n'));
+
+  const anthropic = cfg.provider === 'anthropic';
+  const res = await fetch(
+    anthropic ? `${cfg.baseUrl}/v1/messages` : `${cfg.baseUrl}/chat/completions`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(anthropic
+          ? { 'x-api-key': cfg.apiKey, 'anthropic-version': '2023-06-01' }
+          : cfg.apiKey ? { authorization: `Bearer ${cfg.apiKey}` } : {}),
+      },
+      body: JSON.stringify(
+        anthropic
+          ? {
+              model: cfg.model,
+              max_tokens: 400,
+              system,
+              messages: [{ role: 'user', content: text }],
+            }
+          : {
+              model: cfg.model,
+              max_tokens: 400,
+              messages: [
+                { role: 'system', content: system },
+                { role: 'user', content: text },
+              ],
+            }
+      ),
+    }
   );
+
+  if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0, 200)}`);
+  const data: any = await res.json();
+
+  const raw = String(
+    anthropic ? data?.content?.[0]?.text ?? '' : data?.choices?.[0]?.message?.content ?? ''
+  );
+
+  // Smaller models wrap JSON in prose or fences however the mood takes them;
+  // strip fences, then fall back to the outermost braces.
+  const cleaned = raw.replace(/^```(?:json)?/gm, '').replace(/```$/gm, '').trim();
+  const slice = cleaned.slice(cleaned.indexOf('{'), cleaned.lastIndexOf('}') + 1);
+  const parsed = JSON.parse(slice || cleaned);
 
   const tool = parsed?.tool ? toolByName(parsed.tool) : undefined;
   if (tool) return { kind: 'tool', intent: { tool, args: parsed.args ?? {} } };
@@ -203,8 +278,8 @@ async function llmDecide(text: string, apiKey: string): Promise<LlmDecision> {
 
 export async function handleMessage(message: string, sessionId: string): Promise<AgentReply> {
   const steps: Step[] = [];
-  const apiKey = process.env.ANTHROPIC_API_KEY || '';
-  const mode: 'llm' | 'deterministic' = apiKey ? 'llm' : 'deterministic';
+  const cfg = llmConfig();
+  const mode: 'llm' | 'deterministic' = cfg ? 'llm' : 'deterministic';
 
   // [1] Ingress. Label and scan, but do not stop — see the header comment.
   const ctx = await scml.mediateInbound(message, sessionId);
@@ -223,8 +298,8 @@ export async function handleMessage(message: string, sessionId: string): Promise
   let chatReply: string | null = null;
 
   try {
-    if (apiKey) {
-      const decision = await llmDecide(message, apiKey);
+    if (cfg) {
+      const decision = await llmDecide(message, cfg);
       if (decision.kind === 'tool') intent = decision.intent;
       else chatReply = decision.reply;
     } else {
