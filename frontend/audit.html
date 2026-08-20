@@ -47,6 +47,14 @@
       margin-left: 12px;
       padding-left: 16px
     }
+
+    /* Selected row. Drawn from --accent-rgb so each theme tints it in its own
+       colour, and carries an inset bar as well as a wash — the wash alone is
+       too faint to find at a glance on the darker templates. */
+    .row-active {
+      background: rgba(var(--accent-rgb, 96, 165, 250), .10) !important;
+      box-shadow: inset 3px 0 0 var(--accent, #60a5fa);
+    }
   </style>
 <link rel="stylesheet" href="css/base.css"/>
 <link rel="stylesheet" id="tm-theme" href="css/template1.css"/>
@@ -130,8 +138,15 @@
       </div>
     </div>
 
+    <!-- Event chain beside its detail, rather than stacked.
+         The detail used to open in a drawer below the table, which on a full
+         session pushed itself off-screen: you clicked a row and nothing
+         appeared to happen. Side by side, the row and its record are legible
+         at once — the same arrangement memory.html uses for the same reason. -->
+    <div class="grid grid-cols-12 gap-4 flex-1 min-h-0">
+
     <!-- Audit Table -->
-    <div class="glass-panel rounded-lg overflow-hidden flex-1">
+    <div class="glass-panel rounded-lg overflow-hidden col-span-12 xl:col-span-8 flex flex-col min-h-0">
       <div
         class="px-6 py-4 border-b border-outline-variant/30 flex justify-between items-center bg-surface-container-low/50">
         <h2 class="text-label-caps text-on-surface flex items-center gap-2">
@@ -148,7 +163,7 @@
             class="audit-filter-btn px-3 py-1 rounded text-security-teal text-xs font-mono border border-security-teal/30 hover:bg-security-teal/10 transition-colors">Allow</button>
         </div>
       </div>
-      <div class="overflow-x-auto">
+      <div class="overflow-auto flex-1 min-h-0">
         <table class="w-full text-left font-mono text-code-sm">
           <thead>
             <tr class="text-on-surface-variant border-b border-outline-variant/20 bg-surface-dim/30">
@@ -171,22 +186,35 @@
       </div>
     </div>
 
-    <!-- Detail Drawer -->
-    <div id="event-detail" class="hidden glass-panel rounded-lg p-6 border border-mediation-blue/30">
-      <div class="flex justify-between items-center mb-4">
-        <h3 class="text-headline-md text-on-surface">Event Detail</h3>
-        <button onclick="closeDetail()" class="text-on-surface-variant hover:text-on-surface"><span
-            class="material-symbols-outlined">close</span></button>
+    <!-- Detail panel -->
+    <div class="col-span-12 xl:col-span-4 min-h-0">
+      <div class="glass-panel rounded-lg border border-outline-variant/30 h-full flex flex-col min-h-0 xl:sticky xl:top-4">
+        <div class="px-5 py-4 border-b border-outline-variant/30 flex justify-between items-center bg-surface-container-low/50">
+          <h3 class="text-label-caps text-on-surface flex items-center gap-2">
+            <span class="material-symbols-outlined text-[16px] text-mediation-blue">description</span> Event Detail
+          </h3>
+          <button onclick="closeDetail()" id="detail-close"
+            class="hidden text-on-surface-variant hover:text-on-surface transition-colors">
+            <span class="material-symbols-outlined text-[18px]">close</span>
+          </button>
+        </div>
+        <div id="event-detail-content" class="p-5 overflow-auto flex-1 min-h-0">
+          <div class="flex flex-col items-center justify-center gap-3 py-16 text-on-surface-variant">
+            <span class="material-symbols-outlined text-[40px] text-outline">touch_app</span>
+            <p class="text-body-sm">Select an event to inspect it</p>
+          </div>
+        </div>
       </div>
-      <div id="event-detail-content" class="font-mono text-code-sm text-on-surface-variant whitespace-pre-wrap"></div>
     </div>
+
+    </div><!-- /grid -->
   </main>
 
   <script src="js/api.js"></script>
   <script src="js/app.js"></script>
   <script>
     renderNav('audit');
-    let allAuditEvents = [], auditFilter = 'all';
+    let allAuditEvents = [], auditFilter = 'all', renderedRows = [];
 
     async function replaySession() {
       const sid = document.getElementById('session-id').value.trim() || window.SESSION.DEFAULT;
@@ -236,10 +264,16 @@
          it, since that is its predecessor. The chain-start marker (link_off)
          is on the last row for the same reason. */
       const rows = filtered.slice().reverse();
+      /* Kept so a row can be looked up by index. The click handler used to
+         carry the whole event serialised into its onclick attribute, which
+         meant every quote, newline and angle bracket in an audit record had to
+         survive two layers of escaping to be clickable at all. An index into
+         the array that was just rendered cannot break that way. */
+      renderedRows = rows;
       document.getElementById('audit-tbody').innerHTML = rows.map((e, i) => {
         const dColor = decisionColor(e.decision);
         const hasChain = e.prev_hash && e.prev_hash !== '';
-        return `<tr class="border-b border-outline-variant/10 hover:bg-surface-charcoal/30 transition-colors">
+        return `<tr onclick="showEventDetail(${i})" data-row="${i}" class="border-b border-outline-variant/10 hover:bg-surface-charcoal/30 transition-colors cursor-pointer">
       <td class="py-2.5 px-4 text-center">
         <span class="material-symbols-outlined text-[16px] ${hasChain ? 'text-security-teal' : 'text-outline'}" title="${hasChain ? 'Chained' : 'Chain start'}">${hasChain ? 'link' : 'link_off'}</span>
       </td>
@@ -253,9 +287,7 @@
         ${e.prev_hash ? `<br/><span class="text-outline" title="${e.prev_hash}">← ${e.prev_hash.slice(0, 8)}…</span>` : ''}
       </td>
       <td class="py-2.5 px-4 text-right">
-        <button onclick='showEventDetail(${JSON.stringify(e).replace(/'/g, "&apos;")})' class="text-outline hover:text-mediation-blue transition-colors">
-          <span class="material-symbols-outlined text-[16px]">open_in_new</span>
-        </button>
+        <span class="material-symbols-outlined text-[16px] text-outline">chevron_right</span>
       </td>
     </tr>`;
       }).join('');
@@ -268,13 +300,77 @@
       renderAuditTable();
     }
 
-    function showEventDetail(event) {
-      document.getElementById('event-detail').classList.remove('hidden');
-      document.getElementById('event-detail-content').textContent = JSON.stringify(event, null, 2);
+    /* The panel used to print JSON.stringify(event) and nothing else. Every
+       field was there, which is not the same as being readable: the decision,
+       the module and the two hashes — the things anyone opens an audit record
+       to see — were four keys among fourteen, in insertion order, in one
+       monospace block.
+
+       So the fields that carry the verdict are pulled out and laid out first,
+       and the raw record stays underneath in a <details> for anyone who wants
+       to read the whole thing or copy it. Nothing is hidden, it is ordered. */
+    function showEventDetail(i) {
+      const e = renderedRows[i];
+      if (!e) return;
+
+      document.querySelectorAll('#audit-tbody tr').forEach(r => r.classList.remove('row-active'));
+      document.querySelector(`#audit-tbody tr[data-row="${i}"]`)?.classList.add('row-active');
+      document.getElementById('detail-close').classList.remove('hidden');
+
+      const d = (e.decision || '').toLowerCase();
+      const field = (label, value, cls = 'text-on-surface') => `
+        <div class="mb-3">
+          <div class="text-label-caps text-on-surface-variant mb-1">${esc(label)}</div>
+          <div class="font-mono text-code-sm ${cls} break-all">${esc(value ?? '—') || '—'}</div>
+        </div>`;
+
+      const details = e.details && Object.keys(e.details).length
+        ? Object.entries(e.details).map(([k, v]) => `
+            <div class="flex justify-between gap-3 py-1.5 border-b border-outline-variant/10 last:border-0">
+              <span class="text-on-surface-variant">${esc(k)}</span>
+              <span class="text-on-surface text-right break-all">${esc(typeof v === 'object' ? JSON.stringify(v) : v) || '—'}</span>
+            </div>`).join('')
+        : '<div class="text-on-surface-variant py-1.5">No additional detail</div>';
+
+      document.getElementById('event-detail-content').innerHTML = `
+        <div class="flex items-center justify-between mb-4 pb-4 border-b border-outline-variant/20">
+          <span class="px-2.5 py-1 rounded-full border ${decisionBadge(d)} text-[11px] font-mono font-bold">${esc(d.toUpperCase()) || '—'}</span>
+          <span class="font-mono text-code-sm text-outline">#${esc(e.seq_no ?? '—')}</span>
+        </div>
+
+        ${field('Module', e.module)}
+        ${field('Reason', e.reason_code, decisionColor(d))}
+        ${field('Agent', e.agent_id)}
+        ${field('Timestamp', fmtTs(e.timestamp))}
+
+        <div class="text-label-caps text-on-surface-variant mb-2 mt-5">Details</div>
+        <div class="bg-surface-container-high rounded p-3 font-mono text-code-sm mb-5">${details}</div>
+
+        <div class="text-label-caps text-on-surface-variant mb-2">Hash Chain</div>
+        <div class="bg-surface-container-high rounded p-3 mb-5">
+          ${field('This event', e.event_hash, 'text-primary')}
+          <div class="mb-0">
+            <div class="text-label-caps text-on-surface-variant mb-1">Previous</div>
+            <div class="font-mono text-code-sm text-outline break-all">${esc(e.prev_hash) || '— chain start'}</div>
+          </div>
+        </div>
+
+        <details class="group">
+          <summary class="cursor-pointer text-label-caps text-on-surface-variant hover:text-on-surface transition-colors select-none">
+            Raw record
+          </summary>
+          <pre class="mt-3 p-3 bg-surface-charcoal rounded border border-outline-variant/20 font-mono text-[11px] text-on-surface-variant whitespace-pre-wrap break-all">${esc(JSON.stringify(e, null, 2))}</pre>
+        </details>`;
     }
 
     function closeDetail() {
-      document.getElementById('event-detail').classList.add('hidden');
+      document.querySelectorAll('#audit-tbody tr').forEach(r => r.classList.remove('row-active'));
+      document.getElementById('detail-close').classList.add('hidden');
+      document.getElementById('event-detail-content').innerHTML = `
+        <div class="flex flex-col items-center justify-center gap-3 py-16 text-on-surface-variant">
+          <span class="material-symbols-outlined text-[40px] text-outline">touch_app</span>
+          <p class="text-body-sm">Select an event to inspect it</p>
+        </div>`;
     }
 
     function exportAudit() {
