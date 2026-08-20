@@ -98,7 +98,7 @@
       <div class="flex items-center gap-3">
         <div class="flex items-center glass-panel rounded-lg px-3 py-2 gap-2">
           <span class="material-symbols-outlined text-[18px] text-outline">manage_search</span>
-          <input id="session-id" type="text" value="demo-traffic" placeholder="Session ID…"
+          <input id="session-id" type="text" value="agent-live" placeholder="Session ID…"
             class="bg-transparent border-none focus:ring-0 text-code-sm text-on-surface w-36 placeholder:text-outline" />
           <button onclick="replaySession()"
             class="text-mediation-blue hover:text-primary text-label-caps transition-colors">Replay</button>
@@ -189,7 +189,7 @@
     let allAuditEvents = [], auditFilter = 'all';
 
     async function replaySession() {
-      const sid = document.getElementById('session-id').value.trim() || 'demo-traffic';
+      const sid = document.getElementById('session-id').value.trim() || window.SESSION.DEFAULT;
       document.getElementById('audit-tbody').innerHTML = `<tr><td colspan="8" class="py-10 text-center text-on-surface-variant">Loading…</td></tr>`;
       try {
         const data = await API.auditReplay(sid);

@@ -98,8 +98,19 @@ window.API = {
        audit.html?session=shipping-live
 
    pins a live integration's session and remembers it across pages and
-   reloads, while opening the pages bare still shows the seeded demo. */
-const DEFAULT_SESSION = 'demo-traffic';
+   reloads.
+
+   That default used to be "demo-traffic", the session exhibition.sh seeds.
+   Nothing else writes to it, so on a machine where that script has not been
+   run every page polled an empty session and rendered nothing — while the
+   agent's decisions were landing in the database the whole time under
+   "agent-live". The console looked broken when it was faithfully reading
+   exactly the session it had been told to read.
+
+   Defaulting to the live agent's session makes a bare URL show real traffic,
+   which is what the dashboard is actually opened for. The seeded run is still
+   reachable with ?session=demo-traffic. */
+const DEFAULT_SESSION = 'agent-live';
 
 window.SESSION = {
   DEFAULT: DEFAULT_SESSION,
