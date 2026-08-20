@@ -35,8 +35,8 @@ window.renderNav = (activePage) => {
     <div class="flex-1 flex flex-col gap-1 overflow-y-auto px-2">${navLinks}</div>
     ${renderTemplatePicker()}
     <div class="px-4 mt-6">
-      <button id="emergency-lock" onclick="emergencyLock()" class="w-full bg-quarantine-purple/10 text-quarantine-purple border border-quarantine-purple/40 py-2.5 rounded font-label-caps text-label-caps hover:bg-quarantine-purple hover:text-white transition-all flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(124,77,255,0.15)]">
-        <span class="material-symbols-outlined text-[18px]">lock</span> Emergency Lock
+      <button id="emergency-lock" onclick="emergencyLock()" class="${LOCK_BTN_CLASS.unlocked}">
+        <span class="material-symbols-outlined text-[18px]">lock</span> <span id="emergency-lock-label">Emergency Lock</span>
       </button>
     </div>
     <div class="flex flex-col gap-1 border-t border-outline-variant/20 pt-4 mt-4 px-4">
@@ -46,51 +46,125 @@ window.renderNav = (activePage) => {
     </div>`;
 
   document.getElementById('top-bar-title').textContent = 'scml - middleware layer secure';
+
+  /* The button ships in its unlocked form and corrects itself once the server
+     answers. Rendering it as "Emergency Lock" while the system is in fact
+     locked would be the same lie the old no-op version told, so this is not
+     optional decoration — every page carries this nav. */
+  if (typeof refreshLockButton === 'function') refreshLockButton();
 };
 
-/* Emergency lock — revoke every agent's tool authority.
+/* Emergency lock — revoke every agent's tool authority, and give it back.
 
    This used to show a toast saying "all agents in shadow mode" and do nothing
    at all. A security control that reports success without acting is worse than
    no control: it is the one button someone reaches for when they believe
    something is wrong.
 
-   It now writes a real policy version in which every agent's allowed_tools is
+   It writes a real policy version in which every agent's allowed_tools is
    empty, so every tool call is denied by the same deny-by-default path an
-   unknown agent hits. It is reversible — the previous version stays in the
-   history and can be rolled back from this page.
+   unknown agent hits.
+
+   It is now a toggle. Locking was one click and unlocking meant finding the
+   right version in a different page's history — so the button stacked: four
+   presses published four identical lock versions, and the way out was never
+   where the way in had been. An emergency control whose reverse is buried is
+   half a control, and the half that is missing is the one you need once the
+   emergency is over.
+
+   Releasing rolls back to the newest version that is not itself a lock, so
+   repeated presses still recover in one click. The lock versions stay in the
+   history: the audit record of pulling the switch is the point, and rewriting
+   it would defeat that.
 
    Note it is NOT shadow mode. Shadow means observe-and-log without enforcing,
    which is the opposite of what an emergency stop should do. */
+const LOCK_MARKER = 'EMERGENCY LOCK';
+
+const LOCK_BTN_CLASS = {
+  unlocked: 'w-full bg-quarantine-purple/10 text-quarantine-purple border border-quarantine-purple/40 py-2.5 rounded font-label-caps text-label-caps hover:bg-quarantine-purple hover:text-white transition-all flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(124,77,255,0.15)]',
+  locked:   'w-full bg-error/15 text-error border border-error/50 py-2.5 rounded font-label-caps text-label-caps hover:bg-error hover:text-black transition-all flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(248,113,113,0.25)]',
+};
+
+/* Is the active policy a lock, and what should we roll back to?
+   The marker is the description the lock itself writes, so the two cannot
+   drift apart. Returns null if the server cannot be reached — the caller
+   leaves the button alone rather than guessing at enforcement state. */
+async function lockState() {
+  try {
+    const data = await API.getPolicyVersions();
+    const versions = data.versions || data || [];
+    const active = versions.find(v => v.is_active);
+    const lastGood = versions.find(v => !v.is_active && !String(v.description || '').startsWith(LOCK_MARKER));
+    return {
+      locked: !!active && String(active.description || '').startsWith(LOCK_MARKER),
+      restoreTo: lastGood || null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+window.refreshLockButton = async () => {
+  const btn = document.getElementById('emergency-lock');
+  const label = document.getElementById('emergency-lock-label');
+  if (!btn || !label) return;
+
+  const st = await lockState();
+  if (!st) return;                       // unreachable: keep the last known label
+
+  btn.dataset.locked = st.locked ? '1' : '';
+  btn.className = st.locked ? LOCK_BTN_CLASS.locked : LOCK_BTN_CLASS.unlocked;
+  btn.querySelector('.material-symbols-outlined').textContent = st.locked ? 'lock_open' : 'lock';
+  label.textContent = st.locked ? 'Release Lock' : 'Emergency Lock';
+};
+
 window.emergencyLock = async () => {
-  if (!confirm(
-    'EMERGENCY LOCK\n\n' +
-    'Publishes a new policy version with every agent stripped of all tools. ' +
-    'All tool calls will be denied until you roll back.\n\nContinue?'
-  )) return;
+  const st = await lockState();
+  if (!st) return showToast('Mediator unreachable — policy unchanged.', 'error');
 
   try {
-    const current = await API.getPolicy();
-    const policy = JSON.parse(JSON.stringify(current.policy || current));
-    const agents = policy.agents || {};
-    for (const name of Object.keys(agents)) {
-      agents[name].allowed_tools = [];
+    if (st.locked) {
+      if (!st.restoreTo) {
+        return showToast('No pre-lock policy version to restore. Roll back manually.', 'error');
+      }
+      if (!confirm(
+        'RELEASE EMERGENCY LOCK\n\n' +
+        `Rolls policy back to v${st.restoreTo.version_number} — "${st.restoreTo.description}".\n` +
+        'Agents regain their allow-listed tools.\n\nContinue?'
+      )) return;
+
+      await API.rollbackPolicy(st.restoreTo.id);
+      showToast(`Lock released — restored policy v${st.restoreTo.version_number}.`, 'success');
+    } else {
+      if (!confirm(
+        'EMERGENCY LOCK\n\n' +
+        'Publishes a new policy version with every agent stripped of all tools. ' +
+        'All tool calls will be denied until you release it.\n\nContinue?'
+      )) return;
+
+      const current = await API.getPolicy();
+      const policy = JSON.parse(JSON.stringify(current.policy || current));
+      const agents = policy.agents || {};
+      for (const name of Object.keys(agents)) {
+        agents[name].allowed_tools = [];
+      }
+
+      const res = await API.updatePolicy({
+        policy_data: policy,
+        description: `${LOCK_MARKER} — all tool authority revoked`,
+        created_by: 'dashboard',
+        activate: true,
+        shadow: false,
+      });
+      showToast(`Emergency lock active — policy v${res.version_number}. Press again to release.`, 'error');
     }
 
-    const res = await API.updatePolicy({
-      policy_data: policy,
-      description: 'EMERGENCY LOCK — all tool authority revoked',
-      created_by: 'dashboard',
-      activate: true,
-      shadow: false,
-    });
-
-    showToast(
-      `Emergency lock active — policy v${res.version_number}. ` +
-      `Roll back from Version History to restore.`, 'error');
+    await refreshLockButton();
     if (typeof loadPolicy === 'function') loadPolicy();
   } catch (err) {
-    showToast(`Emergency lock FAILED: ${err.message}. Policy unchanged.`, 'error');
+    showToast(`Policy change FAILED: ${err.message}. Policy unchanged.`, 'error');
+    await refreshLockButton();
   }
 };
 
