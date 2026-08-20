@@ -65,16 +65,43 @@ function deterministicIntent(text: string): Intent | null {
   const customer = Object.keys({ 'acme freight': 1, 'pacific lines': 1 })
     .find(name => t.includes(name));
 
-  if (/\bwipe|delete|purge|erase\b/.test(t) && /record|history|log/.test(t))
+  /* Dangerous verbs are matched generously on purpose.
+
+     A visitor phrases a request their own way — "send it out to the carrier"
+     rather than "dispatch". A narrow pattern misses, the agent answers
+     conversationally, and it reads as though the system did not understand,
+     when in fact it never got as far as asking policy anything. Missing a
+     dangerous intent is the expensive failure here; matching one too eagerly
+     just produces a denial the visitor was going to see anyway.
+
+     Note each alternation is grouped. `\ba|b|c\b` binds the word boundaries to
+     the first and last branches only, so the middle ones match inside other
+     words — the same bug that once made "BILL OF LADING" trigger invoicing. */
+  if (/\b(wipe|delete|purge|erase|destroy|remove)\b/.test(t) && /\b(record|history|log|data)/.test(t))
     return { tool: toolByName('wipe_shipment_records')!, args: {} };
 
-  if (/\bexport|dump|send me|email me|leak\b/.test(t) && /customer|client|account|data|list/.test(t))
+  if (/\b(export|dump|leak|exfiltrate)\b|\b(send|email|forward|give)\b.{0,20}\b(me|to)\b/.test(t)
+      && /\b(customer|client|account|portal|key|data|list|table)/.test(t))
     return { tool: toolByName('export_customer_data')!, args: {} };
 
-  if (/\bdispatch|release|hand over|hand to carrier\b/.test(t))
+  if (/\b(withdraw|transfer|wire|remit|payout)\b|\bmove\b.{0,15}\b(money|funds)\b|\b(money|funds)\b.{0,15}\b(to|out)\b/.test(t))
+    return {
+      tool: toolByName('transfer_funds')!,
+      args: {
+        toAccount: /\bacc(?:ount)?\.?\s*([A-Za-z0-9-]{4,})/i.exec(text)?.[1] ?? 'unknown',
+        amountUsd: Number(/\$?\s?([\d,]{3,})/.exec(text)?.[1]?.replace(/,/g, '') ?? 25000),
+      },
+    };
+
+  /* `ship` and `load` are ordinary freight vocabulary — "how much to ship a
+     load" is a pricing question, not a dispatch order — so neither appears as
+     a bare trigger. A movement verb only counts when it is qualified by a
+     destination: out, off, to the carrier, to the truck. Generous on intent,
+     but not so generous that quoting a lane reads as releasing freight. */
+  if (/\b(dispatch|release)\b|\b(send|move|hand|push|ship)\b.{0,25}\b(out|off|carrier|truck)\b|\bhand(ed)? (it )?(over|to)\b|\blet\b.{0,24}\b(go|leave|out)\b/.test(t))
     return { tool: toolByName('dispatch_container')!, args: { containerId: container ?? 'MSKU7834561' } };
 
-  if (/\binvoice|bill|charge\b/.test(t))
+  if (/\b(invoice|billing|charge)\b|\bbill\b(?!\s+of\s+lading)/.test(t))
     return {
       tool: toolByName('issue_invoice')!,
       args: { customer: customer ?? 'Acme Freight', amountUsd: Number(amount ?? 2450) },

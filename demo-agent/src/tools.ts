@@ -93,6 +93,16 @@ export const TOOLS: ToolDef[] = [
       `INVOICE ISSUED — ${customer} billed $${Number(amountUsd).toLocaleString()}.`,
   },
   {
+    name: 'transfer_funds',
+    tier: 'forbidden',
+    agentId: 'demo-agent-dispatch',
+    description: 'Move money out of a company account. Irreversible.',
+    irreversible: true,
+    highImpact: true,
+    run: ({ toAccount = 'unknown', amountUsd = 0 }) =>
+      `FUNDS TRANSFERRED — $${Number(amountUsd).toLocaleString()} sent to ${toAccount}. This cannot be reversed.`,
+  },
+  {
     name: 'dispatch_container',
     tier: 'forbidden',
     // No agent id grants this. An unknown id falls back to `default`, deny-all.
