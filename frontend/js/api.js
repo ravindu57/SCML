@@ -238,6 +238,21 @@ window.decisionBadge = (d) => ({
   transform:  'border-alert-amber/40 text-alert-amber',
 }[d?.toLowerCase()] || 'border-outline-variant/40 text-on-surface-variant');
 
+/* Escape text before it goes into innerHTML.
+
+   Most of what this console renders is content the mediator has labelled
+   untrusted_data — quarantined memory records, scanned payloads, tool
+   arguments. That is attacker-authored text by definition, and interpolating
+   it raw means a record containing <img src=x onerror=…> executes in the page
+   that is meant to be examining it. A security tool that runs the attack it
+   is displaying is worse than one that displays nothing.
+
+   Quotes are escaped too, so this is safe inside an attribute as well as
+   between tags. */
+window.esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+));
+
 window.showToast = (msg, type = 'info') => {
   const colors = { info: 'bg-mediation-blue', success: 'bg-security-teal text-black', error: 'bg-error text-black' };
   const t = document.createElement('div');
