@@ -98,30 +98,29 @@ class ScmlDecision:
 
 
 class ScmlDefense:
-    """Mediates every tool call through SCML before AgentDojo executes it.
+    """Decides, per tool call, whether SCML authorises it.
 
-    Deliberately not a subclass of ``BasePipelineElement``: importing AgentDojo
-    here would drag langchain and four provider SDKs into a repo whose
-    ``client-install`` CI job exists to keep them out. AgentDojo only requires
-    a ``query`` method with the right shape, so duck typing is enough. The
-    benchmark runner, which does have AgentDojo installed, wraps this.
+    Deliberately free of AgentDojo imports: pulling them in would drag
+    langchain and four provider SDKs into a repo whose ``client-install`` CI job
+    exists to keep them out. This holds the decision logic and the record; the
+    benchmark runner, which does have AgentDojo installed, turns a refusal into
+    a tool result.
+
+    **It refuses calls; it does not stop the agent.** The first version raised
+    AgentDojo's ``AbortAgentError`` on denial, which halted the whole run — so
+    blocking an injected `send_email` also killed the user's unfinished task,
+    and utility measured 0% while ASR measured 0%. A reference monitor denies an
+    action and hands back the refusal; the caller decides what to do next. The
+    denial is the tool's result, not the end of the conversation.
     """
 
-    def __init__(
-        self,
-        client: Any,
-        agent_id: str,
-        *,
-        session_id: str,
-        abort_cls: type[Exception],
-    ) -> None:
+    def __init__(self, client: Any, agent_id: str, *, session_id: str) -> None:
         self._client = client
         self._agent_id = agent_id
         # One session per task: the audit chain is per session, so sharing one
         # across tasks would interleave unrelated runs into a single hash chain
         # and make a replay meaningless as evidence for any one of them.
         self._session_id = session_id
-        self._abort_cls = abort_cls
         self.decisions: list[ScmlDecision] = []
 
     @property
@@ -132,36 +131,36 @@ class ScmlDefense:
     def denied(self) -> list[ScmlDecision]:
         return [d for d in self.decisions if not d.allowed]
 
-    def query(
-        self,
-        query: str,
-        runtime: Any,
-        env: Any = None,
-        messages: list[Any] | None = None,
-        extra_args: dict[str, Any] | None = None,
-    ) -> tuple[str, Any, Any, list[Any], dict[str, Any]]:
-        messages = list(messages or [])
-        extra_args = extra_args or {}
-        if not messages:
-            return query, runtime, env, messages, extra_args
+    def evaluate(self, messages: list[Any]) -> list[tuple[Any, ScmlDecision]]:
+        """Mediate every tool call in the last message.
 
-        last = messages[-1]
-        if _role(last) != "assistant":
-            return query, runtime, env, messages, extra_args
+        Returns ``(call, decision)`` pairs in the order the model proposed
+        them, so the caller can execute the allowed ones and answer the refused
+        ones without losing the correspondence to their tool-call ids.
+        """
+        if not messages or _role(messages[-1]) != "assistant":
+            return []
 
         tainted = conversation_is_tainted(messages)
-
-        for call in _tool_calls(last):
+        out: list[tuple[Any, ScmlDecision]] = []
+        for call in _tool_calls(messages[-1]):
             decision = self._mediate(call, tainted=tainted)
             self.decisions.append(decision)
-            if not decision.allowed:
-                raise self._abort_cls(
-                    f"SCML denied {decision.tool}: {decision.decision} — {decision.reason}",
-                    messages,
-                    env,
-                )
+            out.append((call, decision))
+        return out
 
-        return query, runtime, env, messages, extra_args
+    @staticmethod
+    def refusal_text(decision: ScmlDecision) -> str:
+        """What the agent is told when a call is refused.
+
+        Names the rule rather than just saying no: an agent that knows *why*
+        can choose a different route, which is the difference between a policy
+        and a wall.
+        """
+        return (
+            f"Refused by security policy ({decision.decision}). "
+            f"{decision.reason} This action was not performed."
+        )
 
     def _mediate(self, call: Any, *, tainted: bool) -> ScmlDecision:
         tool_name = str(getattr(call, "function", None) or _get(call, "function") or "")

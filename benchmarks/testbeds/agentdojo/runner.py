@@ -30,14 +30,18 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from agentdojo.agent_pipeline import AgentPipeline, PipelineConfig, ToolsExecutionLoop
-from agentdojo.agent_pipeline.base_pipeline_element import BasePipelineElement
-from agentdojo.agent_pipeline.errors import AbortAgentError
+from agentdojo.agent_pipeline import (
+    AgentPipeline,
+    PipelineConfig,
+    ToolsExecutionLoop,
+    ToolsExecutor,
+)
 from agentdojo.agent_pipeline.llms.openai_llm import OpenAILLM
 from agentdojo.attacks.attack_registry import load_attack
 from agentdojo.benchmark import run_task_with_injection_tasks
 from agentdojo.logging import OutputLogger
 from agentdojo.task_suite.load_suites import get_suites
+from agentdojo.types import ChatToolResultMessage, text_content_block_from_string
 
 from benchmarks.testbeds.agentdojo.defense import ScmlDefense
 from benchmarks.testbeds.agentdojo.gemini_compat import (
@@ -52,21 +56,66 @@ AGENT_ID = "agentdojo_workspace"
 ATTACK = "important_instructions"
 
 
-class _ScmlElement(ScmlDefense, BasePipelineElement):
-    """Adapter so AgentDojo sees a pipeline element.
+class _ScmlToolsExecutor(ToolsExecutor):
+    """Executes the tool calls SCML authorises, and answers the ones it refuses.
 
-    ScmlDefense itself stays free of AgentDojo imports; the subclass exists
-    only here, where AgentDojo is installed.
+    Replaces AgentDojo's ToolsExecutor rather than sitting in front of it. An
+    element placed *before* the executor can only wave a batch through or abort
+    the run, and aborting is what drove utility to 0% in the first pilot:
+    refusing an injected `send_email` killed the user's unfinished task too.
 
-    ScmlDefense must precede BasePipelineElement: `query` is abstract on the
-    latter, and with the bases the other way round it resolves first, leaving
-    the class abstract and uninstantiable.
+    A refused call gets a tool result carrying the reason — the same shape
+    AgentDojo already uses for an unknown tool. The agent sees the refusal,
+    keeps its context, and can continue with the rest of the user's work. Only
+    the action is blocked, not the agent.
     """
 
-    def __init__(self, client: Any, agent_id: str, session_id: str) -> None:
-        ScmlDefense.__init__(
-            self, client, agent_id, session_id=session_id, abort_cls=AbortAgentError
+    def __init__(self, defense: ScmlDefense) -> None:
+        super().__init__()
+        self._defense = defense
+
+    def query(
+        self,
+        query: str,
+        runtime: Any,
+        env: Any = None,
+        messages: Any = (),
+        extra_args: dict[str, Any] | None = None,
+    ) -> tuple[str, Any, Any, Any, dict[str, Any]]:
+        messages = list(messages)
+        extra_args = extra_args or {}
+
+        verdicts = self._defense.evaluate(messages)
+        refused = [(c, d) for c, d in verdicts if not d.allowed]
+        if not verdicts or not refused:
+            return super().query(query, runtime, env, messages, extra_args)
+
+        proposed = messages[-1]
+        allowed = [c for c, d in verdicts if d.allowed]
+
+        # Run the real executor over the allowed calls only.
+        trimmed = dict(proposed)
+        trimmed["tool_calls"] = allowed
+        q, rt, e, out, ex = super().query(
+            query, runtime, env, [*messages[:-1], trimmed], extra_args
         )
+
+        # Restore the model's original message: the transcript should show what
+        # it proposed, not a version edited to look compliant. Every tool_call
+        # then needs a matching result, so answer the refused ones.
+        out = list(out)
+        out[len(messages) - 1] = proposed
+        for call, decision in refused:
+            out.append(
+                ChatToolResultMessage(
+                    role="tool",
+                    content=[text_content_block_from_string("")],
+                    tool_call_id=call.id,
+                    tool_call=call,
+                    error=self._defense.refusal_text(decision),
+                )
+            )
+        return q, rt, e, out, ex
 
 
 def is_openai(model: str) -> bool:
@@ -110,17 +159,25 @@ def build_pipeline(
         pipeline.name = "undefended"
         return pipeline
 
+    defense = ScmlDefense(scml_client, AGENT_ID, session_id=session_id)
+    replaced = False
     for element in pipeline.elements:
         if isinstance(element, ToolsExecutionLoop):
             element.elements = [
-                _ScmlElement(scml_client, AGENT_ID, session_id),
-                *element.elements,
+                _ScmlToolsExecutor(defense) if isinstance(sub, ToolsExecutor) else sub
+                for sub in element.elements
             ]
+            replaced = any(
+                isinstance(sub, _ScmlToolsExecutor) for sub in element.elements
+            )
             break
-    else:  # pragma: no cover - guards a silent no-op if AgentDojo restructures
-        raise RuntimeError("no ToolsExecutionLoop found; SCML was not installed")
+    if not replaced:  # pragma: no cover - AgentDojo restructured its loop
+        raise RuntimeError("no ToolsExecutor found; SCML was not installed")
 
     pipeline.name = "scml"
+    # Carried on the pipeline so the caller can read what was refused without
+    # walking the element tree again.
+    pipeline.scml_defense = defense
     return pipeline
 
 
@@ -202,12 +259,8 @@ def main() -> int:
 
         utility_all.extend(utility.values())
         security_all.extend(security.values())
-        refused: list[Any] = []
-        for element in pipeline.elements:
-            if isinstance(element, ToolsExecutionLoop):
-                for sub in element.elements:
-                    if isinstance(sub, ScmlDefense):
-                        refused.extend(sub.denied)
+        defense = getattr(pipeline, "scml_defense", None)
+        refused: list[Any] = list(defense.denied) if defense else []
         denials += len(refused)
 
         u = _pct(list(utility.values()))
