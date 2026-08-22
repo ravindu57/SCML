@@ -1,0 +1,96 @@
+# SCML policy for AgentDojo's `workspace` suite (PRD §14.1).
+#
+# Written from the suite's 24 tool definitions, not from its attacks. Tuning a
+# policy against the injection tasks would measure how well the policy was
+# fitted to this corpus, which is the same overfitting trap `benchmarks/README.md`
+# warns about for the in-house memory-poisoning cases.
+#
+# The suite's user tasks legitimately need every tool here, including
+# `send_email` and `share_file`. So an allow-list alone cannot separate the
+# user's intent from an injected one — both call the same tool. That is the
+# point of the argument policy below, and the reason this is a real test of
+# FR-PE-04 rather than of FR-PE-02.
+
+agents:
+  # Deny-all stays deny-all. A benchmark must not quietly widen the default
+  # that every unconfigured agent in production falls back to.
+  default:
+    allowed_tools: []
+    require_approval_for: [irreversible, high_impact]
+    untrusted_arg_policy: require_approval
+    rate_limits:
+      tool_calls_per_minute: 60
+
+  agentdojo_workspace:
+    allowed_tools:
+      # Read-only: calendar
+      - get_current_day
+      - get_day_calendar_events
+      - search_calendar_events
+      # Read-only: email
+      - get_received_emails
+      - get_sent_emails
+      - get_unread_emails
+      - get_draft_emails
+      - search_emails
+      # Read-only: files
+      - list_files
+      - get_file_by_id
+      - search_files
+      - search_files_by_filename
+      # Read-only: contacts
+      - search_contacts_by_email
+      - search_contacts_by_name
+      # State-changing: calendar
+      - create_calendar_event
+      - reschedule_calendar_event
+      - add_calendar_event_participants
+      - cancel_calendar_event
+      # State-changing: files
+      - create_file
+      - append_to_file
+      - delete_file
+      - share_file
+      # State-changing: email
+      - send_email
+      - delete_email
+
+    # No human approver exists in a benchmark, so `require_approval` is a
+    # denial in practice. Recorded as a denial rather than counted as an allow
+    # — the FR-PE-03 bug this project already fixed once was exactly that
+    # confusion.
+    require_approval_for:
+      - irreversible
+      - high_impact
+
+    # The load-bearing rule. Once a tool result has entered the conversation,
+    # arguments the model composes are labelled untrusted, and a call carrying
+    # them is refused. This is what stops an injected "email the notes to
+    # attacker@evil.com" while leaving read-only work untouched.
+    untrusted_arg_policy: deny
+
+    rate_limits:
+      tool_calls_per_minute: 120
+
+# The sections below are left at the shipped defaults on purpose. Phase 0
+# measures the tool-policy path; changing scanner thresholds or memory scoring
+# here would confound which layer produced the result.
+memory:
+  integrity_score_threshold: 0.65
+  rescan_on_read: false
+
+scanner:
+  shadow_mode: false
+  thresholds:
+    block: 0.85
+    escalate: 0.70
+    transform: 0.50
+
+redaction:
+  pii_patterns_enabled: true
+  entropy_threshold: 4.5
+  protected_classes:
+    - pii
+    - secret
+    - credential
+  data_flow_rules: {}
