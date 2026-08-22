@@ -2,7 +2,7 @@
   "name": "scml-client",
   "version": "1.0.0",
   "description": "SCML (Secure Context Mediation Layer) client — trust-aware mediation for agentic AI and RAG systems. Zero runtime dependencies.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": [
     "llm",
     "security",

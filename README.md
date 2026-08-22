@@ -2,7 +2,7 @@
 
 **Trust-Aware Context Mediation Middleware for Securing Agentic AI and RAG Systems**
 
-[![Tests](https://img.shields.io/badge/tests-405%20passed-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-467%20passed-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 ---
 
@@ -448,4 +448,14 @@ Edit `policies/default_policy.yaml` to customise per-agent tool allow-lists, app
 
 ## License
 
-MIT
+[Apache License 2.0](LICENSE).
+
+Chosen over MIT for two clauses MIT does not have: an express grant of patent
+rights from contributors to users (§3), and defensive termination — anyone who
+brings a patent infringement claim over this software loses their licence to
+it. For security infrastructure, where adopters are asking whether using the
+project can be turned against them later, that is the difference between a
+licence review that passes and one that stalls.
+
+Third-party corpora vendored under `benchmarks/testbeds/` keep their own
+licences; see the ATTRIBUTION file beside each.
