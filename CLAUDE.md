@@ -11,7 +11,7 @@ are v1.0's and unaffected.
 
 ## Commands
 
-- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 405 passed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
+- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 459 passed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
 - TypeScript client tests: `cd clients/typescript && npm test` (expect 18 passed; run `npm install && npm run build` first)
 - Benchmarks: `.venv/bin/python -m benchmarks.cli --testbed memory_poisoning` (see `benchmarks/README.md`; the CLI pins its own env and DB, so it needs no env prefix)
 - Load/latency: `.venv/bin/python -m benchmarks.load` (§8.1/§8.2 NFRs; same self-pinning env)
@@ -30,6 +30,40 @@ are v1.0's and unaffected.
 - **Traceability convention:** cite PRD requirement IDs (FR-*/NFR-*) in module docstrings and test names, as existing code does.
 - **The core install is the client SDK; the server stack lives in extras.** `pip install trust-mediator` must stay ~14 packages (`httpx`, `pydantic`, `pydantic-settings`). Everything else is `[server]`, `[ml]` (scikit-learn only, imported lazily in `HeuristicClassifier.train`), `[embedded]`. `[dev]` self-references `[server,ml]` so `pip install -e ".[dev]"` still gives a full stack. The `client-install` CI job fails if a server dependency leaks back into core — if you add a core dependency, that job is the thing telling you not to.
 - **`__all__` in `trust_mediator/__init__.py` is the public API contract.** Adding to it is a minor version; removing or renaming is a major one. Everything under `modules/`, `db/`, `api/` is internal and free to change. `MediationPipeline` and `settings` resolve lazily via module `__getattr__` so a client-only install can import the package without the server stack — do not make them eager. `test_public_api.py` pins all of this.
+- **Every `/v1` route takes `AuthDep`, and `AuthDep` yields a *principal*, never the key.**
+  Three FR-MI-05 quarantine routes shipped unauthenticated because they declared
+  `pipeline: PipelineDep = None` and a non-defaulted `_: AuthDep` cannot follow a
+  defaulted parameter — so auth was dropped instead of the parameters reordered.
+  Put dependencies before defaulted parameters.
+  `test_api_auth.py::test_all_v1_routes_require_a_key` walks the route tree and
+  fails on any `/v1` route that does not resolve `_validate_api_key`; its
+  companion `test_at_least_one_route_was_discovered` exists because the first
+  version of that walk found nothing and passed vacuously (FastAPI 0.139 nests
+  included routers under `_IncludedRouter` rather than flattening them into
+  `app.routes`). Auth returns the principal so handlers cannot leak the secret
+  into a log line or span, and so admin actions are attributable: the FR-MI-05
+  release reviewer is the authenticated caller, not a query parameter. Compare
+  keys only with `hmac.compare_digest` over every candidate with no early exit —
+  `key in keys` short-circuits and leaks the key to timing analysis. Never put a
+  raw key in a rate-limit bucket, log field or audit record; use
+  `key_fingerprint`.
+- **Configuring a key file means this deployment authenticates.**
+  `TRUST_MEDIATOR_API_KEYS_FILE` is re-read while running so keys rotate without
+  a restart (`key_store.py`). Two rules that look like bugs and are not:
+  an unreadable file **retains the last good key set** (a transient mount glitch
+  must not be a total auth outage — revoke by *emptying* the file, never
+  deleting it), and setting the file **suppresses development open-access**
+  entirely, or emptying it to revoke everything would instead open the API to
+  everyone. Last-good is per *source*: if the configured path changes, the old
+  keys are dropped.
+- **Production refuses to serve plaintext unless told to.**
+  `require_secure_transport()` runs in `create_app()` and `create_grpc_server()`
+  — not in `main()`, because the Dockerfile CMD and the systemd unit both invoke
+  `uvicorn trust_mediator.api.app:app` directly and never call it. Terminating
+  TLS at an ingress is legitimate, so it is an opt-out
+  (`TRUST_MEDIATOR_ALLOW_INSECURE_HTTP`), but it must stay an explicit, greppable
+  choice rather than the silent default it was. Both listeners honour a keypair;
+  set `_TLS_CA_FILE` + `_TLS_REQUIRE_CLIENT_CERT` for mTLS.
 - **Never classify a mediation verdict inline.** `client.classify_decision` is the single implementation, shared by the SDK and the LangChain guard. `require_approval` and `deny` both arrive *suffixed* (`.irreversible`, `.schema_violation`), and an unrecognised verdict must map to `unknown`, never `allow` — matching `require_approval` exactly once let gated irreversible actions through (FR-PE-03). The TypeScript client mirrors the same branch order and must stay in sync.
 
 ## Layout
@@ -78,7 +112,25 @@ are v1.0's and unaffected.
   cannot borrow another's authority. One shared id makes the allow-list the
   union of everything any part of the system needs, which is the opposite of
   least agency. `demo-agent/` shows the pattern.
-- No TLS/mTLS between components (NFR-SEC-03) and no secrets manager (NFR-SEC-04)
+- **TLS (NFR-SEC-03) is now supported but not on by default, and not everywhere.**
+  Both listeners accept a keypair and optional client-cert verification, and
+  production refuses plaintext without an explicit opt-out. But every shipped
+  deployment (`docker-compose.yml`, `k8s/`) still sets
+  `TRUST_MEDIATOR_ALLOW_INSECURE_HTTP=true` and terminates at nginx/Ingress —
+  nginx itself listens on :80 with no certificate configured. Connections to
+  **Postgres, Redis and Kafka are still plaintext** and have no TLS settings at
+  all. So "SCML supports TLS" is true; "SCML is deployed over TLS" is not.
+  There is no test against a real certificate — `cryptography` is not installed,
+  so `test_tls.py` asserts configuration and wiring, not a completed handshake.
+- **Secrets management (NFR-SEC-04) is half done.** API keys can come from a
+  file, which is what Kubernetes Secrets, Vault Agent and External Secrets
+  render, and they rotate without a restart. `DATABASE_URL`, `REDIS_URL` and
+  `TRUST_MEDIATOR_SECRET_KEY` are still plaintext env vars with no file source
+  and no rotation. The k8s manifests still pass keys via `envFrom: secretRef`,
+  which cannot rotate — env vars from a Secret are snapshotted at pod start, and
+  only a volume-mounted Secret refreshes in place. The volume is written into
+  `k8s/gateway/deployment.yaml` but left commented out, because enabling it
+  switches the auth source and needs three coordinated edits.
 - ~~NFR-AVAIL-01 unmeasured~~ — **measured**: `benchmarks/soak/` injects six
   dependency failures into a live pipeline; committed result
   `benchmarks/results/soak.md` shows 100.000% over 10,666 calls (target 99.9%).
