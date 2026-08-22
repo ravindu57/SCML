@@ -171,9 +171,18 @@ class ScmlDefense:
         args = dict(args) if isinstance(args, dict) else {}
 
         irreversible, high_impact = classify_tool(tool_name)
-        labels = (
-            {k: "untrusted_data" for k in args} if tainted else {}
-        )
+
+        # Label arguments only for tools that can *act*. A read has no side
+        # effect and no egress, so refusing it on tainted arguments costs
+        # utility and buys no security — the mediator gates actions and egress,
+        # not beliefs, which is the same rule that makes poisoned memory inert.
+        #
+        # Measured, and the reason this is not `if tainted` alone: labelling
+        # every tool drove ASR to 0% but utility to 0% too, and 4 of 6 denials
+        # were reads (search_calendar_events, get_day_calendar_events). A
+        # defense that refuses everything scores a perfect ASR and is worthless.
+        acts = irreversible or high_impact
+        labels = {k: "untrusted_data" for k in args} if (tainted and acts) else {}
 
         result = self._client.mediate_tool_call(
             self._session_id,

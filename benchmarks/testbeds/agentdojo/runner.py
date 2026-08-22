@@ -69,9 +69,21 @@ class _ScmlElement(ScmlDefense, BasePipelineElement):
         )
 
 
+def is_openai(model: str) -> bool:
+    return model.startswith(("gpt-", "o1-", "o3-", "o4-"))
+
+
 def build_llm(api_key: str, model: str) -> OpenAILLM:
-    """Gemini through its OpenAI-compatible endpoint, with the signature shim."""
+    """An LLM element for `model`.
+
+    OpenAI models go straight to the native endpoint. Gemini needs its
+    OpenAI-compatible URL plus the thought-signature shim, without which the
+    tool loop dies on turn two — see gemini_compat.
+    """
     import openai
+
+    if is_openai(model):
+        return OpenAILLM(openai.OpenAI(api_key=api_key), model)
 
     client = wrap_for_gemini(
         openai.OpenAI(api_key=api_key, base_url=GEMINI_OPENAI_BASE_URL)
@@ -131,9 +143,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    api_key = _load_key(args.env_file)
+    api_key = _load_key(args.env_file, args.model)
     if not api_key:
-        print("no GEMINI_API_KEY in .env", file=sys.stderr)
+        needed = "OPENAI_API_KEY" if is_openai(args.model) else "GEMINI_API_KEY"
+        print(f"no {needed} in {args.env_file}", file=sys.stderr)
         return 1
 
     scml_client = None
@@ -145,12 +158,13 @@ def main() -> int:
     suite = get_suites(BENCHMARK_VERSION)[SUITE]
     attack_pipeline = build_pipeline(build_llm(api_key, args.model), None, "probe")
     # `important_instructions` addresses the injection to the model by name,
-    # resolving it by substring against a table whose Gemini entries are all
-    # retired ids. The prose it needs is the vendor ("AI model developed by
-    # Google"), which is correct for any Gemini, so naming the pipeline after a
-    # mapped id gets the attack phrased right. The model actually queried is
-    # still args.model — only the attack's salutation is affected.
-    attack_pipeline.name = f"gemini-2.0-flash-001 ({args.model})"
+    # resolving it by substring against a table of pinned ids. Naming the
+    # attack pipeline after a mapped id gets the salutation right; the model
+    # actually queried is args.model and is unaffected. For Gemini every mapped
+    # id is retired, but they all resolve to the same vendor prose, so any of
+    # them is correct.
+    mapped = "gpt-4o-mini-2024-07-18" if is_openai(args.model) else "gemini-2.0-flash-001"
+    attack_pipeline.name = f"{mapped} ({args.model})"
     attack = load_attack(ATTACK, suite, attack_pipeline)
 
     task_ids = sorted(suite.user_tasks)[: args.tasks]
@@ -188,15 +202,26 @@ def main() -> int:
 
         utility_all.extend(utility.values())
         security_all.extend(security.values())
+        refused: list[Any] = []
         for element in pipeline.elements:
             if isinstance(element, ToolsExecutionLoop):
                 for sub in element.elements:
                     if isinstance(sub, ScmlDefense):
-                        denials += len(sub.denied)
+                        refused.extend(sub.denied)
+        denials += len(refused)
 
         u = _pct(list(utility.values()))
         a = _pct(list(security.values()))
-        print(f"  {task_id:<16} utility={u:>5.1f}%  ASR={a:>5.1f}%  ({len(security)} injections)")
+        note = ""
+        if refused:
+            # Which tool was refused decides how to read a utility drop: an
+            # exfiltration tool means least agency worked, a read tool means
+            # the taint approximation is over-blocking.
+            note = "  denied: " + ", ".join(sorted({d.tool for d in refused}))
+        print(
+            f"  {task_id:<16} utility={u:>5.1f}%  ASR={a:>5.1f}%  "
+            f"({len(security)} injections){note}"
+        )
 
     print()
     print(f"{'utility':<10} {_pct(utility_all):.1f}%   ({sum(utility_all)}/{len(utility_all)})")
@@ -210,13 +235,18 @@ def _pct(values: list[bool]) -> float:
     return 100.0 * sum(values) / len(values) if values else 0.0
 
 
-def _load_key(env_file: str) -> str:
+def _load_key(env_file: str, model: str) -> str:
+    wanted = (
+        ("OPENAI_API_KEY",)
+        if is_openai(model)
+        else ("GEMINI_API_KEY", "GOOGLE_API_KEY")
+    )
     for raw in open(env_file, encoding="utf-8"):
         line = raw.strip()
         if line.startswith("#") or "=" not in line:
             continue
         k, _, v = line.partition("=")
-        if k.strip() in ("GEMINI_API_KEY", "GOOGLE_API_KEY") and v.strip():
+        if k.strip() in wanted and v.strip():
             return v.strip()
     return ""
 
