@@ -160,3 +160,83 @@ class TestPassThrough:
         client.chat.completions.create(model="m", messages=[])
         client.chat.completions.create(model="m", messages=[])
         assert client.signatures_seen == 2
+
+
+class _RateLimited(Exception):
+    status_code = 429
+
+
+class _FlakyCompletions(_Completions):
+    """Raises 429 a fixed number of times, then succeeds."""
+
+    def __init__(self, responses: list[Any], failures: int) -> None:
+        super().__init__(responses)
+        self._remaining = failures
+
+    def create(self, **kwargs: Any) -> Any:
+        if self._remaining:
+            self._remaining -= 1
+            raise _RateLimited("429 rate limit exceeded")
+        return super().create(**kwargs)
+
+
+class _FlakyClient:
+    def __init__(self, responses: list[Any], failures: int) -> None:
+        self.chat = type("C", (), {})()
+        self.chat.completions = _FlakyCompletions(responses, failures)
+
+
+class TestRateLimitRetry:
+    """Free-tier RPM is the binding limit: an agent task is a burst of
+    sequential calls that blows a 10-15 RPM allowance in seconds. Measured — a
+    4-task run failed every task on 429 while a single call moments later
+    succeeded."""
+
+    def test_a_rate_limited_call_is_retried(self):
+        slept: list[float] = []
+        client = wrap_for_gemini(
+            _FlakyClient([_response("call_1")], failures=2),
+            base_delay=1.0,
+            sleep=slept.append,
+        )
+        client.chat.completions.create(model="m", messages=[])
+        assert slept == [1.0, 2.0], "backoff should double between attempts"
+        assert client.rate_limit_waits == 2
+
+    def test_retries_are_bounded(self):
+        client = wrap_for_gemini(
+            _FlakyClient([_response("call_1")], failures=99),
+            max_retries=2,
+            base_delay=0.0,
+            sleep=lambda _: None,
+        )
+        try:
+            client.chat.completions.create(model="m", messages=[])
+        except _RateLimited:
+            pass
+        else:  # pragma: no cover
+            raise AssertionError("should give up rather than retry forever")
+
+    def test_other_errors_are_not_retried(self):
+        """A 400 is a bug in the request; retrying it just wastes quota."""
+
+        class _Boom(Exception):
+            status_code = 400
+
+        class _Always:
+            def __init__(self):
+                self.calls = 0
+
+            def create(self, **kwargs):
+                self.calls += 1
+                raise _Boom("400 bad request")
+
+        inner = type("C", (), {})()
+        inner.chat = type("C", (), {})()
+        inner.chat.completions = _Always()
+        client = wrap_for_gemini(inner, base_delay=0.0, sleep=lambda _: None)
+        try:
+            client.chat.completions.create(model="m", messages=[])
+        except _Boom:
+            pass
+        assert inner.chat.completions.calls == 1, "a 400 must not be retried"

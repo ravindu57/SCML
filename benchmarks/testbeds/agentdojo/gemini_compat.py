@@ -39,6 +39,7 @@ Usage (in the benchmark virtualenv)::
 """
 from __future__ import annotations
 
+import time
 from typing import Any
 
 #: Gemini's OpenAI-compatible endpoint.
@@ -46,6 +47,24 @@ GEMINI_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/opena
 
 #: Where Gemini returns the signature on a tool call.
 _EXTRA = "extra_content"
+
+#: Free-tier requests-per-minute is the binding limit for an agent benchmark.
+#: One task is a burst of sequential calls — reasoning, tool call, tool result,
+#: reasoning again — which exceeds a 10-15 RPM allowance in seconds. Measured:
+#: a 4-task run failed every task on 429 while a single call moments later
+#: succeeded, so the ceiling is per-minute, not per-day, and waiting clears it.
+DEFAULT_MAX_RETRIES = 6
+DEFAULT_BASE_DELAY = 20.0
+
+
+def _is_rate_limit(exc: Exception) -> bool:
+    """True for a 429, without importing the provider SDK to check."""
+    if getattr(exc, "status_code", None) == 429:
+        return True
+    response = getattr(exc, "response", None)
+    if getattr(response, "status_code", None) == 429:
+        return True
+    return "429" in str(exc) and "rate" in str(exc).lower()
 
 
 def _get(obj: Any, name: str) -> Any:
@@ -140,25 +159,49 @@ class _SignatureStore:
 
 
 class _Completions:
-    def __init__(self, inner: Any, store: _SignatureStore) -> None:
+    def __init__(
+        self,
+        inner: Any,
+        store: _SignatureStore,
+        *,
+        max_retries: int,
+        base_delay: float,
+        sleep: Any = time.sleep,
+    ) -> None:
         self._inner = inner
         self._store = store
+        self._max_retries = max_retries
+        self._base_delay = base_delay
+        self._sleep = sleep
+        self.rate_limit_waits = 0
 
     def create(self, *args: Any, **kwargs: Any) -> Any:
         if "messages" in kwargs:
             kwargs["messages"] = self._store.reattach(kwargs["messages"])
-        response = self._inner.create(*args, **kwargs)
-        self._store.capture(response)
-        return response
+
+        delay = self._base_delay
+        for attempt in range(self._max_retries + 1):
+            try:
+                response = self._inner.create(*args, **kwargs)
+            except Exception as exc:  # noqa: BLE001 — re-raised unless it is a 429
+                if not _is_rate_limit(exc) or attempt == self._max_retries:
+                    raise
+                self.rate_limit_waits += 1
+                self._sleep(delay)
+                delay *= 2
+                continue
+            self._store.capture(response)
+            return response
+        raise AssertionError("unreachable")  # pragma: no cover
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
 
 
 class _Chat:
-    def __init__(self, inner: Any, store: _SignatureStore) -> None:
+    def __init__(self, inner: Any, store: _SignatureStore, **kwargs: Any) -> None:
         self._inner = inner
-        self.completions = _Completions(inner.completions, store)
+        self.completions = _Completions(inner.completions, store, **kwargs)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
@@ -171,10 +214,23 @@ class GeminiToolLoopClient:
     the caller passes in.
     """
 
-    def __init__(self, inner: Any) -> None:
+    def __init__(
+        self,
+        inner: Any,
+        *,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        base_delay: float = DEFAULT_BASE_DELAY,
+        sleep: Any = time.sleep,
+    ) -> None:
         self._inner = inner
         self._store = _SignatureStore()
-        self.chat = _Chat(inner.chat, self._store)
+        self.chat = _Chat(
+            inner.chat,
+            self._store,
+            max_retries=max_retries,
+            base_delay=base_delay,
+            sleep=sleep,
+        )
 
     @property
     def signatures_seen(self) -> int:
@@ -182,10 +238,24 @@ class GeminiToolLoopClient:
         the shim did nothing, which is worth failing a benchmark over."""
         return len(self._store)
 
+    @property
+    def rate_limit_waits(self) -> int:
+        """How often the run stalled on a 429. Reported beside a result so a
+        number that took an hour is not mistaken for one that took a minute."""
+        return self.chat.completions.rate_limit_waits
+
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
 
 
-def wrap_for_gemini(client: Any) -> GeminiToolLoopClient:
+def wrap_for_gemini(
+    client: Any,
+    *,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    base_delay: float = DEFAULT_BASE_DELAY,
+    sleep: Any = time.sleep,
+) -> GeminiToolLoopClient:
     """Wrap an OpenAI-compatible client for Gemini's tool loop."""
-    return GeminiToolLoopClient(client)
+    return GeminiToolLoopClient(
+        client, max_retries=max_retries, base_delay=base_delay, sleep=sleep
+    )
