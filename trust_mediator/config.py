@@ -6,12 +6,108 @@ can be tuned through a single .env without touching source code.
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic.fields import FieldInfo
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
+
+
+class SecretFileError(RuntimeError):
+    """A setting pointed at a secret file that could not be read (NFR-SEC-04)."""
+
+
+#: Settings excluded from the generic ``<VAR>_FILE`` mechanism.
+#:
+#: ``api_keys_raw`` is aliased TRUST_MEDIATOR_API_KEYS, so the generic rule
+#: would claim TRUST_MEDIATOR_API_KEYS_FILE — which already exists as its own
+#: field with *live-reload* semantics (see api/key_store.py). Two mechanisms
+#: reading one path, one of them a startup-only snapshot, is the kind of
+#: near-duplicate that looks fine until a rotation half-applies.
+_NO_FILE_SOURCE = {"api_keys_raw"}
+
+
+class FileSecretSource(PydanticBaseSettingsSource):
+    """Read any setting from ``<ENV_NAME>_FILE`` instead of the variable itself.
+
+    A secret in an environment variable leaks: it is visible in ``/proc``, in
+    ``docker inspect``, in the pod spec, and in any crash dump or process
+    listing that captures the environment. The convention every secret manager
+    already targets is a file — Docker Compose secrets, Kubernetes Secret
+    volumes, Vault Agent templates and External Secrets Operator all render
+    one — and the ``_FILE`` suffix is what the official Postgres, MySQL and
+    Redis images use, so operators recognise it without documentation.
+
+    Precedence sits above the environment variable and the ``.env`` file, so
+    ``DATABASE_URL_FILE`` wins over ``DATABASE_URL``. A configured file that
+    cannot be read raises: unlike the API key file, this happens once at
+    startup, so there is no last-good value to keep and no request to serve —
+    failing loudly beats booting with a default password.
+
+    Values are read whole, with only trailing newlines stripped, because a
+    secret may legitimately contain spaces. **Read once at startup**: pooled
+    database and Redis connections are established from these, so rotating one
+    on disk has no effect until the process restarts.
+    """
+
+    @staticmethod
+    def _alias(field: FieldInfo) -> str | None:
+        alias = field.validation_alias or field.alias
+        return alias if isinstance(alias, str) else None
+
+    def _field_key(self, field: FieldInfo, field_name: str) -> str:
+        """The key validation accepts.
+
+        An aliased field is only populated by its alias unless
+        ``populate_by_name`` is set, so returning the field name here silently
+        drops the value — the source runs, reads the file, and nothing changes.
+        """
+        return self._alias(field) or field_name
+
+    def _env_name(self, field: FieldInfo, field_name: str) -> str:
+        alias = self._alias(field)
+        if alias:
+            return alias.upper()
+        prefix = self.config.get("env_prefix") or ""
+        return f"{prefix}{field_name}".upper()
+
+    def get_field_value(
+        self, field: FieldInfo, field_name: str
+    ) -> tuple[Any, str, bool]:
+        key = self._field_key(field, field_name)
+        if field_name in _NO_FILE_SOURCE:
+            return None, key, False
+
+        var = f"{self._env_name(field, field_name)}_FILE"
+        path = os.environ.get(var)
+        if not path:
+            return None, key, False
+
+        try:
+            with open(path, encoding="utf-8") as fh:
+                value = fh.read()
+        except OSError as exc:
+            raise SecretFileError(
+                f"{var}={path!r} could not be read: {exc}. Remove the variable to "
+                f"fall back to the plain environment variable, or fix the mount."
+            ) from exc
+
+        return value.rstrip("\r\n"), key, False
+
+    def __call__(self) -> dict[str, Any]:
+        values: dict[str, Any] = {}
+        for field_name, field in self.settings_cls.model_fields.items():
+            value, key, _ = self.get_field_value(field, field_name)
+            if value is not None:
+                values[key] = value
+        return values
 
 # A principal name in TRUST_MEDIATOR_API_KEYS ("alice:sk-abc123"). Deliberately
 # narrow so an unnamed key that happens to contain a colon is not misread as one.
@@ -63,6 +159,30 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Insert the ``<VAR>_FILE`` source above the environment (NFR-SEC-04).
+
+        Earlier sources win, so an explicit ``DATABASE_URL_FILE`` overrides a
+        ``DATABASE_URL`` inherited from the image or the shell — the direction
+        an operator moving secrets out of the environment expects. ``init``
+        stays first so tests and direct construction still take precedence.
+        """
+        return (
+            init_settings,
+            FileSecretSource(settings_cls),
+            env_settings,
+            dotenv_settings,
+            file_secret_settings,
+        )
 
     # ── Service ───────────────────────────────────────────────────────────────
     host: str = "0.0.0.0"
