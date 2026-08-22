@@ -6,11 +6,53 @@ can be tuned through a single .env without touching source code.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# A principal name in TRUST_MEDIATOR_API_KEYS ("alice:sk-abc123"). Deliberately
+# narrow so an unnamed key that happens to contain a colon is not misread as one.
+_PRINCIPAL_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+
+
+def parse_key_entries(raw: str) -> list[tuple[str | None, str]]:
+    """Parse API key entries into (principal, key) pairs.
+
+    Accepts the env-var form (comma-separated) and the file form (one per
+    line, ``#`` comments allowed), because the same text is read from both
+    ``TRUST_MEDIATOR_API_KEYS`` and ``TRUST_MEDIATOR_API_KEYS_FILE``.
+
+    Each entry is a bare key (``sk-abc123``) or a named one
+    (``alice:sk-abc123``). The name is what lands in audit records for admin
+    actions, so an operator can tell *which* keyholder released a quarantined
+    record. Unnamed keys get ``None`` here and are identified downstream by
+    fingerprint, never by the key itself.
+
+    A name is only recognised when it looks like an identifier and leaves a
+    non-empty remainder, so an unnamed key containing a colon is still treated
+    as one key. The residual ambiguity — an unnamed key whose text before the
+    first colon happens to be identifier-shaped — fails closed and loudly: the
+    key simply stops authenticating.
+    """
+    pairs: list[tuple[str | None, str]] = []
+    for line in raw.splitlines():
+        # A trailing "#" comment cannot be stripped from the middle of a line:
+        # "#" is a legal character in a key. Only whole-line comments count.
+        if line.lstrip().startswith("#"):
+            continue
+        for chunk in line.split(","):
+            entry = chunk.strip()
+            if not entry:
+                continue
+            name, sep, key = entry.partition(":")
+            if sep and key and _PRINCIPAL_NAME_RE.match(name):
+                pairs.append((name, key))
+            else:
+                pairs.append((None, entry))
+    return pairs
 
 
 class Settings(BaseSettings):
@@ -33,10 +75,29 @@ class Settings(BaseSettings):
     # Leave empty in development for open access.
     api_keys_raw: str = Field(default="", alias="TRUST_MEDIATOR_API_KEYS")
 
+    # Read API keys from a file instead of the env var. This is how a secrets
+    # manager delivers them (Kubernetes Secret, Vault Agent, External Secrets
+    # Operator all render a file), and it is what makes rotation possible
+    # without a restart — see trust_mediator/api/key_store.py.
+    api_keys_file: str = Field(default="", alias="TRUST_MEDIATOR_API_KEYS_FILE")
+    # How long a loaded key set is trusted before the file is re-stat'ed.
+    api_keys_reload_seconds: float = Field(
+        default=5.0, alias="TRUST_MEDIATOR_API_KEYS_RELOAD_SECONDS"
+    )
+
+    @property
+    def api_key_principals(self) -> list[tuple[str | None, str]]:
+        """(principal, key) pairs from TRUST_MEDIATOR_API_KEYS.
+
+        The env source only. Callers that must honour a rotating key file want
+        ``trust_mediator.api.key_store.principals()`` instead.
+        """
+        return parse_key_entries(self.api_keys_raw)
+
     @property
     def api_keys(self) -> list[str]:
-        """Return a list of valid API keys (strips whitespace, drops empties)."""
-        return [k.strip() for k in self.api_keys_raw.split(",") if k.strip()]
+        """The valid API keys from the env var, stripped of any prefix."""
+        return [key for _, key in self.api_key_principals]
 
     # ── gRPC (FR-IG-02) ───────────────────────────────────────────────────────
     grpc_enabled: bool = Field(default=False, alias="TRUST_MEDIATOR_GRPC_ENABLED")
@@ -60,6 +121,33 @@ class Settings(BaseSettings):
     @property
     def trusted_hosts(self) -> list[str]:
         return [h.strip() for h in self.trusted_hosts_raw.split(",") if h.strip()]
+
+    # ── TLS / mTLS (NFR-SEC-03) ───────────────────────────────────────────────
+    # Server certificate. Setting both enables TLS on the HTTP and gRPC ports.
+    tls_cert_file: str = Field(default="", alias="TRUST_MEDIATOR_TLS_CERT_FILE")
+    tls_key_file: str = Field(default="", alias="TRUST_MEDIATOR_TLS_KEY_FILE")
+    # CA bundle used to verify *client* certificates (mTLS).
+    tls_ca_file: str = Field(default="", alias="TRUST_MEDIATOR_TLS_CA_FILE")
+    # Require and verify a client certificate. Needs tls_ca_file.
+    tls_require_client_cert: bool = Field(
+        default=False, alias="TRUST_MEDIATOR_TLS_REQUIRE_CLIENT_CERT"
+    )
+    # Explicit opt-out for plaintext in production — the supported way to say
+    # "TLS terminates at the ingress or service mesh". Without it, a production
+    # process refuses to start over plaintext rather than serving mediation
+    # decisions and API keys in the clear because nobody set a certificate.
+    allow_insecure_http: bool = Field(
+        default=False, alias="TRUST_MEDIATOR_ALLOW_INSECURE_HTTP"
+    )
+
+    @property
+    def tls_enabled(self) -> bool:
+        """TLS is on only when both halves of the keypair are configured."""
+        return bool(self.tls_cert_file and self.tls_key_file)
+
+    @property
+    def mtls_enabled(self) -> bool:
+        return self.tls_enabled and self.tls_require_client_cert and bool(self.tls_ca_file)
 
     # ── Database ──────────────────────────────────────────────────────────────
     database_url: str = Field(
@@ -219,3 +307,32 @@ class Settings(BaseSettings):
 
 # Singleton settings instance used throughout the application
 settings = Settings()
+
+
+class InsecureTransportError(RuntimeError):
+    """A production listener was asked to start without TLS (NFR-SEC-03)."""
+
+
+def require_secure_transport(component: str) -> None:
+    """Fail closed rather than serve a production listener in the clear.
+
+    Every credential and every mediation decision crosses this socket, so
+    plaintext in production defeats the API key work entirely — it is a header
+    anyone on the path can read and replay.
+
+    Terminating TLS at an ingress or service mesh is a legitimate deployment,
+    so this is an opt-out rather than a hard requirement. What it is not is a
+    *silent* default: ``TRUST_MEDIATOR_ALLOW_INSECURE_HTTP=true`` makes the
+    choice explicit and greppable, which is the difference between a decision
+    and an oversight.
+    """
+    if not settings.is_production:
+        return
+    if settings.tls_enabled or settings.allow_insecure_http:
+        return
+    raise InsecureTransportError(
+        f"{component} refused to start: TRUST_MEDIATOR_ENV=production with no TLS. "
+        "Set TRUST_MEDIATOR_TLS_CERT_FILE and TRUST_MEDIATOR_TLS_KEY_FILE, or set "
+        "TRUST_MEDIATOR_ALLOW_INSECURE_HTTP=true if TLS terminates in front of "
+        "this process (ingress, service mesh, or nginx)."
+    )

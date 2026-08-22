@@ -7,6 +7,7 @@ and exposes health + metrics endpoints.
 
 from __future__ import annotations
 
+import ssl
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -21,7 +22,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from trust_mediator.config import settings
+from trust_mediator.config import require_secure_transport, settings
 from trust_mediator.api.dependencies import get_pipeline, get_policy_store
 from trust_mediator.api.rate_limit import limiter
 from trust_mediator.api.routers import audit, mediate, memory, policy
@@ -88,6 +89,12 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    # NFR-SEC-03. Deliberately here and not in main(): the Dockerfile CMD and
+    # the systemd unit both invoke `uvicorn trust_mediator.api.app:app`
+    # directly, so a guard in main() would never run in the deployments that
+    # need it. create_app is on every path.
+    require_secure_transport("HTTP API")
+
     app = FastAPI(
         title="TrustMediator",
         description=(
@@ -198,6 +205,22 @@ def create_app() -> FastAPI:
 app = create_app()
 
 
+def _ssl_kwargs() -> dict[str, object]:
+    """uvicorn TLS arguments (NFR-SEC-03), empty when TLS is not configured."""
+    if not settings.tls_enabled:
+        return {}
+    kwargs: dict[str, object] = {
+        "ssl_certfile": settings.tls_cert_file,
+        "ssl_keyfile": settings.tls_key_file,
+    }
+    if settings.tls_ca_file:
+        kwargs["ssl_ca_certs"] = settings.tls_ca_file
+    if settings.tls_require_client_cert:
+        # mTLS: present a CA and reject any peer that cannot chain to it.
+        kwargs["ssl_cert_reqs"] = ssl.CERT_REQUIRED
+    return kwargs
+
+
 def main():
     uvicorn.run(
         "trust_mediator.api.app:app",
@@ -206,6 +229,7 @@ def main():
         workers=settings.workers,
         log_level=settings.log_level.lower(),
         reload=settings.is_development,
+        **_ssl_kwargs(),
     )
 
 

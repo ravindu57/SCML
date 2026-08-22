@@ -60,6 +60,24 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            # ── Rotatable API keys (NFR-SEC-04) ──────────────────────────────
+            # Keys currently arrive as TRUST_MEDIATOR_API_KEYS via the
+            # `trust-mediator-secrets` envFrom above. Environment variables
+            # sourced from a Secret are snapshotted at pod start: kubelet never
+            # updates them, so rotating or revoking a key needs a rolling
+            # restart. A *volume-mounted* Secret is refreshed in place
+            # (kubelet sync period, ~60s by default), which is what lets the
+            # mediator pick up a new key set while serving.
+            #
+            # To enable: create the Secret, uncomment this mount and the volume
+            # below, and set in the ConfigMap:
+            #   TRUST_MEDIATOR_API_KEYS_FILE: "/etc/trust-mediator/keys/api-keys"
+            # Do all three together — the file source takes precedence over the
+            # env var, so pointing at a path that is not mounted revokes every
+            # key at once.
+            # - name: api-keys
+            #   mountPath: /etc/trust-mediator/keys
+            #   readOnly: true
           resources:
             requests:
               cpu: 250m
@@ -83,3 +101,14 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        # Paired with the api-keys volumeMount above — see the note there.
+        # One key per line; "name:key" to attribute admin actions in the audit
+        # chain. Rotate by adding the new key, then removing the old. Revoke by
+        # emptying the file: deleting it is indistinguishable from a broken
+        # mount, so the mediator keeps the last good key set in that case.
+        # - name: api-keys
+        #   secret:
+        #     secretName: trust-mediator-api-keys
+        #     items:
+        #       - key: api-keys
+        #         path: api-keys

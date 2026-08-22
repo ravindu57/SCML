@@ -5,6 +5,13 @@ metadata:
   namespace: trust-mediator
 data:
   TRUST_MEDIATOR_ENV: "production"
+  # NFR-SEC-03. TLS terminates at the Ingress, so the pod itself listens in
+  # plaintext inside the cluster. Production refuses to start without this
+  # acknowledgement, so the decision is visible in review rather than implied
+  # by the absence of a certificate. To encrypt pod-to-pod as well, mount a
+  # keypair and set TRUST_MEDIATOR_TLS_CERT_FILE / _TLS_KEY_FILE instead —
+  # add _TLS_CA_FILE and _TLS_REQUIRE_CLIENT_CERT for mTLS.
+  TRUST_MEDIATOR_ALLOW_INSECURE_HTTP: "true"
   TRUST_MEDIATOR_LOG_LEVEL: "INFO"
   TRUST_MEDIATOR_RATE_LIMIT: "200/minute"
   # Redis is REQUIRED in gateway mode: distributed tool-call rate limiting.

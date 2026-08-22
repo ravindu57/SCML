@@ -42,15 +42,21 @@ class _FakeResponse:
 
 @pytest.fixture
 def stub_transport(monkeypatch):
-    """Replace httpx.request with a canned response; records the calls made."""
+    """Replace httpx.Client.request with a canned response; records the calls.
+
+    Patches the bound method rather than ``httpx.request``: the sync client
+    builds an ``httpx.Client`` so it can pass ``cert=`` for mTLS (NFR-SEC-03),
+    which the module-level ``httpx.request`` does not accept. Constructing a
+    real Client opens no connection, so only the request needs stubbing.
+    """
     calls: list[dict] = []
 
     def _install(payload: dict, status: int = 200):
-        def fake_request(method, url, **kwargs):
+        def fake_request(self, method, url, **kwargs):
             calls.append({"method": method, "url": url, **kwargs})
             return _FakeResponse(payload, status)
 
-        monkeypatch.setattr(httpx, "request", fake_request)
+        monkeypatch.setattr(httpx.Client, "request", fake_request)
         return calls
 
     return _install
@@ -174,7 +180,10 @@ class TestFailPolicy:
         def boom(*a, **kw):
             raise httpx.ConnectError("connection refused")
 
-        monkeypatch.setattr(httpx, "request", boom)
+        # Must patch Client.request, not httpx.request: the client no longer
+        # calls the latter, so patching it left these passing only because
+        # port 9 genuinely refuses — the stub never fired.
+        monkeypatch.setattr(httpx.Client, "request", boom)
         client = SCMLClient("http://127.0.0.1:9")
 
         with pytest.raises(SCMLUnavailable):
@@ -186,7 +195,10 @@ class TestFailPolicy:
         def boom(*a, **kw):
             raise httpx.ConnectError("connection refused")
 
-        monkeypatch.setattr(httpx, "request", boom)
+        # Must patch Client.request, not httpx.request: the client no longer
+        # calls the latter, so patching it left these passing only because
+        # port 9 genuinely refuses — the stub never fired.
+        monkeypatch.setattr(httpx.Client, "request", boom)
         client = SCMLClient("http://127.0.0.1:9")
 
         result = client.mediate_context(session_id="s", content="doc", fail_open=True)

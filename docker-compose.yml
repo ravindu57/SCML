@@ -18,6 +18,11 @@ services:
       - DATABASE_URL=postgresql+asyncpg://tmuser:tmpassword@postgres:5432/trust_mediator
       - REDIS_URL=redis://redis:6379/0
       - TRUST_MEDIATOR_ENV=production
+      # NFR-SEC-03: this stack terminates TLS at nginx, so the app itself
+      # serves plaintext on the internal network. Production refuses to start
+      # without this acknowledgement — set TRUST_MEDIATOR_TLS_CERT_FILE and
+      # TRUST_MEDIATOR_TLS_KEY_FILE instead to encrypt this hop as well.
+      - TRUST_MEDIATOR_ALLOW_INSECURE_HTTP=true
       - TRUST_MEDIATOR_LOG_LEVEL=INFO
       - TRUST_MEDIATOR_SECRET_KEY=${TRUST_MEDIATOR_SECRET_KEY:-change-me-in-production}
       - MEMORY_INTEGRITY_THRESHOLD=${MEMORY_INTEGRITY_THRESHOLD:-0.65}

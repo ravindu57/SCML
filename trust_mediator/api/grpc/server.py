@@ -17,7 +17,8 @@ import json
 import grpc
 import structlog
 
-from trust_mediator.config import settings
+from trust_mediator.config import require_secure_transport, settings
+from trust_mediator.api.auth import open_access_allowed, principal_for
 from trust_mediator.api.grpc import mediation_pb2, mediation_pb2_grpc
 from trust_mediator.core.pipeline import MediationPipeline
 from trust_mediator.models.context_envelope import ContextEnvelope, Provenance
@@ -38,11 +39,17 @@ class _ApiKeyInterceptor(grpc.aio.ServerInterceptor):
         self._abort_handler = grpc.unary_unary_rpc_method_handler(abort)
 
     async def intercept_service(self, continuation, handler_call_details):
-        keys = settings.api_keys
-        if not keys:  # open access (development)
+        # Parity with the REST dependency means open access requires *both* no
+        # configured keys and development mode. Testing only `not keys` left
+        # gRPC wide open in production whenever TRUST_MEDIATOR_API_KEYS was
+        # unset — the REST path 401s in that situation, so a deployment that
+        # believed it was authenticated was authenticated on one transport only.
+        if open_access_allowed():
             return await continuation(handler_call_details)
         metadata = dict(handler_call_details.invocation_metadata or ())
-        if metadata.get("x-api-key") in keys:
+        api_key = metadata.get("x-api-key")
+        # principal_for compares in constant time; `in keys` did not.
+        if api_key and principal_for(api_key) is not None:
             return await continuation(handler_call_details)
         return self._abort_handler
 
@@ -162,6 +169,35 @@ async def create_grpc_server(
         MediationServicer(pipeline), server
     )
     bind = f"{settings.host}:{port or settings.grpc_port}"
-    server.add_insecure_port(bind)  # TLS terminates at the mesh/ingress (NFR-SEC-03)
-    logger.info("grpc.server_configured", bind=bind)
+
+    # NFR-SEC-03. Previously always add_insecure_port, justified in a comment as
+    # "TLS terminates at the mesh/ingress" — true for some deployments, but it
+    # was not configurable, so the ones that needed in-process TLS could not
+    # have it. require_secure_transport makes the plaintext case an explicit
+    # choice rather than the only option.
+    require_secure_transport("gRPC server")
+    if settings.tls_enabled:
+        with open(settings.tls_key_file, "rb") as f:
+            key = f.read()
+        with open(settings.tls_cert_file, "rb") as f:
+            cert = f.read()
+        root_ca = None
+        if settings.tls_ca_file:
+            with open(settings.tls_ca_file, "rb") as f:
+                root_ca = f.read()
+        credentials = grpc.ssl_server_credentials(
+            [(key, cert)],
+            root_certificates=root_ca,
+            require_client_auth=settings.mtls_enabled,
+        )
+        server.add_secure_port(bind, credentials)
+    else:
+        server.add_insecure_port(bind)
+
+    logger.info(
+        "grpc.server_configured",
+        bind=bind,
+        tls=settings.tls_enabled,
+        mtls=settings.mtls_enabled,
+    )
     return server

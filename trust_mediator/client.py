@@ -41,9 +41,12 @@ FR-MI-01 (memory integrity), FR-OR-01/02 (output redaction), FR-AL-01 (audit).
 from __future__ import annotations
 
 import logging
+import ssl
+import warnings
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -253,13 +256,52 @@ class _BaseClient:
         *,
         agent_id: str = "default",
         timeout: float = DEFAULT_TIMEOUT,
+        verify: bool | str = True,
+        client_cert: str | tuple[str, str] | tuple[str, str, str] | None = None,
     ) -> None:
+        """
+        ``verify`` — True (system CAs), False (disable — never in production),
+        or a path to a CA bundle for a private CA.
+        ``client_cert`` — a client certificate for mTLS (NFR-SEC-03): a path to
+        a combined PEM, or a (cert, key) / (cert, key, password) tuple.
+        """
         self.url = url.rstrip("/")
         self.agent_id = agent_id
         self.timeout = timeout
+        # httpx 0.28 deprecates verify=<str>; build the context here so callers
+        # can keep passing a plain CA path without triggering the warning.
+        self.verify = (
+            ssl.create_default_context(cafile=verify)
+            if isinstance(verify, str)
+            else verify
+        )
+        self.client_cert = client_cert
         self._headers: dict[str, str] = {"Content-Type": "application/json"}
         if api_key:
             self._headers["X-API-Key"] = api_key
+        self._warn_if_plaintext_to_remote(api_key)
+
+    def _warn_if_plaintext_to_remote(self, api_key: str | None) -> None:
+        """An API key over http:// to a non-local host is a credential in the clear.
+
+        Not raised: http to localhost is the normal development setup, and a
+        client library that refuses to run is worse than one that says why.
+        """
+        parsed = urlparse(self.url)
+        if parsed.scheme != "http":
+            return
+        if (parsed.hostname or "") in {"localhost", "127.0.0.1", "::1", ""}:
+            return
+        warnings.warn(
+            f"SCML client is using plaintext HTTP to a remote mediator ({self.url})."
+            + (
+                " The X-API-Key header is readable by anyone on the network path."
+                if api_key
+                else ""
+            )
+            + " Use https:// unless a service mesh provides transport security.",
+            stacklevel=3,
+        )
 
     @property
     def headers(self) -> dict[str, str]:
@@ -317,13 +359,18 @@ class SCMLClient(_BaseClient):
     ) -> dict[str, Any]:
         """Low-level escape hatch: returns the raw JSON body."""
         try:
-            r = httpx.request(
-                method,
-                f"{self.url}{path}",
-                json=payload,
-                headers=self._headers,
-                timeout=self.timeout,
-            )
+            # httpx.request() accepts `verify` but not `cert`, so mTLS needs a
+            # real Client. It builds one per call internally anyway, so this
+            # costs nothing extra.
+            with httpx.Client(
+                timeout=self.timeout, verify=self.verify, cert=self.client_cert
+            ) as c:
+                r = c.request(
+                    method,
+                    f"{self.url}{path}",
+                    json=payload,
+                    headers=self._headers,
+                )
             r.raise_for_status()
             return r.json()
         except Exception as exc:
@@ -480,8 +527,19 @@ class AsyncSCMLClient(_BaseClient):
         agent_id: str = "default",
         timeout: float = DEFAULT_TIMEOUT,
         transport: httpx.AsyncClient | None = None,
+        verify: bool | str = True,
+        client_cert: str | tuple[str, str] | tuple[str, str, str] | None = None,
     ) -> None:
-        super().__init__(url, api_key, agent_id=agent_id, timeout=timeout)
+        super().__init__(
+            url,
+            api_key,
+            agent_id=agent_id,
+            timeout=timeout,
+            verify=verify,
+            client_cert=client_cert,
+        )
+        # A caller-supplied transport carries its own TLS configuration; verify
+        # and client_cert apply only to the clients this class builds itself.
         self._transport = transport
 
     async def request(
@@ -500,7 +558,9 @@ class AsyncSCMLClient(_BaseClient):
                     headers=self._headers, timeout=self.timeout,
                 )
             else:
-                async with httpx.AsyncClient(timeout=self.timeout) as c:
+                async with httpx.AsyncClient(
+                    timeout=self.timeout, verify=self.verify, cert=self.client_cert
+                ) as c:
                     r = await c.request(
                         method, f"{self.url}{path}", json=payload, headers=self._headers,
                     )

@@ -112,8 +112,12 @@ async def memory_read(body: MemoryReadBody, pipeline: PipelineDep, _: AuthDep):
 
 
 @router.get("/quarantined", response_model=QuarantineListResponse, summary="List quarantined memory entries")
-async def list_quarantined(agent_id: str | None = None, pipeline: PipelineDep = None):
-    """FR-MI-05: Return all quarantined entries for human review."""
+async def list_quarantined(pipeline: PipelineDep, _: AuthDep, agent_id: str | None = None):
+    """FR-MI-05: Return all quarantined entries for human review.
+
+    Quarantined content is attacker-controlled by definition, so listing it
+    without a key hands an attacker back the payloads the mediator caught.
+    """
     records = await pipeline._memory.list_quarantined(agent_id=agent_id)
     return QuarantineListResponse(
         records=[
@@ -131,8 +135,18 @@ async def list_quarantined(agent_id: str | None = None, pipeline: PipelineDep = 
 
 
 @router.post("/quarantined/{memory_id}/release", summary="Release a quarantined memory entry after review")
-async def release_quarantined(memory_id: str, reviewer: str = "human_reviewer", pipeline: PipelineDep = None):
-    """FR-MI-05: Promote a quarantined entry to ACTIVE after human review."""
+async def release_quarantined(memory_id: str, pipeline: PipelineDep, reviewer: AuthDep):
+    """FR-MI-05: Promote a quarantined entry to ACTIVE after human review.
+
+    The highest-privilege call in the API: it takes content the memory
+    integrity layer rejected and makes it ACTIVE. Unauthenticated, it let an
+    attacker re-admit their own poison and name the reviewer who approved it.
+
+    The reviewer is now the authenticated principal, not a query parameter.
+    That name is written into the memory record and the audit chain, so a
+    caller-supplied value meant the log attested to a review that never
+    happened — worse than no record, because FR-AL-01 exists to be trusted.
+    """
     success = await pipeline._memory.review_and_release(memory_id, reviewer=reviewer)
     if not success:
         raise HTTPException(status_code=404, detail="Memory record not found or not in quarantined state")
@@ -140,7 +154,13 @@ async def release_quarantined(memory_id: str, reviewer: str = "human_reviewer", 
 
 
 @router.delete("/quarantined/{memory_id}", summary="Purge a quarantined or rejected memory entry")
-async def purge_quarantined(memory_id: str, reason: str = "admin_purge", pipeline: PipelineDep = None):
-    """FR-MI-05: Hard-delete a quarantined/rejected entry."""
-    await pipeline._memory.purge(memory_id, reason=reason)
+async def purge_quarantined(
+    memory_id: str, pipeline: PipelineDep, principal: AuthDep, reason: str = "admin_purge"
+):
+    """FR-MI-05: Hard-delete a quarantined/rejected entry.
+
+    Destroys evidence of a caught attack, so it is authenticated and the
+    principal is recorded alongside the caller's free-text reason.
+    """
+    await pipeline._memory.purge(memory_id, reason=f"{reason} (by {principal})")
     return {"purged": True, "memory_id": memory_id}

@@ -25,6 +25,7 @@ from __future__ import annotations
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from trust_mediator.api.auth import principal_for
 from trust_mediator.config import settings
 
 
@@ -33,12 +34,20 @@ def _key_func(request) -> str:  # type: ignore[override]
     Rate-limit key function.
 
     Priority:
-      1. X-API-Key header (per-key limiting when auth is active)
+      1. X-API-Key header (per-principal limiting when auth is active)
       2. X-Forwarded-For / client IP (fallback for open dev mode)
+
+    The bucket name carries the *principal*, never the key. It used to be
+    f"apikey:{api_key}", which writes the raw credential into the Redis
+    keyspace when REDIS_URL is set — where it shows up in KEYS, MONITOR,
+    SLOWLOG, any metrics exporter that samples key names, and every snapshot
+    taken of that database.
     """
     api_key = request.headers.get("X-API-Key")
-    if api_key and api_key in settings.api_keys:
-        return f"apikey:{api_key}"
+    if api_key:
+        principal = principal_for(api_key)
+        if principal is not None:
+            return f"principal:{principal}"
     return get_remote_address(request)
 
 
