@@ -60,6 +60,12 @@ def classify_tool(name: str) -> tuple[bool, bool]:
     return name in IRREVERSIBLE_TOOLS, name in HIGH_IMPACT_TOOLS
 
 
+#: Argument values shorter than this are not matched against tool output.
+#: "1", "true" and a bare day name occur in any corpus by chance, and taking
+#: them as evidence of derivation taints arguments the user supplied.
+MIN_TAINT_MATCH = 5
+
+
 def conversation_is_tainted(messages: list[Any]) -> bool:
     """True once a tool result has entered the conversation.
 
@@ -67,6 +73,57 @@ def conversation_is_tainted(messages: list[Any]) -> bool:
     moment after which the model may be repeating an attacker's instruction.
     """
     return any(_role(m) == "tool" for m in messages)
+
+
+def tool_output_seen(messages: list[Any]) -> str:
+    """Every tool result so far, lowercased, as one blob to match against."""
+    parts: list[str] = []
+    for message in messages:
+        if _role(message) != "tool":
+            continue
+        parts.append(_message_text(message))
+    return "\n".join(parts).lower()
+
+
+def _message_text(message: Any) -> str:
+    content = _get(message, "content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        chunks = []
+        for block in content:
+            text = _get(block, "text")
+            if isinstance(text, str):
+                chunks.append(text)
+        return "\n".join(chunks)
+    return str(content or "")
+
+
+def derived_arguments(args: dict[str, Any], tool_output: str) -> dict[str, str]:
+    """Label only the arguments whose values appear in prior tool output.
+
+    Conversation-level taint — "any tool result has arrived, so everything
+    after it is untrusted" — refuses any task that writes after reading.
+    Measured: it cost `user_task_12` and `user_task_13` all of their utility,
+    because both legitimately create a file or a calendar event having first
+    read something.
+
+    Matching the value against what the tools actually returned separates
+    "the model is echoing an attacker's payload" from "the model is repeating
+    the user's own instruction". It is an approximation of dataflow, not
+    dataflow: an injection that tells the model to *construct* a value rather
+    than copy one — concatenating an address, or spelling it out — evades this.
+    That is a known limit, and the reason a real implementation tracks
+    provenance at the source rather than inferring it here.
+    """
+    if not tool_output:
+        return {}
+    labels: dict[str, str] = {}
+    for name, value in args.items():
+        text = str(value).strip().lower()
+        if len(text) >= MIN_TAINT_MATCH and text in tool_output:
+            labels[name] = "untrusted_data"
+    return labels
 
 
 def _role(message: Any) -> str:
@@ -141,10 +198,10 @@ class ScmlDefense:
         if not messages or _role(messages[-1]) != "assistant":
             return []
 
-        tainted = conversation_is_tainted(messages)
+        tool_output = tool_output_seen(messages)
         out: list[tuple[Any, ScmlDecision]] = []
         for call in _tool_calls(messages[-1]):
-            decision = self._mediate(call, tainted=tainted)
+            decision = self._mediate(call, tool_output=tool_output)
             self.decisions.append(decision)
             out.append((call, decision))
         return out
@@ -162,7 +219,7 @@ class ScmlDefense:
             f"{decision.reason} This action was not performed."
         )
 
-    def _mediate(self, call: Any, *, tainted: bool) -> ScmlDecision:
+    def _mediate(self, call: Any, *, tool_output: str) -> ScmlDecision:
         tool_name = str(getattr(call, "function", None) or _get(call, "function") or "")
         args = getattr(call, "args", None)
         if args is None:
@@ -171,17 +228,20 @@ class ScmlDefense:
 
         irreversible, high_impact = classify_tool(tool_name)
 
-        # Label arguments only for tools that can *act*. A read has no side
-        # effect and no egress, so refusing it on tainted arguments costs
-        # utility and buys no security — the mediator gates actions and egress,
-        # not beliefs, which is the same rule that makes poisoned memory inert.
+        # Two filters, both measured rather than assumed.
         #
-        # Measured, and the reason this is not `if tainted` alone: labelling
-        # every tool drove ASR to 0% but utility to 0% too, and 4 of 6 denials
-        # were reads (search_calendar_events, get_day_calendar_events). A
-        # defense that refuses everything scores a perfect ASR and is worthless.
+        # Only tools that can *act* are checked at all: a read has no side
+        # effect and no egress, so refusing it costs utility and buys no
+        # security — the mediator gates actions and egress, not beliefs, the
+        # same rule that makes poisoned memory inert. Labelling every tool put
+        # 4 of 6 denials on reads.
+        #
+        # Then only the arguments that actually came from tool output are
+        # labelled, rather than all of them. Blanket labelling refuses any task
+        # that writes after reading, which cost user_task_12 and user_task_13
+        # all their utility.
         acts = irreversible or high_impact
-        labels = {k: "untrusted_data" for k in args} if (tainted and acts) else {}
+        labels = derived_arguments(args, tool_output) if acts else {}
 
         result = self._client.mediate_tool_call(
             self._session_id,
