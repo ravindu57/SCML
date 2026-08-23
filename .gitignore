@@ -1,3 +1,9 @@
+# Strategy notes, not source. Patent positioning, valuation ranges and a frank
+# assessment of the project's gaps — none of which should travel with the code.
+# Repository visibility changes; this file staying local does not.
+# Delete this line to track it.
+INDUSTRY_READINESS_AND_IP_PLAN.md
+
 # Secrets & local state — never commit
 .env
 *.db
