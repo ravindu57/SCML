@@ -149,8 +149,20 @@ class ScmlDecision:
         self.decision = decision
         self.reason = reason
 
+    @property
+    def needs_approval(self) -> bool:
+        """A verdict a human could have satisfied, as opposed to a hard deny.
+
+        The benchmark has no approver, so `require_approval` is counted as a
+        refusal — anything else would be the FR-PE-03 error of reading it as an
+        allow. But that makes the measured utility a *floor*: in a deployment
+        with a reviewer, some of these become completed work. Separating the two
+        is what turns "our score is unfairly low" into a number.
+        """
+        return self.decision.startswith("require_approval")
+
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        verdict = "ALLOW" if self.allowed else "DENY"
+        verdict = "ALLOW" if self.allowed else ("APPROVE?" if self.needs_approval else "DENY")
         return f"<{verdict} {self.tool}: {self.decision}>"
 
 
@@ -171,9 +183,22 @@ class ScmlDefense:
     denial is the tool's result, not the end of the conversation.
     """
 
-    def __init__(self, client: Any, agent_id: str, *, session_id: str) -> None:
+    def __init__(
+        self,
+        client: Any,
+        agent_id: str,
+        *,
+        session_id: str,
+        auto_approve: bool = False,
+    ) -> None:
         self._client = client
         self._agent_id = agent_id
+        # Stand in for a human reviewer. Off by default, because a benchmark
+        # that silently approves its own gates is measuring nothing. Turned on
+        # deliberately, it answers a question the default cannot: how much of
+        # the utility loss is a hard refusal, and how much is work waiting on
+        # someone to click approve.
+        self._auto_approve = auto_approve
         # One session per task: the audit chain is per session, so sharing one
         # across tasks would interleave unrelated runs into a single hash chain
         # and make a replay meaningless as evidence for any one of them.
@@ -252,12 +277,18 @@ class ScmlDefense:
             is_irreversible=irreversible,
             is_high_impact=high_impact,
         )
-        return ScmlDecision(
+        decision = ScmlDecision(
             tool=tool_name,
             allowed=bool(result.allowed),
             decision=str(result.decision or ""),
             reason=str(result.reason or ""),
         )
+        if self._auto_approve and decision.needs_approval:
+            # A reviewer said yes. The verdict string is left untouched so the
+            # record still shows the gate fired and who cleared it, rather than
+            # looking like the call was allowed outright.
+            decision.allowed = True
+        return decision
 
 
 def _get(obj: Any, name: str) -> Any:

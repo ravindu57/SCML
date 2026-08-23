@@ -38,7 +38,10 @@ from agentdojo.agent_pipeline import (
 )
 from agentdojo.agent_pipeline.llms.openai_llm import OpenAILLM
 from agentdojo.attacks.attack_registry import load_attack
-from agentdojo.benchmark import run_task_with_injection_tasks
+from agentdojo.benchmark import (
+    run_task_with_injection_tasks,
+    run_task_without_injection_tasks,
+)
 from agentdojo.logging import OutputLogger
 from agentdojo.task_suite.load_suites import get_suites
 from agentdojo.types import ChatToolResultMessage, text_content_block_from_string
@@ -145,7 +148,11 @@ def build_llm(api_key: str, model: str) -> OpenAILLM:
 
 
 def build_pipeline(
-    llm: OpenAILLM, scml_client: Any | None, session_id: str
+    llm: OpenAILLM,
+    scml_client: Any | None,
+    session_id: str,
+    *,
+    auto_approve: bool = False,
 ) -> AgentPipeline:
     """Standard AgentDojo pipeline, with SCML spliced into the tools loop.
 
@@ -163,7 +170,9 @@ def build_pipeline(
         pipeline.name = "undefended"
         return pipeline
 
-    defense = ScmlDefense(scml_client, AGENT_ID, session_id=session_id)
+    defense = ScmlDefense(
+        scml_client, AGENT_ID, session_id=session_id, auto_approve=auto_approve
+    )
     replaced = False
     for element in pipeline.elements:
         if isinstance(element, ToolsExecutionLoop):
@@ -197,6 +206,18 @@ def main() -> int:
     parser.add_argument("--model", default="gemini-3.6-flash")
     parser.add_argument("--scml-url", default="http://127.0.0.1:8111")
     parser.add_argument("--no-scml", action="store_true", help="undefended baseline")
+    # Utility with no attack at all. This is the ceiling: without it there is no
+    # way to tell whether a low defended score is the mediator refusing work or
+    # simply the model failing the task.
+    parser.add_argument(
+        "--no-attack", action="store_true", help="benign utility, no injections"
+    )
+    # Stand in for a human reviewer. `require_approval` is otherwise counted as
+    # a refusal, which makes the measured utility a floor rather than an
+    # estimate of a deployment that has someone to ask.
+    parser.add_argument(
+        "--auto-approve", action="store_true", help="treat require_approval as allowed"
+    )
     parser.add_argument("--logdir", default="/tmp/agentdojo-phase0")
     parser.add_argument(
         "--env-file",
@@ -226,7 +247,7 @@ def main() -> int:
     # them is correct.
     mapped = "gpt-4o-mini-2024-07-18" if is_openai(args.model) else "gemini-2.0-flash-001"
     attack_pipeline.name = f"{mapped} ({args.model})"
-    attack = load_attack(ATTACK, suite, attack_pipeline)
+    attack = None if args.no_attack else load_attack(ATTACK, suite, attack_pipeline)
 
     task_ids = sorted(suite.user_tasks)[: args.tasks]
     injection_ids = sorted(suite.injection_tasks)
@@ -236,27 +257,41 @@ def main() -> int:
     logdir.mkdir(parents=True, exist_ok=True)
 
     label = "undefended" if args.no_scml else "SCML"
-    print(
-        f"{SUITE} | {args.model} | attack={ATTACK} | {label} | "
-        f"{len(task_ids)} tasks x {len(injection_ids)} injections\n"
-    )
+    if args.auto_approve:
+        label += " +approver"
+    if args.no_attack:
+        print(f"{SUITE} | {args.model} | NO ATTACK | {label} | {len(task_ids)} tasks\n")
+    else:
+        print(
+            f"{SUITE} | {args.model} | attack={ATTACK} | {label} | "
+            f"{len(task_ids)} tasks x {len(injection_ids)} injections\n"
+        )
 
     utility_all: list[bool] = []
     security_all: list[bool] = []
     denials = 0
+    approvals = 0
 
     for task_id in task_ids:
         task = suite.get_user_task_by_id(task_id)
         session_id = f"adj-{task_id}-{uuid.uuid4().hex[:8]}"
         pipeline = build_pipeline(
-            build_llm(api_key, args.model), scml_client, session_id
+            build_llm(api_key, args.model), scml_client, session_id,
+            auto_approve=args.auto_approve,
         )
         try:
             with OutputLogger(str(logdir), live=None):
-                utility, security = run_task_with_injection_tasks(
-                    suite, pipeline, task, attack, logdir=logdir,
-                    force_rerun=True, injection_tasks=injection_ids,
-                )
+                if args.no_attack:
+                    # One run, no injection: what the agent manages unopposed.
+                    util_bool, _ = run_task_without_injection_tasks(
+                        suite, pipeline, task, logdir=logdir, force_rerun=True
+                    )
+                    utility, security = {task_id: util_bool}, {}
+                else:
+                    utility, security = run_task_with_injection_tasks(
+                        suite, pipeline, task, attack, logdir=logdir,
+                        force_rerun=True, injection_tasks=injection_ids,
+                    )
         except Exception as exc:  # noqa: BLE001 - one bad task must not end the run
             print(f"  {task_id:<16} ERROR {type(exc).__name__}: {str(exc)[:80]}")
             continue
@@ -265,26 +300,46 @@ def main() -> int:
         security_all.extend(security.values())
         defense = getattr(pipeline, "scml_defense", None)
         refused: list[Any] = list(defense.denied) if defense else []
+        gated = [d for d in (defense.decisions if defense else []) if d.needs_approval]
         denials += len(refused)
+        approvals += len(gated)
 
         u = _pct(list(utility.values()))
-        a = _pct(list(security.values()))
         note = ""
         if refused:
             # Which tool was refused decides how to read a utility drop: an
             # exfiltration tool means least agency worked, a read tool means
             # the taint approximation is over-blocking.
             note = "  denied: " + ", ".join(sorted({d.tool for d in refused}))
-        print(
-            f"  {task_id:<16} utility={u:>5.1f}%  ASR={a:>5.1f}%  "
-            f"({len(security)} injections){note}"
-        )
+        if gated:
+            note += "  gated: " + ", ".join(sorted({d.tool for d in gated}))
+        if args.no_attack:
+            print(f"  {task_id:<16} utility={u:>5.1f}%{note}")
+        else:
+            a = _pct(list(security.values()))
+            print(
+                f"  {task_id:<16} utility={u:>5.1f}%  ASR={a:>5.1f}%  "
+                f"({len(security)} injections){note}"
+            )
 
     print()
     print(f"{'utility':<10} {_pct(utility_all):.1f}%   ({sum(utility_all)}/{len(utility_all)})")
-    print(f"{'ASR':<10} {_pct(security_all):.1f}%   ({sum(security_all)}/{len(security_all)})")
+    if not args.no_attack:
+        print(
+            f"{'ASR':<10} {_pct(security_all):.1f}%   "
+            f"({sum(security_all)}/{len(security_all)})"
+        )
     if not args.no_scml:
+        hard = denials - (0 if args.auto_approve else approvals)
         print(f"{'denials':<10} {denials} tool calls refused by policy")
+        # Split out because the two are not the same kind of loss. A hard deny
+        # is work the policy will never permit; a gated call is work waiting on
+        # a reviewer who does not exist in a benchmark but does in a deployment.
+        print(f"{'  hard':<10} {hard} denied outright")
+        print(
+            f"{'  gated':<10} {approvals} needed human approval"
+            + (" (auto-approved)" if args.auto_approve else " (counted as refused)")
+        )
     return 0
 
 
