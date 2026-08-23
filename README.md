@@ -193,7 +193,7 @@ Interactive docs: **http://localhost:8000/docs**
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"       # [dev] pulls in [server] and [ml]
 .venv/bin/pytest tests/ -q
-# Expected: 404 passed, 1 skipped
+# Expected: 496 passed, 1 skipped
 ```
 
 The skip is `tests/integration/test_grpc_api.py`, which needs the optional gRPC
@@ -202,7 +202,7 @@ transport. Install that extra to run the full suite:
 ```bash
 .venv/bin/pip install -e ".[dev,grpc]"
 .venv/bin/pytest tests/ -q
-# Expected: 405 passed
+# Expected: 497 passed
 ```
 
 The TypeScript client has its own suite (Node 18+, no test framework):
