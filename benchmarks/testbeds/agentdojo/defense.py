@@ -60,10 +60,18 @@ def classify_tool(name: str) -> tuple[bool, bool]:
     return name in IRREVERSIBLE_TOOLS, name in HIGH_IMPACT_TOOLS
 
 
-#: Argument values shorter than this are not matched against tool output.
-#: "1", "true" and a bare day name occur in any corpus by chance, and taking
-#: them as evidence of derivation taints arguments the user supplied.
-MIN_TAINT_MATCH = 5
+#: A value must be this long before a bare substring match counts as evidence
+#: that it came from tool output. Set from a measured false positive: with a
+#: threshold of 5, ``subject="Notes"`` was labelled untrusted because the word
+#: "notes" appeared in the attacker's sentence. Common words collide by chance,
+#: and every collision refuses a legitimate action.
+MIN_TAINT_MATCH = 12
+
+#: Substrings that make a coincidence implausible regardless of length. An
+#: address or URL appearing in both the tool output and the argument is the
+#: exfiltration case this rule exists to catch, and is short enough to slip
+#: under the length bar.
+DISTINCTIVE_MARKERS = ("@", "://")
 
 
 def conversation_is_tainted(messages: list[Any]) -> bool:
@@ -85,6 +93,15 @@ def tool_output_seen(messages: list[Any]) -> str:
     return "\n".join(parts).lower()
 
 
+#: Keys a content block might carry its text under. AgentDojo's blocks are
+#: ``{"type": "text", "content": "..."}`` — note **content**, not ``text``.
+#: Reading only ``text`` returned "" for every message, so no argument ever
+#: matched, no argument was ever labelled untrusted, and FR-PE-04 could not
+#: fire in a single real run. The failure was silent: an empty corpus looks
+#: exactly like a conversation with nothing untrusted in it.
+_TEXT_KEYS = ("content", "text")
+
+
 def _message_text(message: Any) -> str:
     content = _get(message, "content")
     if isinstance(content, str):
@@ -92,9 +109,11 @@ def _message_text(message: Any) -> str:
     if isinstance(content, list):
         chunks = []
         for block in content:
-            text = _get(block, "text")
-            if isinstance(text, str):
-                chunks.append(text)
+            for key in _TEXT_KEYS:
+                value = _get(block, key)
+                if isinstance(value, str):
+                    chunks.append(value)
+                    break
         return "\n".join(chunks)
     return str(content or "")
 
@@ -121,7 +140,12 @@ def derived_arguments(args: dict[str, Any], tool_output: str) -> dict[str, str]:
     labels: dict[str, str] = {}
     for name, value in args.items():
         text = str(value).strip().lower()
-        if len(text) >= MIN_TAINT_MATCH and text in tool_output:
+        if not text or text not in tool_output:
+            continue
+        distinctive = len(text) >= MIN_TAINT_MATCH or any(
+            marker in text for marker in DISTINCTIVE_MARKERS
+        )
+        if distinctive:
             labels[name] = "untrusted_data"
     return labels
 

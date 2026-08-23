@@ -55,13 +55,24 @@ agents:
       - send_email
       - delete_email
 
-    # No human approver exists in a benchmark, so `require_approval` is a
-    # denial in practice. Recorded as a denial rather than counted as an allow
-    # — the FR-PE-03 bug this project already fixed once was exactly that
-    # confusion.
-    require_approval_for:
-      - irreversible
-      - high_impact
+    # Deliberately empty, and it must be *present* and empty: the engine
+    # defaults an absent key to [irreversible, high_impact] (engine.py:127).
+    #
+    # That default was the whole utility problem. It gates every send_email and
+    # create_file whether or not anything untrusted is involved, so with no
+    # attacker at all, benign utility measured 40.0% against an 82.5% ceiling —
+    # a 42-point loss to a rule that never looked at provenance. Every refusal
+    # in that run was `require_approval`; there were no hard denials.
+    #
+    # It also made the security number mean less than it appeared to. The 0%
+    # ASR was the policy escalating attacks to a human rather than blocking
+    # them: with a reviewer that approved everything, ASR returned to 18.2%
+    # against an undefended 16.8%.
+    #
+    # With this empty, `untrusted_arg_policy: deny` below is the only gate, and
+    # it fires on provenance rather than on the tool's category — a hard denial
+    # for the injected send, nothing at all for the user's own.
+    require_approval_for: []
 
     # The load-bearing rule. Once a tool result has entered the conversation,
     # arguments the model composes are labelled untrusted, and a call carrying
