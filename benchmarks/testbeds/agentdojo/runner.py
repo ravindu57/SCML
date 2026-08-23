@@ -132,7 +132,11 @@ def build_llm(api_key: str, model: str) -> OpenAILLM:
     import openai
 
     if is_openai(model):
-        return OpenAILLM(openai.OpenAI(api_key=api_key), model)
+        # The SDK retries twice by default, which a 560-case run outlasts: one
+        # throttled call becomes a failed task, and a failed task is a hole in
+        # the result rather than a slow one. The Gemini path has its own backoff
+        # in the shim; this is the equivalent for the native path.
+        return OpenAILLM(openai.OpenAI(api_key=api_key, max_retries=8), model)
 
     client = wrap_for_gemini(
         openai.OpenAI(api_key=api_key, base_url=GEMINI_OPENAI_BASE_URL)
