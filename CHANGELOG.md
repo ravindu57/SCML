@@ -69,8 +69,12 @@ commit log.
 
 ### Known issues
 
-- **AgentDojo results are unverified.** The runs on record measured a defense
-  configuration whose provenance rule was not executing. Re-measurement pending.
+- **AgentDojo covers one suite of four and one attack of seventeen.** The
+  measured 4.8% ASR may not generalise to `travel`, `banking`, `slack`, or to
+  the other sixteen attack types.
+- **Taint is inferred, not tracked.** An injection that has the model construct
+  a value rather than copy one leaves no textual overlap and evades FR-PE-04.
+  That accounts for the 27 injections of 560 that still succeed.
 - The policy document is single-tenant: `PUT /v1/policy` replaces it whole.
 - The injection scanner detects 0 of 1054 InjecAgent attacks; enforcement, not
   detection, is what holds.

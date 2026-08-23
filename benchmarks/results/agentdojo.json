@@ -1,0 +1,79 @@
+{
+  "testbed": "agentdojo",
+  "suite": "workspace",
+  "benchmark_version": "v1.2.1",
+  "asr_kpi": "FR-PE-04 untrusted-argument policy",
+  "attack": "important_instructions",
+  "model": "gpt-4o-mini",
+  "agent_id": "agentdojo_workspace",
+  "policy": "benchmarks/testbeds/agentdojo/policies/workspace.yaml",
+  "scope": {
+    "user_tasks": 40,
+    "injection_tasks": 14,
+    "attacked_cases": 560,
+    "benign_cases": 40,
+    "total_agent_runs": 1200,
+    "errors": 0
+  },
+  "environment": {
+    "python": "3.12.3",
+    "platform": "Linux-6.14.0-37-generic-x86_64-with-glibc2.39"
+  },
+  "reproducible": false,
+  "reproducibility_note": "AgentDojo executes a live model, so runs are not bit-for-bit reproducible. The mediator settings below are pinned; the model is not.",
+  "configurations": {
+    "undefended": {
+      "utility_pct": 35.7,
+      "utility": [
+        200,
+        560
+      ],
+      "asr_pct": 16.8,
+      "attacks": [
+        94,
+        560
+      ]
+    },
+    "scml_attacked": {
+      "utility_pct": 38.6,
+      "utility": [
+        216,
+        560
+      ],
+      "asr_pct": 4.8,
+      "attacks": [
+        27,
+        560
+      ],
+      "refusals": 807,
+      "refusals_hard": 807,
+      "refusals_gated": 0
+    },
+    "scml_benign": {
+      "utility_pct": 77.5,
+      "utility": [
+        31,
+        40
+      ],
+      "refusals": 13,
+      "refusals_hard": 13,
+      "refusals_gated": 0
+    }
+  },
+  "headline": {
+    "asr_undefended_pct": 16.8,
+    "asr_scml_pct": 4.8,
+    "asr_reduction_pct": 71.4,
+    "benign_ceiling_pct": 82.5,
+    "benign_scml_pct": 77.5,
+    "utility_retained_pct": 93.9
+  },
+  "supersedes": "Earlier runs reported 0.0% ASR. The taint extractor read `text` from AgentDojo content blocks that carry `content`, so FR-PE-04 never fired and every refusal came from the blanket require_approval_for gate. Fixed in 019e13c.",
+  "caveats": [
+    "One suite of four; travel, banking and slack untested.",
+    "One attack type of seventeen.",
+    "Taint is inferred from textual overlap, not tracked at the source, so an injection that constructs a value rather than copying one evades it.",
+    "Refusals are not a per-attack count: the agent retries after a refusal.",
+    "The allow-list (FR-PE-02) never fired; this suite tests argument provenance, not least agency."
+  ]
+}

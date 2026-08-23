@@ -93,7 +93,10 @@ are v1.0's and unaffected.
 ## Known gaps vs PRD (backlog — don't claim these exist)
 
 - `SCANNER_BACKEND=onnx` falls back to heuristic (no trained DeBERTa model shipped)
-- No AgentDojo testbed yet. The InjecAgent testbed **does** exist
+- AgentDojo covers **one suite of four** (`workspace`) and **one attack of
+  seventeen**. `travel`, `banking` and `slack` are untested and each needs its
+  own policy. Do not describe AgentDojo coverage as complete — see "Measured
+  state". The InjecAgent testbed **does** exist
   (`benchmarks/testbeds/injecagent/`, 1054 external cases) — see "Measured state"
 - No sandboxed tool executor (PRD §11) — tool execution stays in the host app
 - **The policy document is single-tenant.** `PUT /v1/policy` replaces the whole
@@ -175,6 +178,30 @@ that lets memory influence a policy decision breaks §5.2 and that test.
 When changing the scorer, thresholds or detectors, re-run the benchmark and
 update the committed result. Do not tune weights or add regex patterns against
 this corpus: it was written in-house, so that is overfitting, not a result.
+
+**AgentDojo, workspace suite** (`benchmarks/results/agentdojo.md`): ASR
+**16.8% → 4.8%** across 560 attacked cases, a 71% reduction, at a five-point
+benign utility cost (82.5% ceiling → 77.5%). All 807 refusals were hard
+`deny.untrusted_arg`. Quote the reduction, never "blocks prompt injection": 27
+of 560 injections still succeeded.
+
+Two things about that number are load-bearing:
+
+- **Earlier runs reported 0.0% ASR and it meant nothing.** `_message_text` read
+  `text` from content blocks that carry `content`, so the tool-output corpus was
+  empty, FR-PE-04 never fired, and every refusal came from the blanket
+  `require_approval_for` gate — which also cost 42 points of benign utility.
+  The bug was silent because an empty corpus is indistinguishable from a
+  conversation containing nothing untrusted. Tests now build messages in
+  AgentDojo's real shape, which is what let it pass unnoticed.
+- **The control is what makes 4.8% attributable.** With the gate off *and* taint
+  broken, ASR sits at ~14%, near undefended. Keep that row in the result file;
+  without it the number is just a claim.
+
+Taint here is **inferred, not tracked** — an argument counts as untrusted when
+its value appears in prior tool output. An injection that has the model
+*construct* a value rather than copy one evades it, and that accounts for the
+surviving 27. Fixing it is source-level provenance, not a threshold.
 
 **External validation now exists.** `benchmarks/results/injecagent.md` is the
 committed baseline for 1054 third-party indirect-injection cases (InjecAgent,
