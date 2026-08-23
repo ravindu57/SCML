@@ -53,8 +53,10 @@ from benchmarks.testbeds.agentdojo.gemini_compat import (
 )
 
 BENCHMARK_VERSION = "v1.2.1"
-SUITE = "workspace"
-AGENT_ID = "agentdojo_workspace"
+#: One agent_id per suite, and one policy per agent_id. A shared id would
+#: make the allow-list the union of everything any suite needs, which is the
+#: opposite of least agency.
+DEFAULT_SUITE = "workspace"
 #: The standard strong attack, and the one comparable work reports on.
 ATTACK = "important_instructions"
 
@@ -152,6 +154,7 @@ def build_pipeline(
     scml_client: Any | None,
     session_id: str,
     *,
+    agent_id: str = "agentdojo_workspace",
     auto_approve: bool = False,
 ) -> AgentPipeline:
     """Standard AgentDojo pipeline, with SCML spliced into the tools loop.
@@ -171,7 +174,7 @@ def build_pipeline(
         return pipeline
 
     defense = ScmlDefense(
-        scml_client, AGENT_ID, session_id=session_id, auto_approve=auto_approve
+        scml_client, agent_id, session_id=session_id, auto_approve=auto_approve
     )
     replaced = False
     for element in pipeline.elements:
@@ -196,6 +199,8 @@ def build_pipeline(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--suite", default=DEFAULT_SUITE,
+                        choices=["workspace", "travel", "banking", "slack"])
     parser.add_argument("--tasks", type=int, default=5, help="user tasks to run")
     # Each user task is replayed once per injection task, so the run is
     # tasks x injections agent executions. workspace ships 14 injections, which
@@ -231,13 +236,14 @@ def main() -> int:
         print(f"no {needed} in {args.env_file}", file=sys.stderr)
         return 1
 
+    agent_id = f"agentdojo_{args.suite}"
     scml_client = None
     if not args.no_scml:
         from trust_mediator import SCMLClient
 
-        scml_client = SCMLClient(args.scml_url, agent_id=AGENT_ID)
+        scml_client = SCMLClient(args.scml_url, agent_id=agent_id)
 
-    suite = get_suites(BENCHMARK_VERSION)[SUITE]
+    suite = get_suites(BENCHMARK_VERSION)[args.suite]
     attack_pipeline = build_pipeline(build_llm(api_key, args.model), None, "probe")
     # `important_instructions` addresses the injection to the model by name,
     # resolving it by substring against a table of pinned ids. Naming the
@@ -247,7 +253,7 @@ def main() -> int:
     # them is correct.
     mapped = "gpt-4o-mini-2024-07-18" if is_openai(args.model) else "gemini-2.0-flash-001"
     attack_pipeline.name = f"{mapped} ({args.model})"
-    attack = None if args.no_attack else load_attack(ATTACK, suite, attack_pipeline)
+    attack = None if args.no_attack else load_attack(args.attack, suite, attack_pipeline)
 
     task_ids = sorted(suite.user_tasks)[: args.tasks]
     injection_ids = sorted(suite.injection_tasks)
@@ -260,10 +266,10 @@ def main() -> int:
     if args.auto_approve:
         label += " +approver"
     if args.no_attack:
-        print(f"{SUITE} | {args.model} | NO ATTACK | {label} | {len(task_ids)} tasks\n")
+        print(f"{args.suite} | {args.model} | NO ATTACK | {label} | {len(task_ids)} tasks\n")
     else:
         print(
-            f"{SUITE} | {args.model} | attack={ATTACK} | {label} | "
+            f"{args.suite} | {args.model} | attack={args.attack} | {label} | "
             f"{len(task_ids)} tasks x {len(injection_ids)} injections\n"
         )
 
@@ -274,10 +280,10 @@ def main() -> int:
 
     for task_id in task_ids:
         task = suite.get_user_task_by_id(task_id)
-        session_id = f"adj-{task_id}-{uuid.uuid4().hex[:8]}"
+        session_id = f"adj-{args.suite}-{task_id}-{uuid.uuid4().hex[:8]}"
         pipeline = build_pipeline(
             build_llm(api_key, args.model), scml_client, session_id,
-            auto_approve=args.auto_approve,
+            agent_id=agent_id, auto_approve=args.auto_approve,
         )
         try:
             with OutputLogger(str(logdir), live=None):

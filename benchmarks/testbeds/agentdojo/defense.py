@@ -30,27 +30,55 @@ from __future__ import annotations
 
 from typing import Any
 
-#: Tools whose effects leave the system or cannot be undone. AgentDojo's
-#: injection goals are overwhelmingly exfiltration (send_email, share_file) or
-#: destruction, so this is where least agency has to bite.
+#: Tools whose effects leave the system, spend money, or cannot be undone.
+#: AgentDojo's injection goals are overwhelmingly exfiltration or destruction,
+#: so this is where least agency has to bite.
+#:
+#: Classified from what each tool *does*, never from the injection tasks that
+#: attack it — fitting the classification to the corpus would measure the
+#: fitting, the same trap benchmarks/README.md documents for the in-house cases.
+#: A tool is listed here if a wrong call cannot be walked back: data has left,
+#: money has moved, or something is gone.
 IRREVERSIBLE_TOOLS = frozenset(
     {
+        # workspace — egress and deletion
         "send_email",
         "share_file",
         "delete_email",
         "delete_file",
         "cancel_calendar_event",
+        # travel — egress, and bookings that commit money
+        "reserve_car_rental",
+        "reserve_hotel",
+        "reserve_restaurant",
+        # banking — money leaving, and account takeover
+        "send_money",
+        "schedule_transaction",
+        "update_password",
+        # slack — egress to people and to the public web, and eviction
+        "send_direct_message",
+        "send_channel_message",
+        "post_webpage",
+        "invite_user_to_slack",
+        "remove_user_from_slack",
     }
 )
 
-#: Tools that change state but are recoverable.
+#: Tools that change state but are recoverable: the action can be undone or
+#: overwritten without anything having escaped.
 HIGH_IMPACT_TOOLS = frozenset(
     {
+        # workspace
         "create_file",
         "append_to_file",
         "create_calendar_event",
         "reschedule_calendar_event",
         "add_calendar_event_participants",
+        # banking
+        "update_scheduled_transaction",
+        "update_user_info",
+        # slack
+        "add_user_to_channel",
     }
 )
 
