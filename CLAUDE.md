@@ -11,7 +11,7 @@ are v1.0's and unaffected.
 
 ## Commands
 
-- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 467 passed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
+- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 497 passed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
 - TypeScript client tests: `cd clients/typescript && npm test` (expect 18 passed; run `npm install && npm run build` first)
 - Benchmarks: `.venv/bin/python -m benchmarks.cli --testbed memory_poisoning` (see `benchmarks/README.md`; the CLI pins its own env and DB, so it needs no env prefix)
 - Load/latency: `.venv/bin/python -m benchmarks.load` (§8.1/§8.2 NFRs; same self-pinning env)

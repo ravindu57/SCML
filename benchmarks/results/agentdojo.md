@@ -1,5 +1,36 @@
 # AgentDojo — workspace suite, full run
 
+> ## ⚠ SUPERSEDED — do not cite these numbers
+>
+> The taint extractor was broken for every run on this page. AgentDojo content
+> blocks are `{"type": "text", "content": …}` and `_message_text` read `text`,
+> so the tool-output corpus was empty on every call, no argument was ever
+> labelled, and **FR-PE-04 never fired once**. The failure was silent: an empty
+> corpus is indistinguishable from a conversation containing nothing untrusted.
+> Fixed in `019e13c`.
+>
+> What that means for what follows:
+>
+> * **Every refusal here was an FR-PE-03 approval gate**, from
+>   `require_approval_for: [irreversible, high_impact]` — not provenance. The
+>   claim below that "every denial was `deny.untrusted_arg`" is **false**.
+> * The **0.0% ASR was the policy escalating attacks to a human**, not blocking
+>   them. With a reviewer that approved everything, ASR returned to 18.2%
+>   against an undefended 16.8%.
+> * The utility analysis attributes losses to a taint rule that was not running.
+>
+> **Still valid**, because neither depends on the mediator:
+>
+> | | |
+> |---|---:|
+> | Benign ceiling (no attack, no SCML) | **82.5%** (33/40) |
+> | Undefended, attacked | **16.8% ASR**, 35.7% utility |
+>
+> Also valid: the harness itself. 1,120 runs, zero errors.
+>
+> Re-measurement is blocked on API credit. Until it runs, treat every SCML
+> column below as unverified.
+
 **560 cases per arm, 1,120 agent runs, 0 errors.** Complete coverage of one of
 AgentDojo's four suites.
 
@@ -78,6 +109,11 @@ aggregate and a large redistribution underneath.
 Only the 0% ASR held, and it held across 31× more evidence.
 
 ## Why the 18 broken tasks are a ceiling, not a bug
+
+**This section is wrong — see the notice at the top.** Every denial was in fact
+an FR-PE-03 approval gate; `deny.untrusted_arg` never fired, because the taint
+extractor returned an empty corpus. Kept as written so the error is visible in
+the diff rather than quietly rewritten.
 
 Every denial was `deny.untrusted_arg` (FR-PE-04). The allow-list never fired:
 the workspace tasks legitimately need all 24 tools, `send_email` and
