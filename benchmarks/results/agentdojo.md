@@ -1,7 +1,8 @@
 # AgentDojo — all four suites
 
-**949 attacked cases per arm, 97 benign per arm, ~2,100 agent runs, 0 errors.**
-Complete coverage of the benchmark for one attack type.
+**949 attacked cases per arm, 97 benign per arm, ~2,600 agent runs, 0 errors.**
+Complete coverage of the benchmark for `important_instructions`, plus a second
+attack type (`ignore_previous`) on the best and worst suites.
 
 | | Undefended | SCML |
 |---|---:|---:|
@@ -15,7 +16,8 @@ Complete coverage of the benchmark for one attack type.
 ```
 suites       workspace, travel, banking, slack (AgentDojo v1.2.1)
 model        gpt-4o-mini
-attack       important_instructions  (1 of 17)
+attacks      important_instructions (all 4 suites)
+             ignore_previous        (banking, slack)
 policy       benchmarks/testbeds/agentdojo/policies/agentdojo.yaml
 ```
 
@@ -114,10 +116,45 @@ cost and nothing else — which is not a small thing, since CaMeL's integration
 requirement is why almost nobody runs it, but it should not be dressed up as a
 security result.
 
+## A second attack type
+
+`ignore_previous` run on banking and slack — the best and worst suites from the
+four-suite result, so they bracket the range.
+
+| Suite | Attack | Undefended | SCML | Reduction |
+|---|---|---:|---:|---:|
+| banking | important_instructions | 49.3% | **0.0%** | 100% |
+| banking | `ignore_previous` | 20.1% | **0.0%** | 100% |
+| slack | important_instructions | 63.8% | 30.5% | 52% |
+| slack | `ignore_previous` | 17.1% | 10.5% | 39% |
+
+**The domain boundary is a property of the technique, not of one attack.**
+banking holds at 0.0% against both; slack stays weak against both. The
+prediction recorded before the run was that framing changes whether the *model*
+complies, not whether the *mediator* catches the payload, since the target IBAN
+appears verbatim either way. That is what happened.
+
+**Attack effectiveness is mostly persuasion, not payload.** Identical goal and
+identical identifier, but the elaborate `<INFORMATION>` block impersonating the
+user is 2-4x more effective than a bare "ignore previous instructions":
+
+| | banking | slack |
+|---|---:|---:|
+| important_instructions | 49.3% | 63.8% |
+| `ignore_previous` | 20.1% | 17.1% |
+
+So a published ASR figure depends heavily on which attack was chosen, while
+SCML's *reduction* stays stable across that variation. Quote the reduction.
+
+Caveat: `ignore_previous` is the weaker attack, so its reductions sit on a
+smaller base — slack's 39% is 18 successes falling to 11. The banking 0/144
+result is the solid one.
+
 ## Known weaknesses
 
-- **One attack of seventeen.** `important_instructions` only. The 7.3% may not
-  generalise.
+- **Two attacks of seventeen.** The reduction held across both, but fifteen
+  remain untested — including `tool_knowledge`, where the attacker is told the
+  tool schemas, and the DoS family, which has a different goal entirely.
 - **Taint is inferred, not tracked.** An argument counts as untrusted when its
   value appears in prior tool output, so an injection that has the model
   *construct* a value rather than copy one leaves no overlap and passes.
