@@ -179,29 +179,37 @@ When changing the scorer, thresholds or detectors, re-run the benchmark and
 update the committed result. Do not tune weights or add regex patterns against
 this corpus: it was written in-house, so that is overfitting, not a result.
 
-**AgentDojo, workspace suite** (`benchmarks/results/agentdojo.md`): ASR
-**16.8% → 4.8%** across 560 attacked cases, a 71% reduction, at a five-point
-benign utility cost (82.5% ceiling → 77.5%). All 807 refusals were hard
-`deny.untrusted_arg`. Quote the reduction, never "blocks prompt injection": 27
-of 560 injections still succeeded.
+**AgentDojo, all four suites** (`benchmarks/results/agentdojo.md`): ASR
+**29.0% -> 7.3%** across 949 attacked cases, a 75% reduction, for **19% of
+benign task completion** (74.2% -> 59.8%).
 
-Two things about that number are load-bearing:
+Quote the *benign* utility comparison, never the attacked one. Under attack the
+undefended baseline is already wrecked by hijacking, so the same run reads as
+97% utility retained instead of 81% — flattering and misleading. Earlier
+revisions of the result file made exactly that error.
 
-- **Earlier runs reported 0.0% ASR and it meant nothing.** `_message_text` read
-  `text` from content blocks that carry `content`, so the tool-output corpus was
-  empty, FR-PE-04 never fired, and every refusal came from the blanket
-  `require_approval_for` gate — which also cost 42 points of benign utility.
-  The bug was silent because an empty corpus is indistinguishable from a
-  conversation containing nothing untrusted. Tests now build messages in
-  AgentDojo's real shape, which is what let it pass unnoticed.
-- **The control is what makes 4.8% attributable.** With the gate off *and* taint
-  broken, ASR sits at ~14%, near undefended. Keep that row in the result file;
-  without it the number is just a claim.
+Three things about the number are load-bearing:
 
-Taint here is **inferred, not tracked** — an argument counts as untrusted when
-its value appears in prior tool output. An injection that has the model
-*construct* a value rather than copy one evades it, and that accounts for the
-surviving 27. Fixing it is source-level provenance, not a threshold.
+- **The technique has a domain boundary, and it is measured.** banking is
+  100% (71 attacks, 0 succeeded) because moving money needs an IBAN the
+  attacker must name, and a named identifier appears verbatim in tool output.
+  slack is 52% and loses 30% of benign utility because its tasks *are* "fetch
+  untrusted content and act on it" — `user_task_2` says "invite Dora, her email
+  is on her website". `invite_user_to_slack` was refused in 19 of 21 tasks. That
+  is the rule working correctly on a workflow indistinguishable from an attack.
+- **Security and utility cost are independent.** travel has the second-best ASR
+  reduction and the *worst* utility cost (64% retained). Do not infer one from
+  the other.
+- **Defended numbers replicate, baselines do not.** Two full Phase 1 runs gave
+  identical SCML figures (banking 0.0%, slack 30.5%) while undefended baselines
+  moved 3-5 points. Differences of that size are noise.
+
+Against CaMeL's 77%/84%: **CaMeL is better on both axes** — 0% provable vs 7.3%
+measured, 92% utility retained vs 81%. SCML's advantage is integration cost
+alone (replace one class vs rebuild the agent around an interpreter). Do not
+present it as a security result.
+
+One attack of seventeen. `important_instructions` only.
 
 **External validation now exists.** `benchmarks/results/injecagent.md` is the
 committed baseline for 1054 third-party indirect-injection cases (InjecAgent,

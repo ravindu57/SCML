@@ -69,12 +69,15 @@ commit log.
 
 ### Known issues
 
-- **AgentDojo covers one suite of four and one attack of seventeen.** The
-  measured 4.8% ASR may not generalise to `travel`, `banking`, `slack`, or to
-  the other sixteen attack types.
+- **AgentDojo covers all four suites but one attack of seventeen.** ASR
+  29.0% -> 7.3% across 949 cases. Whether that generalises to the other sixteen
+  attack types is untested and is the largest remaining unknown.
+- **19% of benign task completion is lost** (74.2% -> 59.8%), concentrated in
+  domains whose legitimate workflow is "fetch untrusted content and act on it".
+  Quote the benign comparison, not the under-attack one: the latter reads as 97%
+  retained only because the undefended baseline is already wrecked by hijacking.
 - **Taint is inferred, not tracked.** An injection that has the model construct
   a value rather than copy one leaves no textual overlap and evades FR-PE-04.
-  That accounts for the 27 injections of 560 that still succeed.
 - The policy document is single-tenant: `PUT /v1/policy` replaces it whole.
 - The injection scanner detects 0 of 1054 InjecAgent attacks; enforcement, not
   detection, is what holds.

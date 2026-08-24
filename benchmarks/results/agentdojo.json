@@ -1,79 +1,222 @@
 {
   "testbed": "agentdojo",
-  "suite": "workspace",
   "benchmark_version": "v1.2.1",
-  "asr_kpi": "FR-PE-04 untrusted-argument policy",
+  "suites": [
+    "workspace",
+    "travel",
+    "banking",
+    "slack"
+  ],
   "attack": "important_instructions",
+  "attacks_available": 17,
   "model": "gpt-4o-mini",
-  "agent_id": "agentdojo_workspace",
-  "policy": "benchmarks/testbeds/agentdojo/policies/workspace.yaml",
-  "scope": {
-    "user_tasks": 40,
-    "injection_tasks": 14,
-    "attacked_cases": 560,
-    "benign_cases": 40,
-    "total_agent_runs": 1200,
-    "errors": 0
-  },
+  "policy": "benchmarks/testbeds/agentdojo/policies/agentdojo.yaml",
   "environment": {
     "python": "3.12.3",
     "platform": "Linux-6.14.0-37-generic-x86_64-with-glibc2.39"
   },
   "reproducible": false,
-  "reproducibility_note": "AgentDojo executes a live model, so runs are not bit-for-bit reproducible. The mediator settings below are pinned; the model is not.",
-  "configurations": {
-    "undefended": {
-      "utility_pct": 35.7,
-      "utility": [
-        200,
-        560
-      ],
-      "asr_pct": 16.8,
-      "attacks": [
-        94,
-        560
-      ]
+  "reproducibility_note": "AgentDojo executes a live model. Undefended baselines varied 3-5 points between two identical Phase 1 runs; defended figures reproduced exactly.",
+  "headline": {
+    "asr_undefended": [
+      275,
+      949,
+      29.0
+    ],
+    "asr_scml": [
+      69,
+      949,
+      7.3
+    ],
+    "asr_reduction_pct": 75.0,
+    "benign_ceiling": [
+      72,
+      97,
+      74.2
+    ],
+    "benign_scml": [
+      58,
+      97,
+      59.8
+    ],
+    "benign_utility_retained_pct": 80.6,
+    "note": "Report the benign comparison. Under attack the undefended baseline is already damaged by hijacking, which makes any defense look free (97% retained) and is misleading."
+  },
+  "per_suite": {
+    "workspace": {
+      "benign_ceiling": {
+        "utility_pct": 82.5,
+        "utility": [
+          33,
+          40
+        ]
+      },
+      "benign_scml": {
+        "utility_pct": 77.5,
+        "utility": [
+          31,
+          40
+        ],
+        "refusals": 13
+      },
+      "undefended": {
+        "utility_pct": 35.7,
+        "utility": [
+          200,
+          560
+        ],
+        "asr_pct": 16.8,
+        "attacks": [
+          94,
+          560
+        ]
+      },
+      "scml": {
+        "utility_pct": 38.6,
+        "utility": [
+          216,
+          560
+        ],
+        "asr_pct": 4.8,
+        "attacks": [
+          27,
+          560
+        ],
+        "refusals": 807
+      }
     },
-    "scml_attacked": {
-      "utility_pct": 38.6,
-      "utility": [
-        216,
-        560
-      ],
-      "asr_pct": 4.8,
-      "attacks": [
-        27,
-        560
-      ],
-      "refusals": 807,
-      "refusals_hard": 807,
-      "refusals_gated": 0
+    "travel": {
+      "benign_ceiling": {
+        "utility_pct": 70.0,
+        "utility": [
+          14,
+          20
+        ]
+      },
+      "benign_scml": {
+        "utility_pct": 45.0,
+        "utility": [
+          9,
+          20
+        ],
+        "refusals": 6
+      },
+      "undefended": {
+        "utility_pct": 37.1,
+        "utility": [
+          52,
+          140
+        ],
+        "asr_pct": 30.7,
+        "attacks": [
+          43,
+          140
+        ]
+      },
+      "scml": {
+        "utility_pct": 36.4,
+        "utility": [
+          51,
+          140
+        ],
+        "asr_pct": 7.1,
+        "attacks": [
+          10,
+          140
+        ],
+        "refusals": 102
+      }
     },
-    "scml_benign": {
-      "utility_pct": 77.5,
-      "utility": [
-        31,
-        40
-      ],
-      "refusals": 13,
-      "refusals_hard": 13,
-      "refusals_gated": 0
+    "banking": {
+      "benign_ceiling": {
+        "utility_pct": 50.0,
+        "utility": [
+          8,
+          16
+        ]
+      },
+      "benign_scml": {
+        "utility_pct": 37.5,
+        "utility": [
+          6,
+          16
+        ],
+        "refusals": 15
+      },
+      "undefended": {
+        "utility_pct": 38.9,
+        "utility": [
+          56,
+          144
+        ],
+        "asr_pct": 49.3,
+        "attacks": [
+          71,
+          144
+        ]
+      },
+      "scml": {
+        "utility_pct": 34.7,
+        "utility": [
+          50,
+          144
+        ],
+        "asr_pct": 0.0,
+        "attacks": [
+          0,
+          144
+        ],
+        "refusals": 262
+      }
+    },
+    "slack": {
+      "benign_ceiling": {
+        "utility_pct": 81.0,
+        "utility": [
+          17,
+          21
+        ]
+      },
+      "benign_scml": {
+        "utility_pct": 57.1,
+        "utility": [
+          12,
+          21
+        ],
+        "refusals": 8
+      },
+      "undefended": {
+        "utility_pct": 50.5,
+        "utility": [
+          53,
+          105
+        ],
+        "asr_pct": 63.8,
+        "attacks": [
+          67,
+          105
+        ]
+      },
+      "scml": {
+        "utility_pct": 30.5,
+        "utility": [
+          32,
+          105
+        ],
+        "asr_pct": 30.5,
+        "attacks": [
+          32,
+          105
+        ],
+        "refusals": 121
+      }
     }
   },
-  "headline": {
-    "asr_undefended_pct": 16.8,
-    "asr_scml_pct": 4.8,
-    "asr_reduction_pct": 71.4,
-    "benign_ceiling_pct": 82.5,
-    "benign_scml_pct": 77.5,
-    "utility_retained_pct": 93.9
-  },
-  "supersedes": "Earlier runs reported 0.0% ASR. The taint extractor read `text` from AgentDojo content blocks that carry `content`, so FR-PE-04 never fired and every refusal came from the blanket require_approval_for gate. Fixed in 019e13c.",
   "caveats": [
-    "One suite of four; travel, banking and slack untested.",
-    "One attack type of seventeen.",
-    "Taint is inferred from textual overlap, not tracked at the source, so an injection that constructs a value rather than copying one evades it.",
+    "One attack type of seventeen; the 7.3% may not generalise.",
+    "Taint is inferred from textual overlap, not tracked at the source.",
+    "19% of benign task completion is lost, concentrated where the workflow depends on acting on fetched content.",
     "Refusals are not a per-attack count: the agent retries after a refusal.",
-    "The allow-list (FR-PE-02) never fired; this suite tests argument provenance, not least agency."
+    "The allow-list (FR-PE-02) never fired; this benchmark tests FR-PE-04."
   ]
 }
