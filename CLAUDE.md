@@ -99,14 +99,24 @@ are v1.0's and unaffected.
   state". The InjecAgent testbed **does** exist
   (`benchmarks/testbeds/injecagent/`, 1054 external cases) — see "Measured state"
 - No sandboxed tool executor (PRD §11) — tool execution stays in the host app
-- **The policy document is single-tenant.** `PUT /v1/policy` replaces the whole
-  document, `agents` map and all, so two teams administering different agents
-  on one mediator will clobber each other — last write wins, and the loser gets
-  silently deny-alled via the `default` fallback (`engine.py:74`). Today's
-  workable answers are one mediator per system, or one owner of the document.
-  A per-agent endpoint (`PUT /v1/policy/agents/{id}`) is the proper fix and is
-  not built. This matters the moment SCML is pitched as shared infrastructure:
-  the SDK installs in seconds, but onboarding a second team does not.
+- **Per-agent policy updates exist; whole-document PUT still clobbers.**
+  `PUT /v1/policy/agents/{id}` replaces one agent and leaves the rest alone, so
+  two teams can administer different agents on one mediator. `PUT /v1/policy`
+  still replaces the entire document including the `agents` map — it is for
+  bootstrapping and wholesale changes, not routine administration.
+  The concurrency is not incidental: the read-modify-write lives in
+  `PolicyRepository.upsert_agent` inside one transaction, guarded by a unique
+  constraint on `base_version_id`. Doing it in the router would reintroduce the
+  same lost update with a millisecond window instead of a permanent one.
+  Constraining `version_number` instead does **not** work and was measured
+  failing: the document is read from the active row while the number comes from
+  `max(version_number)`, so a writer can read v3, find max=4, write v5 and
+  erase everything v4 added.
+  Exhausting the retries raises rather than writing — a caller that sees an
+  error can retry; one whose write vanished cannot know to.
+  The `default` agent is refused through this endpoint: it is the deny-all
+  fallback every unconfigured agent lands on, so widening it there would grant
+  authority to agents nobody has configured.
 - Policy identity is per `agent_id`, and an unknown `agent_id` falls back to
   `default` (deny-all). That is the correct fail-closed default, but it means
   "install the SDK" never means "it works" — a new integration is fully denied

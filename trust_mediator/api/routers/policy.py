@@ -23,6 +23,11 @@ class PolicyUpdateRequest(BaseModel):
     shadow: bool = False
 
 
+class AgentPolicyRequest(BaseModel):
+    agent_policy: dict[str, Any]
+    description: str = ""
+
+
 class PolicyVersionResponse(BaseModel):
     id: str
     version_number: int
@@ -71,6 +76,90 @@ async def update_policy(request: PolicyUpdateRequest, store: PolicyStoreDep, _: 
         created_at=version.created_at.isoformat(),
         activated_at=version.activated_at.isoformat() if version.activated_at else None,
     )
+
+
+def _version_response(version) -> PolicyVersionResponse:
+    return PolicyVersionResponse(
+        id=version.id,
+        version_number=version.version_number,
+        description=version.description,
+        is_active=version.is_active,
+        is_shadow=version.is_shadow,
+        created_by=version.created_by,
+        created_at=version.created_at.isoformat(),
+        activated_at=version.activated_at.isoformat() if version.activated_at else None,
+    )
+
+
+@router.get("/agents/{agent_id}", summary="Get one agent's policy")
+async def get_agent_policy(agent_id: str, store: PolicyStoreDep, principal: AuthDep):
+    """FR-CP-01: the policy for a single agent.
+
+    404 means the agent has no policy of its own and therefore falls back to
+    `default`, which is deny-all — worth distinguishing from an agent that is
+    configured but permissive.
+    """
+    agent_policy = await store.get_agent(agent_id)
+    if agent_policy is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"agent '{agent_id}' has no policy; it falls back to 'default', "
+                f"which is deny-all"
+            ),
+        )
+    return {"agent_id": agent_id, "policy": agent_policy}
+
+
+@router.put("/agents/{agent_id}", summary="Create or replace one agent's policy")
+async def upsert_agent_policy(
+    agent_id: str,
+    request: AgentPolicyRequest,
+    store: PolicyStoreDep,
+    principal: AuthDep,
+):
+    """FR-CP-01: replace one agent's policy without touching the others.
+
+    `PUT /v1/policy` replaces the whole document, `agents` map included, so two
+    teams administering different agents through it clobber each other — last
+    write wins, and the loser is silently deny-alled via the `default`
+    fallback. This is the endpoint that makes a shared mediator workable.
+
+    The read-modify-write happens inside one locked transaction in the
+    repository, so concurrent updates to different agents serialise instead of
+    overwriting each other.
+
+    `created_by` is the authenticated principal, not a request field: a policy
+    change is an administrative action and the version history should record
+    who made it rather than what they typed.
+    """
+    try:
+        version = await store.upsert_agent(
+            agent_id=agent_id,
+            agent_policy=request.agent_policy,
+            description=request.description,
+            created_by=principal,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return _version_response(version)
+
+
+@router.delete("/agents/{agent_id}", summary="Remove one agent's policy")
+async def delete_agent_policy(agent_id: str, store: PolicyStoreDep, principal: AuthDep):
+    """FR-CP-01: remove one agent, leaving the rest of the document intact.
+
+    The agent then falls back to `default` and is denied everything. That is
+    the point: revoking a policy should stop the agent, not leave it running
+    unconfigured.
+    """
+    if await store.get_agent(agent_id) is None:
+        raise HTTPException(status_code=404, detail=f"agent '{agent_id}' has no policy")
+    try:
+        version = await store.delete_agent(agent_id=agent_id, created_by=principal)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return _version_response(version)
 
 
 @router.get("/versions", summary="List policy version history")

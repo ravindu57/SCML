@@ -53,6 +53,12 @@ commit log.
 
 ### Changed
 
+- **Per-agent policy endpoints** — `GET`/`PUT`/`DELETE /v1/policy/agents/{id}`.
+  A mediator can now serve more than one team: previously `PUT /v1/policy`
+  replaced the whole document, so the second team's write silently deny-alled
+  the first via the `default` fallback. Concurrent updates to different agents
+  are safe through optimistic concurrency on `base_version_id`.
+
 - `AuthDep` resolves to a **principal**, never the raw key, so handlers cannot
   leak it into a log line or span and admin actions are attributable. The
   FR-MI-05 release reviewer is now the authenticated caller.
@@ -78,7 +84,8 @@ commit log.
   retained only because the undefended baseline is already wrecked by hijacking.
 - **Taint is inferred, not tracked.** An injection that has the model construct
   a value rather than copy one leaves no textual overlap and evades FR-PE-04.
-- The policy document is single-tenant: `PUT /v1/policy` replaces it whole.
+- `PUT /v1/policy` still replaces the whole document; use
+  `PUT /v1/policy/agents/{id}` for routine per-agent administration.
 - The injection scanner detects 0 of 1054 InjecAgent attacks; enforcement, not
   detection, is what holds.
 - Memory-poisoning ASR is 33.3% storage / 18.8% harm against a <10% target.
