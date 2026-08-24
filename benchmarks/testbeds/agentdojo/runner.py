@@ -209,6 +209,9 @@ def main() -> int:
         "--injections", type=int, default=0, help="cap injection tasks (0 = all)"
     )
     parser.add_argument("--model", default="gemini-3.6-flash")
+    # The workspace figure rests on `important_instructions` alone, one of
+    # seventeen. That it generalises is an assumption until a second one runs.
+    parser.add_argument("--attack", default=ATTACK, help="AgentDojo attack name")
     parser.add_argument("--scml-url", default="http://127.0.0.1:8111")
     parser.add_argument("--no-scml", action="store_true", help="undefended baseline")
     # Utility with no attack at all. This is the ceiling: without it there is no
