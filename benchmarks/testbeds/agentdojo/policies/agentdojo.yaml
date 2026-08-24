@@ -1,0 +1,164 @@
+# SCML policy for all four AgentDojo suites (PRD §14.1).
+#
+# One document, four agents — not by preference. `PUT /v1/policy` replaces the
+# entire document including the `agents` map, so loading four files in sequence
+# would leave only the last, and the other three would fall through to `default`
+# and be silently deny-alled. That is the single-tenant limitation in CLAUDE.md's
+# known gaps, met in practice: four suites is already "two teams administering
+# different agents on one mediator".
+#
+# Each suite gets its own agent_id and its own allow-list. A shared id would make
+# the allow-list the union of everything any suite needs — banking's send_money
+# reachable from the slack agent — which is the opposite of least agency.
+#
+# Allow-lists are the suite's full tool set, because AgentDojo's user tasks
+# legitimately need every tool including the dangerous ones. So FR-PE-02 cannot
+# separate the user's intent from an injected one; `untrusted_arg_policy: deny`
+# does that work, on provenance. These suites test FR-PE-04.
+#
+# Tools are listed from the suite definitions, never from the injection tasks
+# that attack them. Fitting a policy to the attacks measures the fitting.
+
+agents:
+  # Deny-all stays deny-all. A benchmark must not widen the default that every
+  # unconfigured agent in production falls back to.
+  default:
+    allowed_tools: []
+    require_approval_for: [irreversible, high_impact]
+    untrusted_arg_policy: require_approval
+    rate_limits:
+      tool_calls_per_minute: 60
+
+  # ── workspace: email, calendar, files ────────────────────────────────────
+  agentdojo_workspace:
+    allowed_tools:
+      - get_current_day
+      - get_day_calendar_events
+      - search_calendar_events
+      - get_received_emails
+      - get_sent_emails
+      - get_unread_emails
+      - get_draft_emails
+      - search_emails
+      - list_files
+      - get_file_by_id
+      - search_files
+      - search_files_by_filename
+      - search_contacts_by_email
+      - search_contacts_by_name
+      - create_calendar_event
+      - reschedule_calendar_event
+      - add_calendar_event_participants
+      - cancel_calendar_event
+      - create_file
+      - append_to_file
+      - delete_file
+      - share_file
+      - send_email
+      - delete_email
+    # Empty, and it must be present and empty: the engine defaults an absent key
+    # to [irreversible, high_impact] (engine.py:127). That default gates every
+    # send and write regardless of provenance, and measured 40.0% benign utility
+    # against an 82.5% ceiling — a 42-point loss to a rule that never looks at
+    # where the data came from.
+    require_approval_for: []
+    untrusted_arg_policy: deny
+    rate_limits:
+      tool_calls_per_minute: 120
+
+  # ── travel: bookings that commit money, plus calendar and email ──────────
+  agentdojo_travel:
+    allowed_tools:
+      - get_user_information
+      - get_all_hotels_in_city
+      - get_hotels_prices
+      - get_hotels_address
+      - get_rating_reviews_for_hotels
+      - get_all_restaurants_in_city
+      - get_restaurants_address
+      - get_price_for_restaurants
+      - get_rating_reviews_for_restaurants
+      - get_cuisine_type_for_restaurants
+      - get_dietary_restrictions_for_all_restaurants
+      - get_contact_information_for_restaurants
+      - check_restaurant_opening_hours
+      - get_all_car_rental_companies_in_city
+      - get_car_price_per_day
+      - get_car_rental_address
+      - get_car_types_available
+      - get_car_fuel_options
+      - get_rating_reviews_for_car_rental
+      - get_flight_information
+      - get_day_calendar_events
+      - search_calendar_events
+      - create_calendar_event
+      - cancel_calendar_event
+      - reserve_hotel
+      - reserve_restaurant
+      - reserve_car_rental
+      - send_email
+    require_approval_for: []
+    untrusted_arg_policy: deny
+    rate_limits:
+      tool_calls_per_minute: 120
+
+  # ── banking: money movement and account credentials ──────────────────────
+  agentdojo_banking:
+    allowed_tools:
+      - get_balance
+      - get_iban
+      - get_most_recent_transactions
+      - get_scheduled_transactions
+      - get_user_info
+      - read_file
+      - send_money
+      - schedule_transaction
+      - update_scheduled_transaction
+      - update_user_info
+      - update_password
+    require_approval_for: []
+    untrusted_arg_policy: deny
+    rate_limits:
+      tool_calls_per_minute: 120
+
+  # ── slack: messages, membership, and the public web ──────────────────────
+  agentdojo_slack:
+    allowed_tools:
+      - get_channels
+      - get_users_in_channel
+      - read_channel_messages
+      - read_inbox
+      - get_webpage
+      - send_channel_message
+      - send_direct_message
+      - add_user_to_channel
+      - invite_user_to_slack
+      - remove_user_from_slack
+      - post_webpage
+    require_approval_for: []
+    untrusted_arg_policy: deny
+    rate_limits:
+      tool_calls_per_minute: 120
+
+# Left at shipped defaults on purpose. Phase 1 measures the tool-policy path;
+# changing scanner thresholds or memory scoring here would confound which layer
+# produced the result.
+memory:
+  integrity_score_threshold: 0.65
+  rescan_on_read: false
+
+scanner:
+  shadow_mode: false
+  thresholds:
+    block: 0.85
+    escalate: 0.70
+    transform: 0.50
+
+redaction:
+  pii_patterns_enabled: true
+  entropy_threshold: 4.5
+  protected_classes:
+    - pii
+    - secret
+    - credential
+  data_flow_rules: {}
