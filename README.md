@@ -9,7 +9,8 @@
 # SCML — Securing Agentic AI at the Middleware Layer
 
 ```
-![Uploading image.png…]()
+<img width="1774" height="887" alt="image" src="https://github.com/user-attachments/assets/5d98eb78-b71f-427c-ba7d-db240fd13e82" />
+
 
 
 ```
@@ -30,14 +31,14 @@
 
 ```
   ┌─────────────────────────────────────────────────────────────────────┐
-  │  LLM agents call tools, read documents, store memories.            │
-  │  Every integration is a new attack surface.                        │
+  │  LLM agents call tools, read documents, store memories.             │
+  │  Every integration is a new attack surface.                         │
   │                                                                     │
-  │  • Poisoned memory     → privilege escalation                      │
-  │  • Malicious tool out  → agent hijacked, data exfiltrated          │
-  │  • Prompt injection    → agent instructions overridden             │
+  │  • Poisoned memory     → privilege escalation                       │
+  │  • Malicious tool out  → agent hijacked, data exfiltrated           │
+  │  • Prompt injection    → agent instructions overridden              │
   │                                                                     │
-  │  Existing guardrails secure the MODEL.                             │
+  │  Existing guardrails secure the MODEL.                              │
   │  SCML secures the MIDDLEWARE.                                       │
   └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -276,41 +277,41 @@ bash run-demo.sh --stop   # tear down
 
 ```
   ┌─────────────────────────────────────────────────────────────────────────┐
-  │                        SCML System Architecture                        │
+  │                        SCML System Architecture                         │
   ├─────────────────────────────────────────────────────────────────────────┤
   │                                                                         │
-  │   ┌─────────────┐     ┌─────────────┐     ┌─────────────┐             │
-  │   │   Python    │     │  TypeScript  │     │    gRPC     │             │
-  │   │    SDK      │     │     SDK      │     │   Client    │             │
-  │   └──────┬──────┘     └──────┬──────┘     └──────┬──────┘             │
-  │          │                    │                    │                     │
-  │          └────────────────────┼────────────────────┘                     │
+  │   ┌─────────────┐     ┌─────────────┐     ┌─────────────┐               │
+  │   │   Python    │     │  TypeScript  │     │    gRPC     │              │
+  │   │    SDK      │     │     SDK      │     │   Client    │              │
+  │   └──────┬──────┘     └──────┬──────┘     └──────┬──────┘               │
+  │          │                    │                    │                    │
+  │          └────────────────────┼────────────────────┘                    │
   │                               │                                         │
   │                        ┌──────▼──────┐                                  │
   │                        │   FastAPI   │  /v1/mediate/*                   │
-  │                        │   + gRPC    │  /v1/audit/*                    │
+  │                        │   + gRPC    │  /v1/audit/*                     │
   │                        └──────┬──────┘                                  │
   │                               │                                         │
-  │   ┌───────────────────────────▼───────────────────────────┐            │
-  │   │              Mediation Pipeline                       │            │
-  │   │                                                       │            │
-  │   │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐       │            │
-  │   │  │ Trust  │→│Inject. │→│ Policy │→│Memory  │       │            │
-  │   │  │ Router │ │Scanner │ │ Engine │ │Integrity│      │            │
-  │   │  └────────┘ └────────┘ └────────┘ └────────┘       │            │
-  │   │       │                            │                  │            │
-  │   │       └────────────┬───────────────┘                  │            │
-  │   │                    ▼                                  │            │
-  │   │            ┌──────────────┐     ┌──────────────┐     │            │
-  │   │            │   Output     │     │    Audit     │     │            │
-  │   │            │   Redactor   │     │    Logger    │     │            │
-  │   │            └──────────────┘     └──────────────┘     │            │
-  │   └───────────────────────────────────────────────────────┘            │
+  │   ┌───────────────────────────▼───────────────────────────┐             │
+  │   │              Mediation Pipeline                       │             │
+  │   │                                                       │             │
+  │   │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐          │             │
+  │   │  │ Trust  │→│Inject. │→│ Policy │→│Memory  │          │             │
+  │   │  │ Router │ │Scanner │ │ Engine │ │Integrity│         │             │
+  │   │  └────────┘ └────────┘ └────────┘ └────────┘          │             │
+  │   │       │                            │                  │             │
+  │   │       └────────────┬───────────────┘                  │             │
+  │   │                    ▼                                  │             │
+  │   │            ┌──────────────┐     ┌──────────────┐      │             │
+  │   │            │   Output     │     │    Audit     │      │             │
+  │   │            │   Redactor   │     │    Logger    │      │             │
+  │   │            └──────────────┘     └──────────────┘      │             │
+  │   └───────────────────────────────────────────────────────┘             │
   │                               │                                         │
-  │                    ┌──────────▼──────────┐                             │
+  │                    ┌──────────▼──────────┐                              │
   │                    │   PostgreSQL / SQLite│                             │
   │                    │   + Redis (optional) │                             │
-  │                    └─────────────────────┘                             │
+  │                    └─────────────────────┘                              │
   └─────────────────────────────────────────────────────────────────────────┘
 ```
 
