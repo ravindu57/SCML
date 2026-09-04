@@ -1,7 +1,4 @@
-#                                                                                
-██████ ▄▄▄▄  ▄▄ ▄▄  ▄▄▄▄ ▄▄▄▄▄▄ ██▄  ▄██ ▄▄▄▄▄ ▄▄▄▄  ▄▄  ▄▄▄ ▄▄▄▄▄▄ ▄▄▄  ▄▄▄▄  
-  ██   ██▄█▄ ██ ██ ███▄▄   ██   ██ ▀▀ ██ ██▄▄  ██▀██ ██ ██▀██  ██  ██▀██ ██▄█▄ 
-  ██   ██ ██ ▀███▀ ▄▄██▀   ██   ██    ██ ██▄▄▄ ████▀ ██ ██▀██  ██  ▀███▀ ██ ██ 
+# Trust Mediator                                                                               
                                                                                
 **Trust-Aware Context Mediation Middleware for Securing Agentic AI and RAG Systems**
 
