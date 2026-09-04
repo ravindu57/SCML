@@ -1,0 +1,6 @@
+
+cd "/home/ravindu/Desktop/project/scml - middleware layer secure"
+bash run-demo.sh
+
+
+bash run-demo.sh --stop

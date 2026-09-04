@@ -135,3 +135,32 @@ class TestLazyImports:
             "print('eager' if 'trust_mediator.client' in sys.modules else 'lazy')"
         )
         assert out == "eager"
+
+    def test_sanitize_tool_output_needs_no_optional_deps(
+        self,
+    ):  # FR-OR-03; client-install CI contract
+        """Sanitize must work on a core-only install, where structlog (a
+        [server] extra) does not exist. Simulate absence with an import hook
+        before the module is ever imported."""
+        code = "\n".join(
+            [
+                "import builtins, sys",
+                "real = builtins.__import__",
+                "def _no_structlog(name, *a, **k):",
+                "    if name == 'structlog' or name.startswith('structlog.'):",
+                "        raise ImportError('simulated client-only install')",
+                "    return real(name, *a, **k)",
+                "builtins.__import__ = _no_structlog",
+                "from trust_mediator import SCMLClient",
+                "print(SCMLClient('http://x').sanitize_tool_output("
+                "'a<INFORMATION>b</INFORMATION>c'))",
+                "print('structlog' in sys.modules)",
+                "R = 'trust_mediator.modules.output_redaction.redactor'",
+                "print(R in sys.modules)",
+            ]
+        )
+        out = self._run(code)
+        lines = out.splitlines()
+        assert lines[0] == "ac", "sanitizer must strip without structlog"
+        assert lines[1] == "False", "structlog must never be imported"
+        assert lines[2] == "False", "the server-side redactor must stay lazy"

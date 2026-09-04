@@ -52,6 +52,8 @@ import uuid
 from typing import Any, Union
 
 from trust_mediator.client import SCMLClient, Verdict, classify_decision
+from trust_mediator.config import settings
+from trust_mediator.modules.trust_router.router import TrustRouter
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +129,15 @@ class TrustMediatorGuard(BaseCallbackHandler):
         self.strict    = strict
         self.timeout   = timeout
         self.arg_trust_label = arg_trust_label
+
+        # Retained untrusted tool output, so a later tool call that *constructs*
+        # an argument from it (rather than copying it verbatim) can be detected
+        # and gated under FR-PE-04. Populated in on_tool_end; consumed in
+        # on_tool_start only when NEAR_DUP_TAINT_ENABLED is set. Bounded so a
+        # long session does not grow without limit.
+        self._untrusted_sources: list[str] = []
+        self._untrusted_sources_cap = 64
+        self._router = TrustRouter()
 
         # Transport lives in the SDK client (trust_mediator.client). The guard
         # keeps its own stats and strict-mode semantics on top of it, and
@@ -273,10 +284,25 @@ class TrustMediatorGuard(BaseCallbackHandler):
         # content, so by the taint rule (FR-TR-02) those inputs inherit the
         # most restrictive label of what produced them. Labelling them
         # untrusted is the accurate default, not a paranoid one.
+        labels: dict[str, str] = {}
         if self.arg_trust_label:
-            payload["argument_trust_labels"] = {
-                key: self.arg_trust_label for key in arguments
-            }
+            labels = {key: self.arg_trust_label for key in arguments}
+        # Enrich with constructed-from-untrusted detection. Even with a blanket
+        # label above, near-dup adds precision when the model *assembles* an
+        # argument from seen stemmed/concatenated tool output that would not
+        # itself be recognised — and it is the only signal when arg_trust_label
+        # is disabled. Config-gated; returns {} unless enabled.
+        if self._untrusted_sources:
+            labels.update(
+                {
+                    key: label.value
+                    for key, label in self._router.label_derived_arguments(
+                        arguments, self._untrusted_sources
+                    ).items()
+                }
+            )
+        if labels:
+            payload["argument_trust_labels"] = labels
         result = self._post("/v1/mediate/tool-call", payload)
         self._handle_decision(result, f"tool_call:{tool_name}")
 
@@ -289,6 +315,16 @@ class TrustMediatorGuard(BaseCallbackHandler):
             "agent_id":   self.agent_id,
         })
         self._handle_decision(result, "tool_output")
+
+        # Retain the output as a known-untrusted source for near-dup derivation
+        # detection on later tool calls (config-gated). Bounded FIFO: drop the
+        # oldest when the cap is exceeded.
+        if settings.near_dup_taint_enabled and output:
+            self._untrusted_sources.append(str(output))
+            if len(self._untrusted_sources) > self._untrusted_sources_cap:
+                self._untrusted_sources = self._untrusted_sources[
+                    -self._untrusted_sources_cap:
+                ]
 
     def on_llm_start(
         self,

@@ -456,6 +456,35 @@ class SCMLClient(_BaseClient):
         }, fail_open=fail_open)
         return MediationResult.from_output(body)
 
+    def sanitize_tool_output(
+        self,
+        content: str,
+        *,
+        agent_id: str | None = None,
+        fail_open: bool = False,
+    ) -> str:
+        """
+        Strip injection framing from a tool result before the agent reads it.
+
+        This is the enforcement-side complement to ``mediate_context``: a
+        scanner *detects* a payload, this *rewrites* it out of the message the
+        agent model will read. Call it on the tool result string and substitute
+        the returned value for the original before appending it to context.
+
+        Unlike the outbound ``mediate_output`` redactor (PII/secret masking for
+        egress), this is **inbound** rewriting — it neutralises instruction
+        framing in untrusted tool output so a prompt injection never reaches
+        the model as an instruction. It is deterministic and can never let a
+        recognised injection through (PRD §9 fail-closed).
+        """
+        from trust_mediator.modules.output_redaction.sanitizer import (
+            ToolOutputSanitizer,
+        )
+
+        sanitizer = ToolOutputSanitizer()
+        result = sanitizer.sanitize(content)
+        return result.content
+
     def mediate_memory_write(
         self,
         session_id: str,
@@ -632,6 +661,26 @@ class AsyncSCMLClient(_BaseClient):
             "data_class_labels": data_class_labels or [],
         }, fail_open=fail_open)
         return MediationResult.from_output(body)
+
+    async def sanitize_tool_output(
+        self,
+        content: str,
+        *,
+        agent_id: str | None = None,
+        fail_open: bool = False,
+    ) -> str:
+        """
+        Strip injection framing from a tool result before the agent reads it.
+
+        Same contract as ``SCMLClient.sanitize_tool_output`` — this is the
+        deterministic inbound rewrite, usable with no server round-trip.
+        """
+        from trust_mediator.modules.output_redaction.sanitizer import (
+            ToolOutputSanitizer,
+        )
+
+        sanitizer = ToolOutputSanitizer()
+        return sanitizer.sanitize(content).content
 
     async def mediate_memory_write(
         self,

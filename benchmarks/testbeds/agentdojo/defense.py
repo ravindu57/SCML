@@ -146,7 +146,26 @@ def _message_text(message: Any) -> str:
     return str(content or "")
 
 
-def derived_arguments(args: dict[str, Any], tool_output: str) -> dict[str, str]:
+def user_text_seen(messages: list[Any]) -> str:
+    """Every authenticated user instruction so far, lowercased, as one blob.
+
+    The user message is the trust root of the conversation: it is authored by
+    the authenticated principal, before any tool result (and therefore before
+    any injection, which AgentDojo always delivers through a tool result) can
+    enter. A value the user named here is evidence of *authorised* action, not
+    of derivation from untrusted content.
+    """
+    parts: list[str] = []
+    for message in messages:
+        if _role(message) != "user":
+            continue
+        parts.append(_message_text(message))
+    return "\n".join(parts).lower()
+
+
+def derived_arguments(
+    args: dict[str, Any], tool_output: str, user_text: str = ""
+) -> dict[str, str]:
     """Label only the arguments whose values appear in prior tool output.
 
     Conversation-level taint — "any tool result has arrived, so everything
@@ -162,13 +181,32 @@ def derived_arguments(args: dict[str, Any], tool_output: str) -> dict[str, str]:
     than copy one — concatenating an address, or spelling it out — evades this.
     That is a known limit, and the reason a real implementation tracks
     provenance at the source rather than inferring it here.
+
+    The one case this *can* resolve without dataflow is when the user named the
+    exact value themselves: ``derived_arguments`` needs the value to have been
+    copied from tool output *and* to be absent from the user's own instruction.
+    A value the authenticated user verbatim supplied is not tainted even if a
+    tool later echoed it back — the user sanctioning the action and the source
+    in the same breath is the legitimate "fetch untrusted content and act on
+    it" workflow, not an injection. The injection's target never appears in the
+    user's instruction, so this cannot untaint an attack.
     """
     if not tool_output:
         return {}
+    # A value the authenticated user verbatim supplied is authorised, not
+    # derived. Minimal credential is "appears as that whole value in the user's
+    # instruction": matching substrings would let an injection broaden a target
+    # the user named (user says "example.com", injection widens it to
+    # "example.com/evil") through the gap.
     labels: dict[str, str] = {}
+    user_blob = user_text.lower() if user_text else ""
     for name, value in args.items():
         text = str(value).strip().lower()
         if not text or text not in tool_output:
+            continue
+        if user_blob and text in user_blob:
+            # The user sanctioned this exact target; a tool echoing it back
+            # does not make it untrusted.
             continue
         distinctive = len(text) >= MIN_TAINT_MATCH or any(
             marker in text for marker in DISTINCTIVE_MARKERS
@@ -233,6 +271,14 @@ class ScmlDefense:
     and utility measured 0% while ASR measured 0%. A reference monitor denies an
     action and hands back the refusal; the caller decides what to do next. The
     denial is the tool's result, not the end of the conversation.
+
+    **It can also sanitise tool results (FR-OR-03 seam).** ``sanitize`` works
+    on the *inbound* tool boundary: rewriting the result's content to strip
+    injection framing before the agent model reads it. This is how the tool
+    filter's blind spot — the slack-style attack where the model rewrites a
+    target rather than copying it — is closed: the payload is removed from
+    context, so there is nothing for the model to obey even if policy would
+    have allowed the call.
     """
 
     def __init__(
@@ -242,6 +288,7 @@ class ScmlDefense:
         *,
         session_id: str,
         auto_approve: bool = False,
+        sanitize: bool = False,
     ) -> None:
         self._client = client
         self._agent_id = agent_id
@@ -251,11 +298,18 @@ class ScmlDefense:
         # the utility loss is a hard refusal, and how much is work waiting on
         # someone to click approve.
         self._auto_approve = auto_approve
+        # Strip injection framing from tool results before the model reads
+        # them. A benchmark can put the sanitizer between the tool boundary
+        # and the agent, which is exactly where a real deployment would put it.
+        self._sanitize = bool(sanitize)
         # One session per task: the audit chain is per session, so sharing one
         # across tasks would interleave unrelated runs into a single hash chain
         # and make a replay meaningless as evidence for any one of them.
         self._session_id = session_id
         self.decisions: list[ScmlDecision] = []
+        #: Every tool result sanitized, in order, with the number of spans
+        #: removed. The benchmark runner can report these alongside denials.
+        self.sanitizations: list[tuple[Any, int]] = []
 
     @property
     def name(self) -> str:
@@ -264,6 +318,69 @@ class ScmlDefense:
     @property
     def denied(self) -> list[ScmlDecision]:
         return [d for d in self.decisions if not d.allowed]
+
+    def sanitize_tool_results(self, messages: list[Any]) -> list[Any]:
+        """Rewritten message list with tool-result content sanitized in place.
+
+        Returns a *copy*: the transcript is what the model saw, which must be
+        the sanitized version, but the caller's live list should not be
+        mutated behind its back mid-iteration.
+        """
+        if not self._sanitize or not messages:
+            return messages
+        rewrite = list(messages)
+        changed = False
+        for idx, message in enumerate(rewrite):
+            if _role(message) != "tool":
+                continue
+            text = _message_text(message)
+            cleaned = self._client.sanitize_tool_output(text)
+            if cleaned != text:
+                self.sanitizations.append((message, 1))
+                rewrite[idx] = self._rewrite_tool_content(message, cleaned)
+                changed = True
+        if not changed:
+            return messages
+        return rewrite
+
+    @staticmethod
+    def _rewrite_tool_content(message: Any, cleaned: str) -> Any:
+        """Rebuild a tool message with substituted content, preserving shape."""
+        content = _get(message, "content")
+        if isinstance(content, str):
+            if isinstance(message, dict):
+                out = dict(message)
+                out["content"] = cleaned
+                return out
+            return message.model_copy(update={"content": cleaned})
+        if isinstance(content, list):
+            blocks: list[Any] = []
+            for block in content:
+                text = ""
+                for key in _TEXT_KEYS:
+                    value = _get(block, key)
+                    if isinstance(value, str):
+                        text = value
+                        break
+                if text:
+                    block_rewritten = dict(block) if isinstance(block, dict) else block
+                    if isinstance(block, dict):
+                        # Replace the first text-bearing key in place.
+                        for key in _TEXT_KEYS:
+                            if _get(block, key) is not None and isinstance(_get(block, key), str):
+                                block_rewritten[key] = cleaned
+                                break
+                        blocks.append(block_rewritten)
+                    else:
+                        blocks.append(block)
+                else:
+                    blocks.append(block)
+            if isinstance(message, dict):
+                out = dict(message)
+                out["content"] = blocks
+                return out
+            return message.model_copy(update={"content": blocks})
+        return message
 
     def evaluate(self, messages: list[Any]) -> list[tuple[Any, ScmlDecision]]:
         """Mediate every tool call in the last message.
@@ -276,9 +393,12 @@ class ScmlDefense:
             return []
 
         tool_output = tool_output_seen(messages)
+        user_text = user_text_seen(messages)
         out: list[tuple[Any, ScmlDecision]] = []
         for call in _tool_calls(messages[-1]):
-            decision = self._mediate(call, tool_output=tool_output)
+            decision = self._mediate(
+                call, tool_output=tool_output, user_text=user_text
+            )
             self.decisions.append(decision)
             out.append((call, decision))
         return out
@@ -296,7 +416,7 @@ class ScmlDefense:
             f"{decision.reason} This action was not performed."
         )
 
-    def _mediate(self, call: Any, *, tool_output: str) -> ScmlDecision:
+    def _mediate(self, call: Any, *, tool_output: str, user_text: str = "") -> ScmlDecision:
         tool_name = str(getattr(call, "function", None) or _get(call, "function") or "")
         args = getattr(call, "args", None)
         if args is None:
@@ -318,7 +438,9 @@ class ScmlDefense:
         # that writes after reading, which cost user_task_12 and user_task_13
         # all their utility.
         acts = irreversible or high_impact
-        labels = derived_arguments(args, tool_output) if acts else {}
+        labels = (
+            derived_arguments(args, tool_output, user_text) if acts else {}
+        )
 
         result = self._client.mediate_tool_call(
             self._session_id,

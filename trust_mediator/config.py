@@ -361,6 +361,54 @@ class Settings(BaseSettings):
     memory_contradiction_report_min: float = Field(
         default=0.30, alias="MEMORY_CONTRADICTION_REPORT_MIN"
     )
+    # ── Control-plane conflict detector (FR-MI-06) ─────────────────────────
+    # A memory write must never be allowed to alter the agent's control plane
+    # (the declarative allow-list, approval gates, redaction, vetting/reverification,
+    # rate limits). This is the structural, §5.2-compliant equivalent of a
+    # privileged-interpreter boundary: the mediator decides authority from
+    # policy + the trusted user prompt, never from a memory record. This stage
+    # flags candidates that *claim* control-plane authority, request a tool
+    # substitution to an off-allow-list primitive, or instruct a control to be
+    # disabled. It is intentionally a control-object + authority pairing, not a
+    # lexical attack list — so a benign user preference ("always use metric
+    # units") that mentions no mediator control still persists.
+    #: combined control-conflict score at/above which the write is hard-gated
+    #: to quarantine (never silent persist).
+    memory_control_conflict_threshold: float = Field(
+        default=0.5, alias="MEMORY_CONTROL_CONFLICT_THRESHOLD"
+    )
+    #: Minimum authority/override score for a control-object to be treated as
+    #: a genuine escalation rather than a passing mention.
+    memory_control_authority_min: float = Field(
+        default=0.4, alias="MEMORY_CONTROL_AUTHORITY_MIN"
+    )
+    #: Enable/disable the whole control-conflict stage (ablation + rollout).
+    memory_control_conflict_enabled: bool = Field(
+        default=True, alias="MEMORY_CONTROL_CONFLICT_ENABLED"
+    )
+
+    # ── Trust Router: near-duplicate derivation (FR-TR-02, FR-PE-04) ─────────
+    # Exact-substring taint misses an argument the model *constructs* from
+    # untrusted content rather than copies — concatenating an address, dropping
+    # a word, or casing it differently — so a value that is a high-similarity
+    # variant of known untrusted source content is genuinely derived (taint
+    # propagates, FR-TR-02) and must gate under FR-PE-04. This is normalized
+    # similarity, not a lexical attack list, so it is not tuned to any corpus.
+    # Default off: it is a behavioural change on the control path and lowering
+    # the threshold raises the false-positive (benign-utility) cost.
+    near_dup_taint_enabled: bool = Field(
+        default=False, alias="NEAR_DUP_TAINT_ENABLED"
+    )
+    #: Normalized-similarity score at/above which a value is labelled as
+    #: derived from untrusted source content.
+    near_dup_taint_threshold: float = Field(
+        default=0.75, alias="NEAR_DUP_TAINT_THRESHOLD"
+    )
+    #: Minimum character length of a value before near-dup comparison is
+    #: meaningful; anything shorter is matched exactly only.
+    near_dup_min_length: int = Field(
+        default=8, alias="NEAR_DUP_MIN_LENGTH"
+    )
 
     # ── Rate Limiting ─────────────────────────────────────────────────────────
     # slowapi limit string, e.g. "200/minute", "500/minute", "10/second"

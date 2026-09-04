@@ -93,7 +93,8 @@ class _ScmlToolsExecutor(ToolsExecutor):
         verdicts = self._defense.evaluate(messages)
         refused = [(c, d) for c, d in verdicts if not d.allowed]
         if not verdicts or not refused:
-            return super().query(query, runtime, env, messages, extra_args)
+            q, rt, e, out, ex = super().query(query, runtime, env, messages, extra_args)
+            return q, rt, e, self._sanitize_results(out), ex
 
         proposed = messages[-1]
         allowed = [c for c, d in verdicts if d.allowed]
@@ -120,7 +121,11 @@ class _ScmlToolsExecutor(ToolsExecutor):
                     error=self._defense.refusal_text(decision),
                 )
             )
-        return q, rt, e, out, ex
+        return q, rt, e, self._sanitize_results(out), ex
+
+    def _sanitize_results(self, out: Any) -> Any:
+        """Apply the sanitizer to the freshly-produced tool results."""
+        return self._defense.sanitize_tool_results(out)
 
 
 def is_openai(model: str) -> bool:
@@ -156,6 +161,7 @@ def build_pipeline(
     *,
     agent_id: str = "agentdojo_workspace",
     auto_approve: bool = False,
+    sanitize: bool = False,
 ) -> AgentPipeline:
     """Standard AgentDojo pipeline, with SCML spliced into the tools loop.
 
@@ -174,7 +180,8 @@ def build_pipeline(
         return pipeline
 
     defense = ScmlDefense(
-        scml_client, agent_id, session_id=session_id, auto_approve=auto_approve
+        scml_client, agent_id, session_id=session_id, auto_approve=auto_approve,
+        sanitize=sanitize,
     )
     replaced = False
     for element in pipeline.elements:
@@ -226,6 +233,12 @@ def main() -> int:
     parser.add_argument(
         "--auto-approve", action="store_true", help="treat require_approval as allowed"
     )
+    # Strip injection framing from tool results (`sanitize_tool_output` seam)
+    # before the agent model reads them. Independent of denials: it rewrites
+    # content, it does not refuse the call.
+    parser.add_argument(
+        "--sanitize", action="store_true", help="sanitize tool results (FR-OR-03)"
+    )
     parser.add_argument("--logdir", default="/tmp/agentdojo-phase0")
     parser.add_argument(
         "--env-file",
@@ -268,6 +281,8 @@ def main() -> int:
     label = "undefended" if args.no_scml else "SCML"
     if args.auto_approve:
         label += " +approver"
+    if args.sanitize:
+        label += " +sanitize"
     if args.no_attack:
         print(f"{args.suite} | {args.model} | NO ATTACK | {label} | {len(task_ids)} tasks\n")
     else:
@@ -280,6 +295,7 @@ def main() -> int:
     security_all: list[bool] = []
     denials = 0
     approvals = 0
+    sanitized_count = 0
 
     for task_id in task_ids:
         task = suite.get_user_task_by_id(task_id)
@@ -287,6 +303,7 @@ def main() -> int:
         pipeline = build_pipeline(
             build_llm(api_key, args.model), scml_client, session_id,
             agent_id=agent_id, auto_approve=args.auto_approve,
+            sanitize=args.sanitize,
         )
         try:
             with OutputLogger(str(logdir), live=None):
@@ -312,6 +329,7 @@ def main() -> int:
         gated = [d for d in (defense.decisions if defense else []) if d.needs_approval]
         denials += len(refused)
         approvals += len(gated)
+        sanitized_count += sum(n for _, n in getattr(defense, "sanitizations", []) or [])
 
         u = _pct(list(utility.values()))
         note = ""
@@ -349,6 +367,8 @@ def main() -> int:
             f"{'  gated':<10} {approvals} needed human approval"
             + (" (auto-approved)" if args.auto_approve else " (counted as refused)")
         )
+        if args.sanitize:
+            print(f"{'sanitized':<10} {sanitized_count} injected spans stripped from tool results")
     return 0
 
 

@@ -74,6 +74,164 @@ export function classifyDecision(decision?: string | null): Verdict {
   return 'unknown';
 }
 
+// ── Tool-output sanitizer (FR-OR-03) ────────────────────────────────────────
+
+/**
+ * Injection-framing delimiters targeted by the sanitizer. These are the
+ * *structural* markers an attacker uses to lift a payload out of benign data.
+ * Order matters (longest/most specific first so an outer tag wins). This is a
+ * faithful port of `trust_mediator/modules/output_redaction/sanitizer.py` —
+ * the two implementations must agree behaviourally, or an integration behaves
+ * differently depending on which language it was written in.
+ */
+const INJECTION_BLOCK_PATTERNS: ReadonlyArray<readonly [string, RegExp]> = [
+  [
+    'information_block',
+    /<\s*(?:information|instruction|important|system|injection|notice)[^>]*>\s*(?:.*?\s*?)?<\s*\/\s*(?:information|instruction|important|system|injection|notice)\s*>/is,
+  ],
+  [
+    'single_delim_block',
+    /<\s*(info|note|important|alert|attention|reminder)\s*>.+?<\/\s*\1\s*>/is,
+  ],
+  [
+    'heading_block',
+    /^#{1,6}\s*(?:IMPORTANT|INFORMATION|INSTRUCTION|ATTENTION|NOTE|WARNING|ALERT)[^#\n]*\n(?:.*(?:\n|$))*?/im,
+  ],
+];
+
+/** Lines that frame the following text as a directive to the agent. */
+const DIRECTIVE_LINE_RE =
+  /^\s*(?:immediately\s+|now\s+|urgent(?:ly)?\s+)?(?:important|instruction|immediate|attention|urgent|note|warning|alert|reminder|system|ignore)\s*(?::|\s+-\s*|\s+--\s*)|^\s*(?:ignore|disregard|forget|forget all)\s+(?:all\s+)?(?:previous|prior)\s+(?:instructions|messages|prompts|directives|guidelines)|^\s*(?:system|assistant|ai|agent)\s*(?:instruction|system)\s*[::=].*|^\s*(?:system|assistant|ai|agent)\s*:.*/im;
+
+/** A line that reads as a spoken imperative addressed to the agent. */
+const IMPERATIVE_HINT_RE =
+  /^\s*(?:please\s+|kindly\s+|now\s+)?(?:reply(?: with| to)?|send(?: it)?|forward(?: it)?|post|upload|email|dm|write|print|display|reveal|show|give(?: me)?|confirm|execute|run|ignore|disregard|proceed|continue|start|stop|erase|delete|remove|skip|include|exclude|add|create|schedule|cancel|update|reply)\b.*[.!?]?\s*$/im;
+
+/** One sanitization decision, mirroring the Python `SanitizationResult`. */
+export interface SanitizationResult {
+  readonly content: string;
+  readonly modified: boolean;
+  readonly spansRemoved: ReadonlyArray<Readonly<{ type: string; span: string }>>;
+  readonly audited: boolean;
+}
+
+interface Stripped {
+  readonly text: string;
+  readonly removed: Array<{ type: string; span: string }>;
+}
+
+/**
+ * Line split that mirrors Python's `splitlines(keepends=True)`: each element
+ * keeps its own `\n` (a final unterminated line keeps none), and a text ending
+ * in `\n` yields no trailing empty element. Line-level rewriting must preserve
+ * this or a stripped bare-newline result gains or loses a byte.
+ */
+function splitInclEnds(text: string): string[] {
+  const raw = text.split('\n');
+  const out: string[] = [];
+  for (let i = 0; i < raw.length; i += 1) {
+    if (i === raw.length - 1) {
+      if (raw[i] !== '' || !text.endsWith('\n')) out.push(raw[i]);
+    } else {
+      out.push(`${raw[i]}\n`);
+    }
+  }
+  return out;
+}
+
+function stripRepeated(text: string, kind: string, pattern: RegExp): Stripped {
+  const removed: Array<{ type: string; span: string }> = [];
+  for (;;) {
+    const m = pattern.exec(text);
+    if (m === null) break;
+    removed.push({ type: kind, span: m[0].slice(0, 200) });
+    text = text.slice(0, m.index) + text.slice(m.index + m[0].length);
+  }
+  return { text, removed };
+}
+
+function stripDirectives(text: string): Stripped {
+  const removed: Array<{ type: string; span: string }> = [];
+  const lines = splitInclEnds(text);
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (DIRECTIVE_LINE_RE.test(line)) {
+      removed.push({ type: 'directive_line', span: line.trim().slice(0, 200) });
+      let j = i + 1;
+      const consumed: string[] = [];
+      while (j < lines.length && /^[ \t>]/.test(lines[j])) {
+        consumed.push(lines[j]);
+        j += 1;
+      }
+      if (consumed.length === 0 && j < lines.length && IMPERATIVE_HINT_RE.test(lines[j])) {
+        consumed.push(lines[j]);
+        j += 1;
+      }
+      for (const c of consumed) {
+        removed.push({ type: 'directive_body', span: c.trim().slice(0, 200) });
+      }
+      i = j;
+      continue;
+    }
+    out.push(line);
+    i += 1;
+  }
+  return { text: out.join(''), removed };
+}
+
+function stripImperativeLines(
+  text: string,
+  spans: Array<{ type: string; span: string }>,
+): string {
+  const out: string[] = [];
+  for (const line of splitInclEnds(text)) {
+    const stripped = line.trim();
+    if (stripped && IMPERATIVE_HINT_RE.test(line)) {
+      spans.push({ type: 'imperative_line', span: stripped.slice(0, 200) });
+      continue;
+    }
+    out.push(line);
+  }
+  return out.join('');
+}
+
+/**
+ * Deterministically rewrites tool results to strip injection framing
+ * (FR-OR-03). Core-install-safe — no LLM, no network, no dependencies — and
+ * pattern-*free* in the sense that matters: every regex targets an injection
+ * *structure*, never a specific adversarial string. A recognised injection is
+ * removed (never passed through); unrecognised content passes unchanged so a
+ * benign tool result is never mangled.
+ */
+export class ToolOutputSanitizer {
+  private readonly enabled: boolean;
+
+  constructor(options: { enabled?: boolean } = {}) {
+    this.enabled = options.enabled ?? true;
+  }
+
+  sanitize(content: string): SanitizationResult {
+    if (!this.enabled || !content) {
+      return { content, modified: false, spansRemoved: [], audited: false };
+    }
+    const spans: Array<{ type: string; span: string }> = [];
+    let text = content;
+    for (const [kind, pattern] of INJECTION_BLOCK_PATTERNS) {
+      const r = stripRepeated(text, kind, pattern);
+      text = r.text;
+      spans.push(...r.removed);
+    }
+    const d = stripDirectives(text);
+    text = d.text;
+    spans.push(...d.removed);
+    text = stripImperativeLines(text, spans);
+    const modified = spans.length > 0 && text !== content;
+    return { content: text, modified, spansRemoved: spans, audited: false };
+  }
+}
+
 // ── Errors ──────────────────────────────────────────────────────────────────
 
 /** Base class for every error thrown by this client. */
@@ -466,6 +624,30 @@ export class SCML {
       rescan: args.rescan ?? false,
     }, args);
     return MediationResult.fromMemoryRead(body);
+  }
+
+  /**
+   * Strip injection framing from a tool result before the agent reads it
+   * (FR-OR-03).
+   *
+   * The enforcement-side complement to {@link mediateContext}: a scanner
+   * *detects* a payload, this *rewrites* it out of the message the agent model
+   * will read. Call it on the tool result string and substitute the returned
+   * value for the original before appending it to context.
+   *
+   * Unlike the outbound {@link mediateOutput} redactor (PII/secret masking for
+   * egress), this is **inbound** rewriting — it neutralises instruction framing
+   * in untrusted tool output so a prompt injection never reaches the model as
+   * an instruction. Deterministic and local: **no network call**, so it works
+   * with no mediator running and never fails. `agentId`/`failOpen` are accepted
+   * only to mirror the Python SDK signature; they are inert here.
+   */
+  sanitizeToolOutput(args: {
+    content: string;
+    agentId?: string;
+    failOpen?: boolean;
+  }): string {
+    return new ToolOutputSanitizer().sanitize(args.content).content;
   }
 
   // -- audit ----------------------------------------------------------------

@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 import structlog
 
+from trust_mediator.config import settings
 from trust_mediator.models.context_envelope import TrustLabel
 from trust_mediator.models.memory_record import MemoryRecord
 from trust_mediator.modules.memory_integrity.consistency_checker import ConsistencyReport
@@ -117,6 +118,18 @@ class IntegrityScorer:
         # fact update, so it goes to human review (FR-MI-03, FR-MI-05) instead
         # of being discarded.
         if consistency_report.contradicted_ids:
+            composite = min(composite, self.persist_threshold - 0.01)
+
+        # Hard gate (FR-MI-06): a write that attempts to alter the mediator's
+        # control plane can never persist silently, however clean it looks
+        # otherwise. This is categorical, like fact-replacement, and it is
+        # exactly the authority-escape (§5.2) this layer must prevent. Quarantine
+        # for human review rather than reject, so a false positive is visible
+        # and releasable rather than silently destroyed.
+        if (
+            consistency_report.control_conflict_score
+            >= settings.memory_control_conflict_threshold
+        ):
             composite = min(composite, self.persist_threshold - 0.01)
 
         verdict = self._verdict(composite)

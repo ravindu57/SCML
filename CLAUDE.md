@@ -11,8 +11,8 @@ are v1.0's and unaffected.
 
 ## Commands
 
-- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 497 passed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
-- TypeScript client tests: `cd clients/typescript && npm test` (expect 18 passed; run `npm install && npm run build` first)
+- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 614 passed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
+- TypeScript client tests: `cd clients/typescript && npm test` (expect 25 passed; run `npm install && npm run build` first)
 - Benchmarks: `.venv/bin/python -m benchmarks.cli --testbed memory_poisoning` (see `benchmarks/README.md`; the CLI pins its own env and DB, so it needs no env prefix)
 - Load/latency: `.venv/bin/python -m benchmarks.load` (§8.1/§8.2 NFRs; same self-pinning env)
 - Lint: `.venv/bin/ruff check trust_mediator/ tests/`
@@ -65,10 +65,11 @@ are v1.0's and unaffected.
   choice rather than the silent default it was. Both listeners honour a keypair;
   set `_TLS_CA_FILE` + `_TLS_REQUIRE_CLIENT_CERT` for mTLS.
 - **Never classify a mediation verdict inline.** `client.classify_decision` is the single implementation, shared by the SDK and the LangChain guard. `require_approval` and `deny` both arrive *suffixed* (`.irreversible`, `.schema_violation`), and an unrecognised verdict must map to `unknown`, never `allow` — matching `require_approval` exactly once let gated irreversible actions through (FR-PE-03). The TypeScript client mirrors the same branch order and must stay in sync.
+- **Tool-output sanitization is an inbound rewrite, not an egress verdict (FR-OR-03).** `ToolOutputSanitizer` (modules/output_redaction/sanitizer.py) strips *instruction framing* (``<INFORMATION>`` blocks, `IMPORTANT:` directive lines, dangling imperatives) from tool results *before* the agent model reads them. It is deliberately pattern-free with respect to adversarial vocabularies — patterns target how a payload is marked as an instruction, never the payload text, so it is not corpus-tuned (overfitting, benchmarks/README.md). A recognised injection must be removed, never passed through (§9 fail-closed in the inbound direction); unrecognised content passes through unchanged. It is deterministic and core-safe, and `client.sanitize_tool_output` must not pull in the server stack (structlog is optional with a stdlib fallback; `OutputRedactor` stays lazy). Use it through the *SDK method*, whose returned string is what a caller substitutes — it is the enforcement side, like `guard.redact`. `benchmarks/results/output_sanitizer.md` documents the seam, the measured slack `user_task_2` pilot (ASR 60% → 0% at no added utility cost) and the TypeScript mirror (portable regex engine, byte-for-byte parity corpus); do not quote a suite-level slack ASR number until the full `--sanitize` slack suite has been run.
 
 ## Layout
 
-- `trust_mediator/modules/` — the 8 PRD components (ingress, trust_router, injection_scanner, tool_policy, memory_integrity, output_redaction, audit_log, policy_store), one package each
+- `trust_mediator/modules/` — the 8 PRD components (ingress, trust_router, injection_scanner, tool_policy, memory_integrity, output_redaction, audit_log, policy_store), one package each; `output_redaction/` also holds the FR-OR-03 `sanitizer.py` (inbound tool-output rewrite)
 - `trust_mediator/core/pipeline.py` — wires the modules; the object API + SDK adapters use
 - `trust_mediator/client.py` — the client SDK (`SCMLClient`/`AsyncSCMLClient`). Normalises the five mediation endpoints, which return three different shapes: `/context` and `/tool-call` carry `decision`, `/output` carries `blocked` and **no `decision` at all**, `/memory/write` carries `verdict`. Callers branch on `result.allowed`, never on a raw field.
 - `scml/` — thin alias package so `from scml import SCMLClient` works; re-exports `trust_mediator` and adds no second implementation
@@ -164,12 +165,16 @@ are v1.0's and unaffected.
 ## Measured state (PRD §14.2) — do not overstate
 
 `benchmarks/results/memory_poisoning.md` is the committed baseline. As of the
-last run the memory integrity layer measures **33.3% ASR against a < 10%
-target**; §14.2 acceptance is NOT met. Residual failures are concentrated in
-families no shipped detector matches (`tool_hijack`, `authority_spoof`) —
-that gap needs the §6.3 classifier, not more scoring rules.
+last run the memory integrity layer measures **20.8% ASR against a < 10%
+target**; §14.2 acceptance is NOT met. That is down from 33.3%: the
+control-plane conflict detector (FR-MI-06, `consistency_checker._check_control_conflict`)
+halved the two worst families it is structurally equipped for —
+`tool_hijack` 83% → 33%, `authority_spoof` 67% → 17% — with FPR still 0% and
+utility 100%. Do not regress it by loosening the gate; any change to the
+scorer, its thresholds or the detector must re-run this benchmark and update
+the committed result.
 
-**That 33.3% is storage, not harm.** `benchmarks/results/memory_poisoning_harm.md`
+**That 20.8% is storage, not harm.** `benchmarks/results/memory_poisoning_harm.md`
 applies the InjecAgent standard (success = the mediator would have let the goal
 through): 0/13 tool cases and 0/22 control-bypass cases are harmful; 1/5 output
 cases leak; 8 informational cases have no mediator gate at all. Pessimistic
@@ -219,6 +224,23 @@ measured, 92% utility retained vs 81%. SCML's advantage is integration cost
 alone (replace one class vs rebuild the agent around an interpreter). Do not
 present it as a security result.
 
+**The sanitizer seam (FR-OR-03) targets exactly the slack gap.** The scanner
+detects nothing and taint-by-overlap can't catch a payload the model *rewrites*
+rather than copies; `ToolOutputSanitizer` + `client.sanitize_tool_output`
+(strip instruction framing from tool results before the agent reads them) is
+the prototype for closing it, wired as `--sanitize` in the agentdojo runner.
+**It is core-safe by construction: structlog (a [server] extra) is optional
+with a stdlib `logging` fallback, and `OutputRedactor` is lazy in
+`output_redaction/__init__.py` — otherwise `sanitize_tool_output` breaks a
+client-only install (that is a real bug the pilot caught).** Measured pilot on
+slack `user_task_2` (`benchmarks/results/output_sanitizer.md`): undefended 100%
+ASR, SCML 60% ASR (replicated twice — the measured rewrite gap), SCML
+`--sanitize` 0% ASR with 5/5 tool results rewritten — at zero additional
+utility cost, because honouring the invite from untrusted web content stays
+correctly denied (`untrusted_arg`). That is a *single-task* result: **do not
+quote a suite-level slack ASR number until the full `--sanitize` slack suite
+has been run**.
+
 One attack of seventeen. `important_instructions` only.
 
 **External validation now exists.** `benchmarks/results/injecagent.md` is the
@@ -251,7 +273,25 @@ Two TF-IDF training approaches on external Apache-2.0 corpora were measured and
 rejected (held-out AUC 0.660 and 0.506 — the latter a coin flip). Bag-of-words
 cannot represent the discriminating signal, which is syntactic ("is there an
 imperative addressed to an assistant in this payload?"). Do not retry that
-family. `SCANNER_BACKEND=llm` already ships and is the cheapest untested option.
+family. **The LLM backend is now measured, not untested** (gpt-4o-mini, held-out
+InjecAgent, `benchmarks/results/classifier_llm.md`): it is the only backend that
+separates the classes — ROC-AUC 0.72 vs the heuristic's 0.35 (anti-discriminative)
+— but it is still **not FR-SC-07 shippable** (AUC 0.72 < 0.85, and any threshold
+that clears FPR ≤ 3% abandons recall), and it fails NFR-PERF-01 outright
+(p95 ≈ 2.2 s vs 400 ms). It cannot sit on the synchronous request path even if
+accuracy improved. The untested combination is a *fast CPU-bound syntactic gate*
+that routes only genuinely ambiguous payloads to the LLM — never the request
+path. **That gate is now measured and is a dead end at token level**
+(`SyntacticRouteGate`, `python -m benchmarks.classifier_eval.evaluate --route`,
+see `classifier_llm.md`): the injected instruction lives *inside a quoted JSON
+value* of tool output, so a gate that strips quotes (naive "quoted = content")
+drops 95.2% of attacks (only 4.8% preserved), while one that searches the full
+payload preserves 95.5% of attacks but routes 94% of *all* payloads to the LLM
+(saves no latency — benign data shares the same closed-class command vocabulary,
+so token-level can't separate command-mood from declarative use of the same
+verb). Only a real dependency/POS parser that recognises imperative *mood* (the
+`_syntactic_score` seam) or a fine-tuned transformer can resolve it; both need
+resources this core install deliberately excludes.
 
 Any classifier work must train on external data and evaluate against the
 in-house corpus as a held-out set, never the reverse.

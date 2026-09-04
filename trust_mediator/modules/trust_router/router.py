@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import structlog
 
+from trust_mediator.config import settings
 from trust_mediator.models.context_envelope import (
     ContextEnvelope,
     TrustLabel,
 )
+from trust_mediator.modules.trust_router.near_dup import near_dup_similarity
 
 logger = structlog.get_logger(__name__)
 
@@ -132,3 +134,41 @@ class TrustRouter:
     def route(self, envelope: ContextEnvelope) -> ContextEnvelope:
         """Convenience: assign label, update taint, return routed envelope."""
         return self.assign_label(envelope)
+
+    def label_derived_arguments(
+        self,
+        arguments: dict[str, object],
+        untrusted_sources: list[str],
+    ) -> dict[str, TrustLabel]:
+        """
+        FR-TR-02 / FR-PE-04 — label arguments that are *constructed* from
+        untrusted content, closing the exact-substring gap.
+
+        A value that is a high-similarity variant of a known untrusted source
+        string — concatenated, lightly edited, differently cased — is derived
+        and inherits the untrusted label even though it never appeared verbatim.
+        Opt-in (`NEAR_DUP_TAINT_ENABLED`): it runs only when enabled, and skips
+        short values where exact matching already covers the case.
+        """
+        labels: dict[str, TrustLabel] = {}
+        if not settings.near_dup_taint_enabled:
+            return labels
+        if not untrusted_sources:
+            return labels
+
+        for name, value in arguments.items():
+            if name in labels:
+                continue
+            text = str(value).strip()
+            if len(text) < settings.near_dup_min_length:
+                continue
+            for source in untrusted_sources:
+                if near_dup_similarity(text, source) >= settings.near_dup_taint_threshold:
+                    labels[name] = TrustLabel.UNTRUSTED_DATA
+                    logger.debug(
+                        "trust_router.near_dup_tainted",
+                        argument=name,
+                        reason="constructed_from_untrusted_source",
+                    )
+                    break
+        return labels
