@@ -50,6 +50,9 @@ scml results/
 # Claude Code personal overrides (team settings in .claude/settings.json ARE committed)
 .claude/settings.local.json
 
+# MCP server (local only, not public)
+trust_mediator/mcp/
+
 # Exhibition launcher runtime state (pids, logs)
 .exhibition/
 
