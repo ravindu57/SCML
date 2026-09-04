@@ -1,21 +1,18 @@
 <div align="center">
 
 ```
-  ███████╗██╗ ██████╗ ███╗  SCML ██████╗  █████╗ ██╗
-  ██╔════╝██║██╔════╝ ███║  ╔═══╝ ██╔══██╗██╔══██╗██║
-  ███████╗██║██║  ███╗██║  ║     ███████║███████║██║
-  ╚════██║██║██║   ██║██║  ║     ██╔══██║██╔══██║██║
-  ███████║██║╚██████╔╝██║  ╚████╗██║  ██║██║  ██║███████╗
-  ╚══════╝╚═╝ ╚═════╝ ╚═╝   ╚═══╝╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝
+█▀▀ █▀▀ █▀█▀█ █  
+▀▀▓ ▓░  █   ▓ ▓░ 
+▀▀▀ ▀▀▀ ▀   ▀ ▀▀▀
 ```
 
 # SCML — Securing Agentic AI at the Middleware Layer
 
 ```
  ╔═══════════════════════════════════════════════════════════════════════╗
- ║  T R U S T · M E D I A T O R                                        ║
- ║  Trust-Aware Context Mediation Middleware for Securing               ║
- ║  Agentic AI and RAG Systems                                          ║
+ ║  T R U S T · M E D I A T O R                                          ║
+ ║  Trust-Aware Context Mediation Middleware for Securing                ║
+ ║  Agentic AI and RAG Systems                                           ║
  ╚═══════════════════════════════════════════════════════════════════════╝
 ```
 
