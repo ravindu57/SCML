@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: scml-mediator
+    runtime: python
+    plan: free
+    buildCommand: pip install -e ".[server,ml,langchain]"
+    startCommand: uvicorn trust_mediator.api.app:app --host 0.0.0.0 --port $PORT --workers 2
+    envVars:
+      - key: TRUST_MEDIATOR_ENV
+        value: production
+      - key: TRUST_MEDIATOR_ALLOW_INSECURE_HTTP
+        value: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: scml-db
+          property: connectionString
+      - key: REDIS_URL
+        sync: false
+      - key: TRUST_MEDIATOR_API_KEYS
+        generateValue: true
+
+databases:
+  - name: scml-db
+    plan: free
+    databaseName: scml
