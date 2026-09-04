@@ -5,7 +5,7 @@
 [![Tests](https://img.shields.io/badge/tests-497%20passed-brightgreen)](tests/) [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml) [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688)](https://fastapi.tiangolo.com/) [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 ---
-![Uploading image.png…]()
+
 
 ## Overview
 
