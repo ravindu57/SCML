@@ -1,4 +1,4 @@
-# T R U S T · M E D I A T O R                                                                   
+# Trust Mediator                                                                   
                                                                                
 **Trust-Aware Context Mediation Middleware for Securing Agentic AI and RAG Systems**
 
