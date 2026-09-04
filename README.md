@@ -114,6 +114,70 @@ if (!d.allowed) throw new Error(d.reason);
 
 ---
 
+## MCP Server (Claude Desktop / Cursor / Windsurf)
+
+![MCP Server](https://img.shields.io/badge/MCP-Server-8B5CF6?style=flat-square&logo=modelcontextprotocol&logoColor=white)
+
+SCML exposes its full security pipeline as **MCP tools** — any MCP-compatible client gets tool-call authorization, injection scanning, memory quarantine, and PII redaction with zero code changes.
+
+```
+  ┌──────────────┐       ┌──────────────┐       ┌──────────────┐
+  │  LLM Client  │──────▶│  SCML MCP    │──────▶│  Your Tool   │
+  │  (Claude,    │       │  Server      │       │  (API, DB,   │
+  │   Cursor)    │◀──────│              │◀──────│   file, etc) │
+  └──────────────┘       │  • authorize │       └──────────────┘
+                         │  • scan      │
+                         │  • quarantine│
+                         │  • redact    │
+                         └──────────────┘
+```
+
+### Install
+
+```bash
+pip install trust-mediator mcp
+```
+
+### Run
+
+```bash
+SCML_URL=http://localhost:8000 SCML_API_KEY=sk-your-key \
+  python -m trust_mediator.mcp.server
+```
+
+### Claude Desktop config
+
+Add to `~/.claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "scml": {
+      "command": "python",
+      "args": ["-m", "trust_mediator.mcp.server"],
+      "env": {
+        "SCML_URL": "http://localhost:8000",
+        "SCML_API_KEY": ""
+      }
+    }
+  }
+}
+```
+
+### Available MCP tools
+
+| Tool | What it does |
+|---|---|
+| `authorize_tool_call` | Check if a tool call is allowed by policy |
+| `scan_content` | Detect prompt injection in external content |
+| `check_memory_write` | Score a memory write for integrity |
+| `redact_output` | Strip PII and secrets from responses |
+| `get_audit_trail` | Replay session decisions with hash chain |
+| `get_policy` | Show active security policy |
+| `health_check` | Verify SCML is running |
+
+---
+
 ## Benchmarks
 
 SCML is evaluated against **four published attack corpora** with **2,100+ attack cases**. Every number is reproducible from a committed result file.
