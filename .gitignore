@@ -30,6 +30,23 @@ node_modules/
 # Runtime artifacts
 .logs/
 
+# Build / LaTeX / personal files — not source
+*.aux
+*.log
+*.out
+*.toc
+*.pdf
+*.zip
+*.png
+missfont.log
+SCML_Project_Report.*
+SCML_Project_Source.zip
+TrustMediator_Architecture*.png
+.claude/.Rhistory
+k8s/.Rhistory
+Terminal Commands/
+scml results/
+
 # Claude Code personal overrides (team settings in .claude/settings.json ARE committed)
 .claude/settings.local.json
 
