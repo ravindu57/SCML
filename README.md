@@ -289,6 +289,8 @@ All config via `TRUST_MEDIATOR_*` env vars — nothing hardcoded. Every decision
 
 ## Production Deployment
 
+> **Full integration guide:** [`INTEGRATION.md`](INTEGRATION.md) — Python SDK, TypeScript SDK, LangChain guard, HTTP API, embedded mode, and examples for CrewAI, LangGraph, and OpenAI function calling.
+
 <table>
 <tr><th>Concern</th><th>Mechanism</th></tr>
 <tr><td>Kubernetes</td><td><code>k8s/</code> — gateway + sidecar, HPA, PDB</td></tr>
