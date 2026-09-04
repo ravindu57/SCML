@@ -11,6 +11,14 @@
 
 # SCML — Securing Agentic AI at the Middleware Layer
 
+```
+ ╔═══════════════════════════════════════════════════════════════════════╗
+ ║  T R U S T · M E D I A T O R                                        ║
+ ║  Trust-Aware Context Mediation Middleware for Securing               ║
+ ║  Agentic AI and RAG Systems                                          ║
+ ╚═══════════════════════════════════════════════════════════════════════╝
+```
+
 **Trust-aware context mediation for LLM agents, RAG pipelines, and tool-calling systems.**
 
 [![CI](https://github.com/ravindu57/SCML/actions/workflows/ci.yml/badge.svg)](https://github.com/ravindu57/SCML/actions/workflows/ci.yml)
