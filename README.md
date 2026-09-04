@@ -1,4 +1,5 @@
-<img width="1672" height="940" alt="image" src="https://github.com/user-attachments/assets/967bb837-b8e1-4eaa-a9aa-811d73cef54c" /><div align="center">
+<img width="1774" height="887" alt="image" src="https://github.com/user-attachments/assets/2b77f670-4d5d-442c-94be-a0262c80221d" />
+
 
 ```
 █▀▀ █▀▀ █▀█▀█ █  
@@ -9,7 +10,7 @@
 # SCML — Securing Agentic AI at the Middleware Layer
 
 ```
-<img width="1774" height="887" alt="image" src="https://github.com/user-attachments/assets/bb841609-4b9d-4b2f-bb11-3e62c70df620" />
+
 
 
 
