@@ -81,7 +81,7 @@ class _FixedPolicyLoader:
     def __init__(self, policy: dict[str, Any]) -> None:
         self._policy = policy
 
-    async def get_policy(self) -> dict[str, Any]:
+    async def get_policy(self, tenant_id: str = "default") -> dict[str, Any]:
         return self._policy
 
 

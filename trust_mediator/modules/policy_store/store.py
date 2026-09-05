@@ -30,11 +30,11 @@ class PolicyStore:
     def __init__(self, repo: PolicyRepository | None = None) -> None:
         self._repo = repo or PolicyRepository()
 
-    async def get_active(self) -> dict[str, Any] | None:
-        return await self._repo.get_active_policy()
+    async def get_active(self, tenant_id: str = "default") -> dict[str, Any] | None:
+        return await self._repo.get_active_policy(tenant_id=tenant_id)
 
-    async def get_active_version(self) -> PolicyVersionORM | None:
-        return await self._repo.get_active_version()
+    async def get_active_version(self, tenant_id: str = "default") -> PolicyVersionORM | None:
+        return await self._repo.get_active_version(tenant_id=tenant_id)
 
     async def create_version(
         self,
@@ -43,8 +43,9 @@ class PolicyStore:
         created_by: str = "api",
         activate: bool = True,
         shadow: bool = False,
+        tenant_id: str = "default",
     ) -> PolicyVersionORM:
-        """Validate and create a new policy version."""
+        """Validate and create a new policy version for a tenant."""
         errors = self._validate(policy_data)
         if errors:
             raise ValueError(f"Policy validation failed: {errors}")
@@ -55,18 +56,20 @@ class PolicyStore:
             created_by=created_by,
             activate=activate,
             shadow=shadow,
+            tenant_id=tenant_id,
         )
         logger.info(
             "policy_store.version_created",
+            tenant_id=tenant_id,
             version=version.version_number,
             shadow=shadow,
             activate=activate,
         )
         return version
 
-    async def get_agent(self, agent_id: str) -> dict[str, Any] | None:
-        """One agent's policy, or None if it has none of its own."""
-        policy = await self._repo.get_active_policy() or {}
+    async def get_agent(self, agent_id: str, tenant_id: str = "default") -> dict[str, Any] | None:
+        """One agent's policy for a tenant, or None if it has none of its own."""
+        policy = await self._repo.get_active_policy(tenant_id=tenant_id) or {}
         return (policy.get("agents") or {}).get(agent_id)
 
     async def upsert_agent(
@@ -75,6 +78,7 @@ class PolicyStore:
         agent_policy: dict[str, Any],
         description: str = "",
         created_by: str = "api",
+        tenant_id: str = "default",
     ) -> PolicyVersionORM:
         """Replace one agent's policy, leaving the rest of the document alone.
 
@@ -105,16 +109,18 @@ class PolicyStore:
             agent_policy=agent_policy,
             description=description or f"Update agent '{agent_id}'",
             created_by=created_by,
+            tenant_id=tenant_id,
         )
         logger.info(
             "policy_store.agent_upserted",
+            tenant_id=tenant_id,
             agent_id=agent_id,
             version=version.version_number,
         )
         return version
 
     async def delete_agent(
-        self, agent_id: str, created_by: str = "api"
+        self, agent_id: str, created_by: str = "api", tenant_id: str = "default"
     ) -> PolicyVersionORM:
         """Remove one agent, leaving the rest of the document alone.
 
@@ -129,25 +135,36 @@ class PolicyStore:
             agent_policy=None,
             description=f"Remove agent '{agent_id}'",
             created_by=created_by,
+            tenant_id=tenant_id,
         )
         logger.info(
             "policy_store.agent_deleted",
+            tenant_id=tenant_id,
             agent_id=agent_id,
             version=version.version_number,
         )
         return version
 
-    async def rollback(self, version_id: str) -> bool:
-        success = await self._repo.rollback(version_id)
+    async def rollback(self, version_id: str, tenant_id: str = "default") -> bool:
+        success = await self._repo.rollback(version_id, tenant_id=tenant_id)
         if success:
-            logger.info("policy_store.rolled_back", version_id=version_id)
+            logger.info(
+                "policy_store.rolled_back", tenant_id=tenant_id, version_id=version_id
+            )
         return success
 
-    async def list_versions(self, limit: int = 20) -> list[PolicyVersionORM]:
-        return await self._repo.list_versions(limit=limit)
+    async def list_versions(self, limit: int = 20, tenant_id: str = "default") -> list[PolicyVersionORM]:
+        return await self._repo.list_versions(limit=limit, tenant_id=tenant_id)
 
     async def bootstrap_from_yaml(self, path: Path | None = None) -> None:
-        """Load the default YAML policy into the DB on first run."""
+        """Load the default YAML policy into the *default tenant* on first run.
+
+        Tenancy: only the default (unqualified) tenant is seeded this way. A
+        tenant-qualified company starts with **no policy at all**, which the
+        data plane renders as deny-all — the same bootstrap principle as the
+        `default` agent. The company's admin provisions its own policy through
+        PUT /v1/policy with its own key.
+        """
         existing = await self._repo.get_active_policy()
         if existing:
             logger.debug("policy_store.already_bootstrapped")

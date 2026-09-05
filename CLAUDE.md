@@ -11,7 +11,7 @@ are v1.0's and unaffected.
 
 ## Commands
 
-- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 614 passed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
+- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 639 passed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
 - TypeScript client tests: `cd clients/typescript && npm test` (expect 25 passed; run `npm install && npm run build` first)
 - Benchmarks: `.venv/bin/python -m benchmarks.cli --testbed memory_poisoning` (see `benchmarks/README.md`; the CLI pins its own env and DB, so it needs no env prefix)
 - Load/latency: `.venv/bin/python -m benchmarks.load` (§8.1/§8.2 NFRs; same self-pinning env)
@@ -66,6 +66,21 @@ are v1.0's and unaffected.
   set `_TLS_CA_FILE` + `_TLS_REQUIRE_CLIENT_CERT` for mTLS.
 - **Never classify a mediation verdict inline.** `client.classify_decision` is the single implementation, shared by the SDK and the LangChain guard. `require_approval` and `deny` both arrive *suffixed* (`.irreversible`, `.schema_violation`), and an unrecognised verdict must map to `unknown`, never `allow` — matching `require_approval` exactly once let gated irreversible actions through (FR-PE-03). The TypeScript client mirrors the same branch order and must stay in sync.
 - **Tool-output sanitization is an inbound rewrite, not an egress verdict (FR-OR-03).** `ToolOutputSanitizer` (modules/output_redaction/sanitizer.py) strips *instruction framing* (``<INFORMATION>`` blocks, `IMPORTANT:` directive lines, dangling imperatives) from tool results *before* the agent model reads them. It is deliberately pattern-free with respect to adversarial vocabularies — patterns target how a payload is marked as an instruction, never the payload text, so it is not corpus-tuned (overfitting, benchmarks/README.md). A recognised injection must be removed, never passed through (§9 fail-closed in the inbound direction); unrecognised content passes through unchanged. It is deterministic and core-safe, and `client.sanitize_tool_output` must not pull in the server stack (structlog is optional with a stdlib fallback; `OutputRedactor` stays lazy). Use it through the *SDK method*, whose returned string is what a caller substitutes — it is the enforcement side, like `guard.redact`. `benchmarks/results/output_sanitizer.md` documents the seam, the measured slack `user_task_2` pilot (ASR 60% → 0% at no added utility cost) and the TypeScript mirror (portable regex engine, byte-for-byte parity corpus); do not quote a suite-level slack ASR number until the full `--sanitize` slack suite has been run.
+
+- **Tenant is key-bound, never client-supplied.** A key like `acme@ops:sk-...`
+  binds the caller to tenant `acme` (see `KeyEntry` / `parse_key_entries_with_tenant`
+  in `config.py`); an unqualified key resolves to `TRUST_MEDIATOR_DEFAULT_TENANT`,
+  so pre-tenancy deployments behave exactly as before. `CallerDep` yields a
+  `Caller(tenant, principal)` and the handler scopes every policy read/write and
+  every tool-call mediation by `caller.tenant`. **No request model accepts a
+  `tenant_id`/`tenant` field** — the router sets `tenant_id=caller.tenant` on the
+  `ToolCallRequest` (`mediate.py`), so a caller cannot claim another company's
+  namespace by shaping the body. A tenant with no policy document is **deny-all**
+  (`_TENANT_DENY_ALL` in `policy_loader.py` — must keep explicit `allowed_tools:
+  []`, returning an empty `agents` map would fail open), and only the `default`
+  tenant falls back to the gateway YAML. `bootstrap_from_yaml` seeds `default`
+  only; a per-agent upsert needs an existing tenant document. The gRPC server
+  still resolves `default` — the proto has no tenant field.
 
 ## Layout
 

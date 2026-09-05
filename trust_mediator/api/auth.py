@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import hmac
 from hashlib import sha256
-from typing import Annotated
+from typing import Annotated, NamedTuple
 
 from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import APIKeyHeader
@@ -47,6 +47,18 @@ _header_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
 ANONYMOUS = "anonymous"
 
 
+class Caller(NamedTuple):
+    """Who made the request: the authenticated principal and its tenant.
+
+    Handlers receive this instead of a bare string so policy operations can
+    scope to the caller's tenant without ever touching the raw key. The fields
+    are safe to log — no secret material is carried here.
+    """
+
+    tenant: str
+    principal: str
+
+
 def key_fingerprint(api_key: str) -> str:
     """A stable, non-secret identifier for a key.
 
@@ -54,6 +66,34 @@ def key_fingerprint(api_key: str) -> str:
     places the key itself must never appear.
     """
     return "key-" + sha256(api_key.encode("utf-8")).hexdigest()[:12]
+
+
+def tenant_for(api_key: str) -> str | None:
+    """The tenant the key is bound to, or None if it is not configured.
+
+    Walks every configured entry with :func:`hmac.compare_digest` and no early
+    exit, exactly like :func:`principal_for` — ``key in keys`` would leak the
+    key byte-by-byte through timing.
+    """
+    matched: str | None = None
+    probe = api_key.encode("utf-8")
+    for entry in key_store.entries():
+        if hmac.compare_digest(probe, entry.key.encode("utf-8")):
+            matched = entry.tenant or settings.default_tenant
+    return matched
+
+
+def caller_for(api_key: str) -> Caller | None:
+    """Resolve a key to its (tenant, principal), or None if not configured."""
+    matched: Caller | None = None
+    probe = api_key.encode("utf-8")
+    for entry in key_store.entries():
+        if hmac.compare_digest(probe, entry.key.encode("utf-8")):
+            matched = Caller(
+                tenant=entry.tenant or settings.default_tenant,
+                principal=entry.name or key_fingerprint(entry.key),
+            )
+    return matched
 
 
 def principal_for(api_key: str) -> str | None:
@@ -122,6 +162,50 @@ def _validate_api_key(api_key: str | None = Security(_header_scheme)) -> str:
     return principal
 
 
+def _validate_caller(
+    api_key: str | None = Security(_header_scheme),
+    principal: str = Depends(_validate_api_key),
+) -> Caller:
+    """
+    Validate the X-API-Key header and return the caller's tenant + principal.
+
+    The **tenant is derived from the key, never from the request body**. A
+    caller cannot claim another company's policy by sending a ``tenant_id``
+    field, because no mediation or policy request model accepts one — the
+    tenant is read off the authenticated key here and the handlers that need
+    scoping take ``CallerDep`` instead of a client-controlled value.
+
+    ``principal`` is resolved through :func:`_validate_api_key` so this
+    dependency's graph contains the same validation every other route relies
+    on (and so the structural auth-walk test keeps passing). The tenant is then
+    resolved by comparing the header against every configured entry with
+    ``hmac.compare_digest`` and no early exit.
+    """
+    if open_access_allowed():
+        return Caller(tenant=settings.default_tenant, principal=principal)
+
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing X-API-Key header",
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+
+    caller = caller_for(api_key)
+    if caller is None:
+        # Unreachable: _validate_api_key already raised for an unknown key.
+        # Fail closed rather than trust an inconsistent auth state.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or revoked API key",
+        )
+    return caller
+
+
 # Annotated dependency — import this in routers. Resolves to the caller's
 # principal name, never the key.
 AuthDep = Annotated[str, Depends(_validate_api_key)]
+
+# Annotated dependency — import this in routers that must scope by tenant.
+# Resolves to a Caller (tenant + principal); the raw key never leaves auth.py.
+CallerDep = Annotated[Caller, Depends(_validate_caller)]

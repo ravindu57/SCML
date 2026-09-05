@@ -30,10 +30,13 @@ def make_loader() -> PolicyLoader:
     __new__: the hand-assembled form silently stops matching the moment the
     loader gains a field, and the resulting AttributeError surfaces as whatever
     the caller's error handling turns it into rather than as a failure here.
+
+    The cache is keyed by tenant (per-tenant policy documents); the default
+    tenant carries SAMPLE_POLICY.
     """
     loader = PolicyLoader(policy_repo=None, default_path=None)
-    loader._memory_cache = SAMPLE_POLICY
-    loader._cache_loaded_at = 1e20  # Far future — always fresh
+    loader._memory_cache = {"default": SAMPLE_POLICY}
+    loader._cache_loaded_at = {"default": 1e20}  # Far future — always fresh
     return loader
 
 
@@ -98,7 +101,7 @@ class TestPolicyEngine:
             "memory": {"integrity_score_threshold": 0.65},
         }
         loader = make_loader()
-        loader._memory_cache = policy
+        loader._memory_cache = {"default": policy}
         engine = PolicyEngine(loader)
 
         for _ in range(2):
@@ -116,7 +119,7 @@ class TestPolicyEngine:
             "memory": {},
         }
         loader = make_loader()
-        loader._memory_cache = policy
+        loader._memory_cache = {"default": policy}
         engine = PolicyEngine(loader)
         d = await engine.evaluate(make_request("any_tool"))
         assert d.decision == PolicyDecisionCode.DENY_NOT_ALLOWLISTED

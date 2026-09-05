@@ -58,9 +58,13 @@ class PolicyEngine:
     async def evaluate(self, request: ToolCallRequest) -> PolicyDecision:
         """
         Main authorisation entry point. Returns a PolicyDecision.
+
+        Policy is resolved **per tenant**: ``request.tenant_id`` selects the
+        caller's policy document, so two companies with the same ``agent_id``
+        are authorised against their own document and never each other's.
         """
         try:
-            policy = await self._loader.get_policy()
+            policy = await self._loader.get_policy(request.tenant_id)
         except Exception as e:
             logger.error("policy_engine.policy_load_error", error=str(e))
             return PolicyDecision(

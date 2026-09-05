@@ -70,6 +70,12 @@ class ToolCallRequest(BaseModel):
     )
     invoking_context_id: str = ""           # ID of the ContextEnvelope that triggered this
     agent_id: str = "default"
+    #: The policy tenant this request is evaluated under. Set **server-side**
+    #: from the authenticated API key (see ``CallerDep``); the HTTP request
+    #: model deliberately does not accept it, so a caller cannot choose another
+    #: tenant. Object-API callers constructing this model directly set it to
+    #: whatever namespaced policy document they want to evaluate against.
+    tenant_id: str = "default"
     is_irreversible: bool = False           # Caller hint; policy may override
     is_high_impact: bool = False
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

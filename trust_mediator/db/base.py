@@ -38,6 +38,44 @@ class Base(DeclarativeBase):
     pass
 
 
+async def _migrate_policy_tenant_column() -> None:
+    """Add ``policy_versions.tenant_id`` to databases created before tenancy.
+
+    ``create_all`` only creates *missing* tables; it does not add columns to
+    existing ones, so a pre-tenancy deployment would boot with the new column
+    in the ORM but not in the table and every policy query would 500. This
+    runs after create_all and is idempotent: it inspects for the column and
+    adds it (``TEXT NOT NULL DEFAULT 'default'``) plus its index when absent.
+    ``ADD COLUMN`` with a non-null default is supported by both SQLite and
+    PostgreSQL.
+    """
+    import structlog
+    from sqlalchemy import inspect, text
+
+    log = structlog.get_logger(__name__)
+    async with engine.connect() as conn:
+        def _columns(sync_conn) -> set[str]:
+            return {c["name"] for c in inspect(sync_conn).get_columns("policy_versions")}
+
+        cols = await conn.run_sync(_columns)
+        if "tenant_id" in cols:
+            return
+        await conn.execute(
+            text(
+                "ALTER TABLE policy_versions "
+                "ADD COLUMN tenant_id VARCHAR(64) NOT NULL DEFAULT 'default'"
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX ix_policy_versions_tenant_id "
+                "ON policy_versions (tenant_id)"
+            )
+        )
+        await conn.commit()
+        log.info("db.migrated_policy_tenant_column")
+
+
 async def create_all_tables() -> None:
     """
     Create all tables (idempotent, used at startup).
@@ -78,6 +116,8 @@ async def create_all_tables() -> None:
             if is_postgres:
                 await conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _LOCK_KEY})
                 await conn.commit()
+
+    await _migrate_policy_tenant_column()
 
 
 async def get_session() -> AsyncSession:  # type: ignore[return]

@@ -1,8 +1,13 @@
 """
 §6.4 — Tool-Call Policy Engine: declarative policy loading.
 
-Loads policy from the database (with Redis/in-memory hot cache) and
-provides a structured view of the active policy for the engine to evaluate.
+Loads policy from the database (with in-process hot cache) and provides a
+structured view of the active policy for the engine to evaluate.
+
+Resolution is **per tenant**. A tenant-qualified key binds a company to its
+own policy document (see ``trust_mediator/config.py`` key parsing and
+``trust_mediator/api/auth.py`` ``CallerDep``); the engine asks for the policy
+of ``request.tenant_id`` and never sees another tenant's document.
 """
 
 from __future__ import annotations
@@ -16,81 +21,18 @@ import yaml
 
 logger = structlog.get_logger(__name__)
 
-
-class PolicyLoader:
-    """
-    Loads and caches the active declarative security policy.
-
-    Policy resolution order:
-      1. Hot cache (Redis or in-memory, TTL 30s)
-      2. Database (PolicyRepository)
-      3. Default policy file (YAML fallback for dev/first-boot)
-    """
-
-    _CACHE_TTL = 30  # seconds
-
-    def __init__(
-        self,
-        policy_repo: Any = None,
-        default_path: Path | None = None,
-    ) -> None:
-        self._repo = policy_repo
-        self._default_path = default_path
-        self._memory_cache: dict[str, Any] | None = None
-        self._cache_loaded_at: float = 0.0
-
-    async def get_policy(self) -> dict[str, Any]:
-        """Return the active policy, using cache if fresh."""
-        now = time.monotonic()
-        if (
-            self._memory_cache is not None
-            and (now - self._cache_loaded_at) < self._CACHE_TTL
-        ):
-            return self._memory_cache
-
-        # Try DB
-        if self._repo is not None:
-            try:
-                policy = await self._repo.get_active_policy()
-                if policy:
-                    self._memory_cache = policy
-                    self._cache_loaded_at = now
-                    return policy
-            except Exception as e:
-                logger.warning("policy_loader.db_error", error=str(e))
-
-        # Fallback: YAML file
-        policy = self._load_default_yaml()
-        self._memory_cache = policy
-        self._cache_loaded_at = now
-        return policy
-
-    def _load_default_yaml(self) -> dict[str, Any]:
-        path = self._default_path
-        if path is None:
-            from trust_mediator.config import settings
-            path = settings.policy_default_path
-
-        try:
-            if path.exists():
-                with open(path) as f:
-                    data = yaml.safe_load(f)
-                    logger.info("policy_loader.loaded_from_yaml", path=str(path))
-                    return data or {}
-        except Exception as e:
-            logger.error("policy_loader.yaml_error", error=str(e))
-
-        logger.warning("policy_loader.using_hardcoded_defaults")
-        return _HARDCODED_DEFAULTS.copy()
-
-    def invalidate_cache(self) -> None:
-        """Force next call to get_policy() to re-fetch from DB."""
-        self._memory_cache = None
-        self._cache_loaded_at = 0.0
+#: Effective default from config, kept here only for the tenant fallback below
+#: so the loader does not need to import settings lazily in hot-path calls.
+DEFAULT_TENANT = "default"
 
 
-# Hardcoded safe defaults — used only if DB and YAML are both unavailable
-_HARDCODED_DEFAULTS: dict[str, Any] = {
+#: Deny-all document a tenant falls back to when it has no policy of its own.
+#: A tenant that enrols no policy must be denied, not unrestricted — §9
+#: fail-closed applies at the tenant boundary just as at the agent boundary.
+#: The engine treats an absent ``allowed_tools`` as "no restriction", so the
+#: fallback *must* carry an explicit ``[]`` default agent; returning
+#: ``{"agents": {}}`` would fail open.
+_TENANT_DENY_ALL: dict[str, Any] = {
     "agents": {
         "default": {
             "allowed_tools": [],
@@ -117,3 +59,80 @@ _HARDCODED_DEFAULTS: dict[str, Any] = {
         "protected_classes": ["pii", "secret", "credential"],
     },
 }
+
+
+class PolicyLoader:
+    """
+    Loads and caches the active declarative security policy.
+
+    Policy resolution order per tenant:
+      1. In-process cache (TTL 30s)
+      2. Database (PolicyRepository)
+      3. Gateway YAML file (+ hardcoded defaults) — **default tenant only**.
+         A tenant-qualified company with no DB document is deny-all.
+    """
+
+    _CACHE_TTL = 30  # seconds
+
+    def __init__(
+        self,
+        policy_repo: Any = None,
+        default_path: Path | None = None,
+    ) -> None:
+        self._repo = policy_repo
+        self._default_path = default_path
+        self._memory_cache: dict[str, dict[str, Any]] = {}
+        self._cache_loaded_at: dict[str, float] = {}
+
+    async def get_policy(self, tenant_id: str = DEFAULT_TENANT) -> dict[str, Any]:
+        """Return the tenant's active policy, using cache if fresh."""
+        now = time.monotonic()
+        cached = self._memory_cache.get(tenant_id)
+        if cached is not None and (now - self._cache_loaded_at.get(tenant_id, 0.0)) < self._CACHE_TTL:
+            return cached
+
+        # Try DB (scoped by tenant)
+        if self._repo is not None:
+            try:
+                policy = await self._repo.get_active_policy(tenant_id=tenant_id)
+                if policy:
+                    self._memory_cache[tenant_id] = policy
+                    self._cache_loaded_at[tenant_id] = now
+                    return policy
+            except Exception as e:
+                logger.warning(
+                    "policy_loader.db_error", tenant_id=tenant_id, error=str(e)
+                )
+
+        # Fallback: default tenant honours the gateway YAML + hardcoded defaults;
+        # a tenant-qualified company with no document is deny-all.
+        if tenant_id == DEFAULT_TENANT:
+            policy = self._load_default_yaml()
+        else:
+            policy = _TENANT_DENY_ALL
+        self._memory_cache[tenant_id] = policy
+        self._cache_loaded_at[tenant_id] = now
+        return policy
+
+    def _load_default_yaml(self) -> dict[str, Any]:
+        path = self._default_path
+        if path is None:
+            from trust_mediator.config import settings
+            path = settings.policy_default_path
+
+        try:
+            if path.exists():
+                with open(path) as f:
+                    data = yaml.safe_load(f)
+                    logger.info("policy_loader.loaded_from_yaml", path=str(path))
+                    return data or {}
+        except Exception as e:
+            logger.error("policy_loader.yaml_error", error=str(e))
+
+        logger.warning("policy_loader.using_hardcoded_defaults")
+        return _TENANT_DENY_ALL.copy()
+
+    def invalidate_cache(self) -> None:
+        """Force next call to get_policy() to re-fetch from DB."""
+        self._memory_cache = {}
+        self._cache_loaded_at = {}

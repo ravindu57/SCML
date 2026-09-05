@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
-from trust_mediator.api.auth import AuthDep
+from trust_mediator.api.auth import AuthDep, CallerDep
 from trust_mediator.api.dependencies import PipelineDep
 from trust_mediator.models.context_envelope import TrustLabel
 from trust_mediator.models.tool_call import ToolCallRequest
@@ -144,9 +144,13 @@ async def mediate_context(request: Request, body: ContextMediationRequest, pipel
 
 
 @router.post("/tool-call", response_model=ToolCallMediationResponse, summary="Authorise a proposed tool call")
-async def mediate_tool_call(request: ToolCallMediationRequest, pipeline: PipelineDep, _: AuthDep):
+async def mediate_tool_call(request: ToolCallMediationRequest, pipeline: PipelineDep, caller: CallerDep):
     """
     FR-PE-01: Authorise a tool call against least-agency policy before execution.
+
+    The policy namespace is the **caller's tenant**, derived from the API key —
+    never from the request body, which carries no tenant field. A company's
+    key resolves its own policy document no matter what any client sends.
     """
     arg_labels = {
         k: TrustLabel(v) for k, v in request.argument_trust_labels.items()
@@ -158,6 +162,7 @@ async def mediate_tool_call(request: ToolCallMediationRequest, pipeline: Pipelin
         arguments=request.arguments,
         argument_trust_labels=arg_labels,
         agent_id=request.agent_id,
+        tenant_id=caller.tenant,
         is_irreversible=request.is_irreversible,
         is_high_impact=request.is_high_impact,
     )

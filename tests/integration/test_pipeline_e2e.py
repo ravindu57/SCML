@@ -13,7 +13,18 @@ def anyio_backend():
 
 @pytest.fixture(autouse=True, scope="session")
 async def setup_db():
-    """Create tables in the test SQLite DB."""
+    """Create tables in the test SQLite DB.
+
+    Dropping first keeps this module hermetic: `test_policy_per_agent` seeds
+    the persistent `policy_versions` table and drops it only at the *start* of
+    its own tests, so a run whose order is not alphabetical can leave a stale
+    active policy behind — and this module's mediated tool calls would resolve
+    against it (e2e's `web_search_agent` is not in that seed policy, so it
+    would be denied). `create_all` silently skips existing tables, so only an
+    explicit drop recovers a clean slate.
+    """
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
     await create_all_tables()
     yield
     async with engine.begin() as conn:

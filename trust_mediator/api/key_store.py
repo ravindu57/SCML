@@ -31,7 +31,7 @@ import time
 
 import structlog
 
-from trust_mediator.config import parse_key_entries, settings
+from trust_mediator.config import KeyEntry, parse_key_entries_with_tenant, settings
 
 logger = structlog.get_logger(__name__)
 
@@ -41,30 +41,34 @@ class ApiKeyStore:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._principals: list[tuple[str | None, str]] = []
+        self._entries: list[KeyEntry] = []
         self._signature: tuple[float, int] | None = None
         self._checked_at: float = 0.0
         self._loaded_path: str = ""
 
-    def principals(self) -> list[tuple[str | None, str]]:
-        """Current (principal, key) pairs from whichever source is configured."""
+    def entries(self) -> list[KeyEntry]:
+        """Current (tenant, principal, key) triples from whichever source is configured."""
         path = settings.api_keys_file
         if not path:
             # No file configured: the env var is static, so there is nothing to
             # cache or invalidate.
-            return settings.api_key_principals
+            return settings.api_key_entries
 
         now = time.monotonic()
-        # Re-stat at most once per interval. principals() is on the request
+        # Re-stat at most once per interval. entries() is on the request
         # path, and a stat syscall per request is a cost with no benefit —
         # the file changes on the order of days, not milliseconds.
         if path == self._loaded_path and now - self._checked_at < settings.api_keys_reload_seconds:
-            return self._principals
+            return self._entries
 
         with self._lock:
             self._checked_at = now
             self._refresh_locked(path)
-            return self._principals
+            return self._entries
+
+    def principals(self) -> list[tuple[str | None, str]]:
+        """Current (principal, key) pairs, tenant stripped."""
+        return [(e.name, e.key) for e in self.entries()]
 
     def reload(self) -> None:
         """Force a re-read on the next call, ignoring the interval."""
@@ -91,20 +95,20 @@ class ApiKeyStore:
             self._keep_last_good(path, exc)
             return
 
-        principals = parse_key_entries(raw)
+        entries = parse_key_entries_with_tenant(raw)
         first_load = self._loaded_path != path
-        previous = len(self._principals)
-        self._principals = principals
+        previous = len(self._entries)
+        self._entries = entries
         self._signature = signature
         self._loaded_path = path
 
-        if first_load or previous != len(principals):
+        if first_load or previous != len(entries):
             logger.info(
                 "api_keys.loaded",
                 path=path,
-                key_count=len(principals),
+                key_count=len(entries),
                 # Never the keys themselves; named principals are safe to log.
-                principals=sorted(n for n, _ in principals if n),
+                principals=sorted(n for _, n, _ in entries if n),
             )
 
     def _keep_last_good(self, path: str, exc: OSError) -> None:
@@ -117,8 +121,8 @@ class ApiKeyStore:
         TRUST_MEDIATOR_API_KEYS_FILE silently fail open.
         """
         if path != self._loaded_path:
-            dropped = len(self._principals)
-            self._principals = []
+            dropped = len(self._entries)
+            self._entries = []
             self._signature = None
             self._loaded_path = ""
             logger.error(
@@ -134,13 +138,18 @@ class ApiKeyStore:
             "api_keys.file_unreadable",
             path=path,
             error=str(exc),
-            retaining_key_count=len(self._principals),
+            retaining_key_count=len(self._entries),
             hint="revoke by emptying the file, not by deleting it",
         )
 
 
 #: Process-wide store. Stateless apart from the cache, so sharing is correct.
 _store = ApiKeyStore()
+
+
+def entries() -> list[KeyEntry]:
+    """Current (tenant, principal, key) triples, honouring a rotating key file."""
+    return _store.entries()
 
 
 def principals() -> list[tuple[str | None, str]]:

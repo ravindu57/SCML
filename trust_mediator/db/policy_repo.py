@@ -52,6 +52,14 @@ class PolicyVersionORM(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    #: The policy tenant this version belongs to. Every policy operation is
+    #: scoped by tenant, so tenant A's agents and versions never collide with
+    #: tenant B's. The concurrency pair (active row, base_version_id) is
+    #: meaningful only within one tenant: two tenants can each base a write on
+    #: their own distinct active row without a unique-constraint collision.
+    tenant_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="default", index=True, server_default="default"
+    )
     version_number: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     policy_data: Mapped[dict] = mapped_column(JSON, nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
@@ -74,22 +82,28 @@ class PolicyVersionORM(Base):
 class PolicyRepository:
     """CRUD for declarative security policy with versioning."""
 
-    async def get_active_policy(self) -> dict[str, Any] | None:
+    async def get_active_policy(self, tenant_id: str = "default") -> dict[str, Any] | None:
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(PolicyVersionORM)
-                .where(PolicyVersionORM.is_active == True)  # noqa: E712
+                .where(
+                    PolicyVersionORM.is_active == True,  # noqa: E712
+                    PolicyVersionORM.tenant_id == tenant_id,
+                )
                 .order_by(PolicyVersionORM.version_number.desc())
                 .limit(1)
             )
             row = result.scalar_one_or_none()
             return row.policy_data if row else None
 
-    async def get_active_version(self) -> PolicyVersionORM | None:
+    async def get_active_version(self, tenant_id: str = "default") -> PolicyVersionORM | None:
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(PolicyVersionORM)
-                .where(PolicyVersionORM.is_active == True)  # noqa: E712
+                .where(
+                    PolicyVersionORM.is_active == True,  # noqa: E712
+                    PolicyVersionORM.tenant_id == tenant_id,
+                )
                 .order_by(PolicyVersionORM.version_number.desc())
                 .limit(1)
             )
@@ -102,23 +116,33 @@ class PolicyRepository:
         created_by: str = "system",
         activate: bool = True,
         shadow: bool = False,
+        tenant_id: str = "default",
     ) -> PolicyVersionORM:
         async with AsyncSessionLocal() as session:
-            # Get next version number
+            # Get next version number within this tenant
             result = await session.execute(
-                select(PolicyVersionORM).order_by(PolicyVersionORM.version_number.desc()).limit(1)
+                select(PolicyVersionORM)
+                .where(PolicyVersionORM.tenant_id == tenant_id)
+                .order_by(PolicyVersionORM.version_number.desc())
+                .limit(1)
             )
             last = result.scalar_one_or_none()
             next_version = (last.version_number + 1) if last else 1
 
             if activate:
-                # Deactivate all existing
-                existing = await session.execute(select(PolicyVersionORM).where(PolicyVersionORM.is_active == True))  # noqa: E712
+                # Deactivate all existing within this tenant
+                existing = await session.execute(
+                    select(PolicyVersionORM).where(
+                        PolicyVersionORM.is_active == True,  # noqa: E712
+                        PolicyVersionORM.tenant_id == tenant_id,
+                    )
+                )
                 for row in existing.scalars():
                     row.is_active = False
 
             new_version = PolicyVersionORM(
                 id=str(uuid.uuid4()),
+                tenant_id=tenant_id,
                 version_number=next_version,
                 policy_data=policy_data,
                 description=description,
@@ -139,6 +163,7 @@ class PolicyRepository:
         description: str = "",
         created_by: str = "api",
         max_retries: int = 10,
+        tenant_id: str = "default",
     ) -> PolicyVersionORM:
         """Replace one agent's entry, leaving every other agent untouched.
 
@@ -175,14 +200,20 @@ class PolicyRepository:
                     async with session.begin():
                         result = await session.execute(
                             select(PolicyVersionORM)
-                            .where(PolicyVersionORM.is_active == True)  # noqa: E712
+                            .where(
+                                PolicyVersionORM.is_active == True,  # noqa: E712
+                                PolicyVersionORM.tenant_id == tenant_id,
+                            )
                             .order_by(PolicyVersionORM.version_number.desc())
                             .limit(1)
                             .with_for_update()
                         )
                         active = result.scalar_one_or_none()
                         if active is None:
-                            raise ValueError("no active policy to update")
+                            raise ValueError(
+                                f"no active policy for tenant '{tenant_id}' — "
+                                "write a whole document first (PUT /v1/policy)"
+                            )
 
                         # Deep-copy: SQLAlchemy does not detect in-place
                         # mutation of a JSON column, so editing
@@ -198,6 +229,7 @@ class PolicyRepository:
 
                         last = await session.execute(
                             select(PolicyVersionORM)
+                            .where(PolicyVersionORM.tenant_id == tenant_id)
                             .order_by(PolicyVersionORM.version_number.desc())
                             .limit(1)
                         )
@@ -206,7 +238,8 @@ class PolicyRepository:
 
                         existing = await session.execute(
                             select(PolicyVersionORM).where(
-                                PolicyVersionORM.is_active == True  # noqa: E712
+                                PolicyVersionORM.is_active == True,  # noqa: E712
+                                PolicyVersionORM.tenant_id == tenant_id,
                             )
                         )
                         for row in existing.scalars():
@@ -214,6 +247,7 @@ class PolicyRepository:
 
                         new_version = PolicyVersionORM(
                             id=str(uuid.uuid4()),
+                            tenant_id=tenant_id,
                             version_number=next_version,
                             policy_data=document,
                             description=description,
@@ -248,30 +282,41 @@ class PolicyRepository:
             "update rather than assuming it applied."
         )
 
-    async def rollback(self, version_id: str) -> bool:
-        """Reactivate a previous version, deactivating the current one."""
+    async def rollback(self, version_id: str, tenant_id: str = "default") -> bool:
+        """Reactivate a previous version of the caller's tenant, deactivating the current one.
+
+        The target must belong to the caller's tenant: another tenant's version
+        id is treated as not found, so a tenant cannot roll the *global* policy
+        (or another company's) onto its own request path.
+        """
         async with AsyncSessionLocal() as session:
-            # Deactivate current
-            existing = await session.execute(select(PolicyVersionORM).where(PolicyVersionORM.is_active == True))  # noqa: E712
+            # Deactivate current versions of this tenant
+            existing = await session.execute(
+                select(PolicyVersionORM).where(
+                    PolicyVersionORM.is_active == True,  # noqa: E712
+                    PolicyVersionORM.tenant_id == tenant_id,
+                )
+            )
             for row in existing.scalars():
                 row.is_active = False
 
-            # Activate target
+            # Activate target — must belong to the caller's tenant
             target_result = await session.execute(
                 select(PolicyVersionORM).where(PolicyVersionORM.id == version_id)
             )
             target = target_result.scalar_one_or_none()
-            if not target:
+            if not target or target.tenant_id != tenant_id:
                 return False
             target.is_active = True
             target.activated_at = datetime.now(timezone.utc)
             await session.commit()
             return True
 
-    async def list_versions(self, limit: int = 20) -> list[PolicyVersionORM]:
+    async def list_versions(self, limit: int = 20, tenant_id: str = "default") -> list[PolicyVersionORM]:
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(PolicyVersionORM)
+                .where(PolicyVersionORM.tenant_id == tenant_id)
                 .order_by(PolicyVersionORM.version_number.desc())
                 .limit(limit)
             )

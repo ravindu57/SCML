@@ -67,6 +67,29 @@ SCML is a **trust-aware context mediation middleware**. Every data path passes t
 
 Side-effect operations **fail closed**: an unreachable mediator denies by default, never permits by silence.
 
+### Multi-Tenant Policy Namespaces
+
+One SCML instance can serve many companies, each with its own policy document.
+The tenant is **bound to the API key**, never supplied by the client:
+
+| Key format                    | Tenant | Principal |
+| ----------------------------- | ------ | --------- |
+| `sk-abc123`                   | `default` (`TRUST_MEDIATOR_DEFAULT_TENANT`) | fingerprint |
+| `alice:sk-abc123`             | `default` | `alice` |
+| `acme@sk-abc123`              | `acme` | fingerprint |
+| `acme@ops:sk-abc123`          | `acme` | `ops` |
+
+- `CallerDep` derives the tenant from the authenticated key; **no request model
+  accepts a `tenant_id`** field, so a caller cannot claim another company's
+  namespace by shaping the body.
+- Policy reads, writes, per-agent updates, version history and rollback are all
+  scoped to `caller.tenant` — Acme's agents and versions never collide with
+  Globex's, even for the same `agent_id`.
+- A tenant that enrols no policy is **deny-all** (fail-closed at the tenant
+  boundary); only the `default` tenant falls back to the gateway YAML.
+- Pre-tenancy deployments are unchanged: an unqualified key resolves to the
+  `default` tenant, exactly as before.
+
 ### Install
 
 ```bash

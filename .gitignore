@@ -53,6 +53,13 @@ scml results/
 # MCP server (local only, not public)
 trust_mediator/mcp/
 
+# Standalone MCP server bundle (packed live in scml-mcp-standalone repo)
+scml-mcp-bundle/
+scml-mcp-bundle.mcpb
+
+# Console history
+*.Rhistory
+
 # Exhibition launcher runtime state (pids, logs)
 .exhibition/
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 from pydantic import Field, field_validator
 from pydantic.fields import FieldInfo
@@ -112,28 +112,47 @@ class FileSecretSource(PydanticBaseSettingsSource):
 # A principal name in TRUST_MEDIATOR_API_KEYS ("alice:sk-abc123"). Deliberately
 # narrow so an unnamed key that happens to contain a colon is not misread as one.
 _PRINCIPAL_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+# A tenant qualifier in TRUST_MEDIATOR_API_KEYS ("acme@alice:sk-abc123").
+_TENANT_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
 
-def parse_key_entries(raw: str) -> list[tuple[str | None, str]]:
-    """Parse API key entries into (principal, key) pairs.
+class KeyEntry(NamedTuple):
+    """A parsed API key entry.
 
-    Accepts the env-var form (comma-separated) and the file form (one per
-    line, ``#`` comments allowed), because the same text is read from both
-    ``TRUST_MEDIATOR_API_KEYS`` and ``TRUST_MEDIATOR_API_KEYS_FILE``.
-
-    Each entry is a bare key (``sk-abc123``) or a named one
-    (``alice:sk-abc123``). The name is what lands in audit records for admin
-    actions, so an operator can tell *which* keyholder released a quarantined
-    record. Unnamed keys get ``None`` here and are identified downstream by
-    fingerprint, never by the key itself.
-
-    A name is only recognised when it looks like an identifier and leaves a
-    non-empty remainder, so an unnamed key containing a colon is still treated
-    as one key. The residual ambiguity — an unnamed key whose text before the
-    first colon happens to be identifier-shaped — fails closed and loudly: the
-    key simply stops authenticating.
+    ``tenant`` is None when the entry carries no explicit tenant qualifier —
+    the caller's effective tenant is then ``settings.default_tenant``. This
+    keeps unqualified entries (the only kind that existed before) resolving
+    exactly where they always did.
     """
-    pairs: list[tuple[str | None, str]] = []
+
+    tenant: str | None
+    name: str | None
+    key: str
+
+
+def parse_key_entries_with_tenant(raw: str) -> list[KeyEntry]:
+    """Parse API key entries into (tenant, name, key) triples.
+
+    Same text is read from ``TRUST_MEDIATOR_API_KEYS`` and
+    ``TRUST_MEDIATOR_API_KEYS_FILE``, so both go through this parser.
+
+    Recognised formats:
+
+    - ``sk-abc123``            -> (None, None, sk-abc123)
+    - ``alice:sk-abc123``      -> (None, "alice", sk-abc123)
+    - ``acme@sk-abc123``       -> ("acme", None, sk-abc123)
+    - ``acme@alice:sk-abc123`` -> ("acme", "alice", sk-abc123)
+
+    The tenant is the segment before the first ``@``, a character that cannot
+    appear in a principal name (``_PRINCIPAL_NAME_RE`` forbids it) and does not
+    appear in ``sk-...`` keys, so the existing colon-based name/key logic is
+    untouched right up to a key that happens to contain ``@`` before its colon.
+    That residual ambiguity is the same class the colon parser already accepts
+    and is documented the same way: a key whose own text begins with
+    ``tenant@`` is misread as tenant-qualified and re-homed into a tenant —
+    the operator's key convention should avoid ``@``.
+    """
+    entries: list[KeyEntry] = []
     for line in raw.splitlines():
         # A trailing "#" comment cannot be stripped from the middle of a line:
         # "#" is a legal character in a key. Only whole-line comments count.
@@ -143,12 +162,27 @@ def parse_key_entries(raw: str) -> list[tuple[str | None, str]]:
             entry = chunk.strip()
             if not entry:
                 continue
-            name, sep, key = entry.partition(":")
+            tenant, at, remainder = entry.partition("@")
+            entry_part = remainder if (at and _TENANT_RE.match(tenant)) else entry
+            qualifier: str | None = tenant if (at and _TENANT_RE.match(tenant)) else None
+            if not entry_part:
+                continue
+            name, sep, key = entry_part.partition(":")
             if sep and key and _PRINCIPAL_NAME_RE.match(name):
-                pairs.append((name, key))
+                entries.append(KeyEntry(qualifier, name, key))
             else:
-                pairs.append((None, entry))
-    return pairs
+                entries.append(KeyEntry(qualifier, None, entry_part))
+    return entries
+
+
+def parse_key_entries(raw: str) -> list[tuple[str | None, str]]:
+    """Parse API key entries into (principal, key) pairs — tenant stripped.
+
+    See :func:`parse_key_entries_with_tenant` for the accepted formats. This
+    form keeps the historical callers (rate-limit bucket names, audit
+    attribution) working unchanged: they need the principal, not the tenant.
+    """
+    return [(e.name, e.key) for e in parse_key_entries_with_tenant(raw)]
 
 
 class Settings(BaseSettings):
@@ -195,6 +229,12 @@ class Settings(BaseSettings):
     # Leave empty in development for open access.
     api_keys_raw: str = Field(default="", alias="TRUST_MEDIATOR_API_KEYS")
 
+    # The policy tenant an unqualified key (or open-access dev call) belongs
+    # to. Keys may be tenant-qualified ("acme/alice:sk-abc") to bind them to a
+    # company namespace; every mediation and policy action from that key then
+    # resolves against that tenant's policy document instead of the global one.
+    default_tenant: str = Field(default="default", alias="TRUST_MEDIATOR_DEFAULT_TENANT")
+
     # Read API keys from a file instead of the env var. This is how a secrets
     # manager delivers them (Kubernetes Secret, Vault Agent, External Secrets
     # Operator all render a file), and it is what makes rotation possible
@@ -213,6 +253,15 @@ class Settings(BaseSettings):
         ``trust_mediator.api.key_store.principals()`` instead.
         """
         return parse_key_entries(self.api_keys_raw)
+
+    @property
+    def api_key_entries(self) -> list[KeyEntry]:
+        """(tenant, principal, key) triples from TRUST_MEDIATOR_API_KEYS.
+
+        Tenant-qualified keys ("acme/alice:sk-abc") carry their tenant here;
+        unqualified entries carry None and resolve to ``default_tenant``.
+        """
+        return parse_key_entries_with_tenant(self.api_keys_raw)
 
     @property
     def api_keys(self) -> list[str]:
