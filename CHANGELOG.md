@@ -13,6 +13,43 @@ commit log.
 
 ### Security
 
+- **The LangChain guard let tools run when the mediator failed, even with
+  `strict=True`.** A timeout, a 401/403 for a revoked key or a 500 arrived as
+  `error` and was ignored; `escalate` only logged. A revoked key silently turned
+  enforcement off. Under `strict` both now raise. Non-strict stays
+  notify-only, as documented.
+- **Unknown trust labels made an argument trusted.** `POST /v1/mediate/tool-call`
+  dropped any label it did not recognise (`"untrusted"`, `"UNTRUSTED_DATA"`),
+  and an unlabelled argument does not trigger FR-PE-04. Unknown labels are now
+  a 422, matching gRPC.
+- **A failed classifier reported a verified clean scan.** No API key, an HTTP
+  error, an unparseable or out-of-range reply, or a missing model all returned
+  0.0 and `is_verified=True`. Classifiers now raise `ClassifierUnavailable`, so
+  the scanner's §9 path runs: `risky_external` escalates, other untrusted
+  content proceeds tagged unverified and audited as `fail_open`.
+- **A classifier exception discarded the regex verdict.** Stage 1 and stage 2
+  shared one `try`, so when the classifier raised, content the regex had
+  *blocked* came back as `allow` (unverified). Stage 2 only runs when the regex
+  already scored high, and a hosted classifier can be made to fail, so this was
+  attacker-reachable. The regex verdict is now kept and never weakened; a test
+  that asserted the old behaviour was corrected.
+- **Memory writes treated an unverified scan as clean.** A write whose scan
+  could not be verified is now quarantined (§9: side effects fail closed); a
+  re-verifying read withholds it without changing its status, so an outage
+  does not empty memory. `trust_label` on `/memory/write` is typed (unknown
+  values were coerced to `untrusted_data`, downgrading `"RISKY_EXTERNAL"`).
+- The orchestrator demo's taint lattice used non-canonical labels (`trusted`,
+  `user_input`) and ranked `risky_external` below `untrusted_data`, the reverse
+  of the server. It now uses the server's labels and order.
+- **Upgrade note:** a server installed without the `[ml]` extra (scikit-learn)
+  has no stage-2 model. That used to read as a clean 0.0; it now fails the §9
+  way — `risky_external` context escalates and gated memory writes quarantine —
+  and logs `heuristic_classifier.no_model` at startup. The Dockerfile and
+  `render.yaml` install `[ml]`; bare `pip install trust-mediator[server]` does not.
+- `benchmarks.classifier_eval` excludes and counts samples whose classifier
+  call failed (and aborts above 2%), instead of a failure either scoring 0.0
+  or discarding a paid run.
+
 - **A malformed policy document could authorise every tool.** `PUT /v1/policy`
   checked only that `agents` and `memory` existed, and the engine read an absent
   `allowed_tools` as "no restriction", so `{"agents": {}, "memory": {}}` allowed

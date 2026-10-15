@@ -28,7 +28,7 @@ import structlog
 
 from trust_mediator.config import settings
 from trust_mediator.db.memory_repo import MemoryRepository
-from trust_mediator.models.context_envelope import Provenance
+from trust_mediator.models.context_envelope import Provenance, TrustLabel
 from trust_mediator.models.memory_record import (
     MemoryRecord,
     MemoryReadRequest,
@@ -136,18 +136,25 @@ class MemoryIntegrityLayer:
 
         try:
             # Stages 2-4: scan → consistency → score
-            record, breakdown, consistency_report = await self._evaluate(
+            record, breakdown, consistency_report, scan_verified = await self._evaluate(
                 record, request.agent_id
             )
 
             # Stage 5: Decision
             verdict = breakdown.verdict
+            # §9: a memory write is a side effect and fails closed. A scan the
+            # scanner could not verify (classifier down) must not count as a
+            # clean one, however the other stages scored it.
+            if verdict == "persist" and not scan_verified:
+                verdict = "quarantine"
+                reason = "Injection scan could not be verified (scanner unavailable); held for review"
             if verdict == "persist":
                 final_status = MemoryStatus.ACTIVE
                 reason = ""
             elif verdict == "quarantine":
                 final_status = MemoryStatus.QUARANTINED
-                reason = f"Score {breakdown.composite:.2f} below persist threshold; flags: {consistency_report.flags}"
+                if scan_verified:
+                    reason = f"Score {breakdown.composite:.2f} below persist threshold; flags: {consistency_report.flags}"
             else:  # reject
                 final_status = MemoryStatus.REJECTED
                 reason = f"Score {breakdown.composite:.2f} below reject threshold; high-risk content blocked"
@@ -235,16 +242,19 @@ class MemoryIntegrityLayer:
 
     async def _evaluate(
         self, record: MemoryRecord, agent_id: str
-    ) -> tuple[MemoryRecord, IntegrityScoreBreakdown, ConsistencyReport]:
+    ) -> tuple[MemoryRecord, IntegrityScoreBreakdown, ConsistencyReport, bool]:
         """
         Run stages 2-4 (scan → consistency → score) over a candidate record.
+
+        The last element is whether the injection scan was verified; callers
+        must not treat an unverified scan as clean (§9).
 
         Shared by the write and read paths so both apply an identical standard.
         They previously diverged: the read path only re-scanned, which meant a
         record that would have been quarantined at write time was served back
         to the agent unchallenged.
         """
-        record, _ = await self._stage_scan(record)
+        record, _, scan_verified = await self._stage_scan(record)
         consistency_report = await self._stage_consistency(record, agent_id)
         breakdown = self._scorer.score(record, consistency_report)
         record = record.model_copy(
@@ -255,9 +265,9 @@ class MemoryIntegrityLayer:
                 "consistency_flags": consistency_report.flags,
             }
         )
-        return record, breakdown, consistency_report
+        return record, breakdown, consistency_report, scan_verified
 
-    async def _stage_scan(self, record: MemoryRecord) -> tuple[MemoryRecord, float]:
+    async def _stage_scan(self, record: MemoryRecord) -> tuple[MemoryRecord, float, bool]:
         """Stage 2: run the injection scanner over candidate content."""
         from trust_mediator.models.context_envelope import ContextEnvelope
         envelope = ContextEnvelope(
@@ -275,7 +285,9 @@ class MemoryIntegrityLayer:
             scan_decision=scanned.scanner_verdict.decision,
             scan_score=scan_score,
         )
-        return record.model_copy(update={"scan_score": scan_score}), scan_score
+        # Trusted content is not scanned and is verified by definition.
+        verified = scanned.is_verified or scanned.trust_label == TrustLabel.TRUSTED_INSTRUCTION
+        return record.model_copy(update={"scan_score": scan_score}), scan_score, verified
 
     async def _stage_consistency(self, record: MemoryRecord, agent_id: str):
         """Stage 3: check consistency against existing active memory."""
@@ -345,7 +357,20 @@ class MemoryIntegrityLayer:
         # exactly the pre-existing-poison case FR-MI-04 exists to catch.
         should_rescan = request.rescan or settings.memory_rescan_on_read
         if should_rescan:
-            rescored, breakdown, report = await self._evaluate(record, request.agent_id)
+            rescored, breakdown, report, scan_verified = await self._evaluate(
+                record, request.agent_id
+            )
+            if not scan_verified:
+                # Withhold, but leave the record ACTIVE: a scanner outage says
+                # nothing about this record, and quarantining on it would empty
+                # every agent's memory for the length of the outage.
+                logger.warning("memory_integrity.reverification_unverified", record_id=record.id)
+                return MemoryReadResult(
+                    record=rescored,
+                    verified=False,
+                    withheld=True,
+                    reason="reverification_scan_unverified",
+                )
             if breakdown.verdict != "persist":
                 logger.warning(
                     "memory_integrity.reverification_withheld",

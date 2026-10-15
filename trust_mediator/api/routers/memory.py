@@ -22,7 +22,9 @@ class MemoryWriteBody(BaseModel):
     content: str
     source: str = "agent"
     source_uri: str = ""
-    trust_label: str = "untrusted_data"
+    # Typed: an unknown label is a 422. It used to be coerced to
+    # untrusted_data, which silently *downgraded* "RISKY_EXTERNAL" or "risky".
+    trust_label: TrustLabel = TrustLabel.UNTRUSTED_DATA
     agent_id: str = "default"
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -63,10 +65,7 @@ async def memory_write(body: MemoryWriteBody, pipeline: PipelineDep, _: AuthDep)
     FR-MI-01: Run the full 5-stage memory write vetting pipeline.
     Returns persist | quarantine | reject with integrity score.
     """
-    try:
-        label = TrustLabel(body.trust_label)
-    except ValueError:
-        label = TrustLabel.UNTRUSTED_DATA
+    label = body.trust_label
 
     request = MemoryWriteRequest(
         session_id=body.session_id,

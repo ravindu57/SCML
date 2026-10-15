@@ -48,7 +48,11 @@ class ToolCallMediationRequest(BaseModel):
     session_id: str = ""
     tool_name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
-    argument_trust_labels: dict[str, str] = Field(default_factory=dict)
+    # Typed, so an unrecognised label is a 422. It used to be `dict[str, str]`
+    # filtered to known values, which silently dropped "untrusted" or
+    # "UNTRUSTED_DATA" — and an unlabelled argument counts as trusted, so
+    # FR-PE-04 never fired. gRPC already rejected unknown labels.
+    argument_trust_labels: dict[str, TrustLabel] = Field(default_factory=dict)
     agent_id: str = "default"
     is_irreversible: bool = False
     is_high_impact: bool = False
@@ -152,15 +156,11 @@ async def mediate_tool_call(request: ToolCallMediationRequest, pipeline: Pipelin
     never from the request body, which carries no tenant field. A company's
     key resolves its own policy document no matter what any client sends.
     """
-    arg_labels = {
-        k: TrustLabel(v) for k, v in request.argument_trust_labels.items()
-        if v in TrustLabel.__members__.values()
-    }
     tool_request = ToolCallRequest(
         session_id=request.session_id,
         tool_name=request.tool_name,
         arguments=request.arguments,
-        argument_trust_labels=arg_labels,
+        argument_trust_labels=request.argument_trust_labels,
         agent_id=request.agent_id,
         tenant_id=caller.tenant,
         is_irreversible=request.is_irreversible,

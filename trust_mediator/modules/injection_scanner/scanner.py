@@ -117,17 +117,19 @@ class InjectionScanner:
         text = envelope.content
         try:
             heuristic_score, pattern_names = self._stage1(text)
-            ml_score = (
-                self._classifier.predict(text)
-                if self._needs_ml(heuristic_score, envelope)
-                else 0.0
-            )
         except Exception as e:
             # A scan that could not complete must never present itself as a
             # clean scan (§9). Scoring 0.0 and setting is_verified would make a
             # crashed scanner indistinguishable from "definitely benign" — the
             # caller would consume unscanned content believing it was checked.
             return self._unscannable(envelope, e)
+
+        ml_score = 0.0
+        if self._needs_ml(heuristic_score, envelope):
+            try:
+                ml_score = self._classifier.predict(text)
+            except Exception as e:
+                return self._classifier_failed(envelope, heuristic_score, pattern_names, e)
 
         return self._finalize(envelope, heuristic_score, ml_score, pattern_names)
 
@@ -149,13 +151,15 @@ class InjectionScanner:
         text = envelope.content
         try:
             heuristic_score, pattern_names = self._stage1(text)
-            ml_score = (
-                await self._classifier.predict_async(text)
-                if self._needs_ml(heuristic_score, envelope)
-                else 0.0
-            )
         except Exception as e:
             return self._unscannable(envelope, e)
+
+        ml_score = 0.0
+        if self._needs_ml(heuristic_score, envelope):
+            try:
+                ml_score = await self._classifier.predict_async(text)
+            except Exception as e:
+                return self._classifier_failed(envelope, heuristic_score, pattern_names, e)
 
         return self._finalize(envelope, heuristic_score, ml_score, pattern_names)
 
@@ -210,6 +214,52 @@ class InjectionScanner:
             }
         )
 
+    def _classifier_failed(
+        self,
+        envelope: ContextEnvelope,
+        heuristic_score: float,
+        pattern_names: list[str],
+        error: Exception,
+    ) -> ContextEnvelope:
+        """Stage 2 failed after stage 1 succeeded (§9).
+
+        The stage-1 result is real evidence and is kept: the verdict is the
+        regex verdict, never weaker. Stage 2 only runs when the regex score
+        clears the gate, so discarding it here would turn exactly the payloads
+        the regex caught into ALLOW whenever the classifier is down — and an
+        attacker can induce that (a provider timeout, a steered non-JSON
+        reply). On top of that, ``risky_external`` escalates as in
+        ``_unscannable``, and the result is marked unverified either way.
+
+        Shadow mode does not exempt that escalation: unverified risky content
+        is held even when the scanner is otherwise only observing, matching
+        ``_unscannable``. Fail closed beats "log but don't enforce" here.
+        """
+        result = self._finalize(envelope, heuristic_score, 0.0, pattern_names)
+        verdict = result.scanner_verdict
+        risky = envelope.trust_label == TrustLabel.RISKY_EXTERNAL
+        if risky and verdict.decision not in (ScanVerdict.BLOCK, ScanVerdict.ESCALATE):
+            verdict = verdict.model_copy(update={"decision": ScanVerdict.ESCALATE})
+        reason = f"classifier_unavailable: {type(error).__name__}"
+
+        logger.error(
+            "injection_scanner.classifier_failed",
+            envelope_id=envelope.id,
+            trust_label=envelope.trust_label,
+            decision=verdict.decision,
+            heuristic_score=round(heuristic_score, 3),
+            error_type=type(error).__name__,
+        )
+        return result.model_copy(
+            update={
+                "scanner_verdict": verdict.model_copy(
+                    update={"rationale": f"{verdict.rationale}; {reason}".strip("; ")}
+                ),
+                "is_verified": False,
+                "unverified_reason": f"scanner_unavailable: {reason}",
+            }
+        )
+
     def _unscannable(self, envelope: ContextEnvelope, error: Exception) -> ContextEnvelope:
         """
         Build the verdict for content the scanner could not evaluate (§9).
@@ -238,8 +288,9 @@ class InjectionScanner:
             update={
                 "scanner_verdict": ScanResult(
                     decision=ScanVerdict.ESCALATE if risky else ScanVerdict.ALLOW,
-                    # Not 0.0: that reads as "definitely clean" on a scale where
-                    # 0 means benign. The score is unknown, not low.
+                    # The score is unknown, not low; `is_verified=False` is the
+                    # signal consumers must act on (the memory layer
+                    # quarantines on it), not this number.
                     score=0.0 if not risky else 0.5,
                     rationale=reason,
                 ),

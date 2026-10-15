@@ -93,6 +93,11 @@ def _oracle_self_test() -> dict:
     }
 
 
+#: Abort if more than this fraction of samples fail to score: excluding a few
+#: (a transient 429) leaves the metrics meaningful; excluding many does not.
+MAX_FAILED_FRACTION = 0.02
+
+
 def evaluate(scorer: Scorer, gate_threshold: float, workers: int = 1) -> dict:
     """Score the held-out corpus and assemble the FR-SC-07/08 report dict.
 
@@ -102,12 +107,20 @@ def evaluate(scorer: Scorer, gate_threshold: float, workers: int = 1) -> dict:
     order-independent, so concurrency changes only latency, never the result.
     Deterministic CPU-bound backends should stay at the default of 1.
     """
+    from trust_mediator.modules.injection_scanner.classifier import ClassifierUnavailable
+
     samples = held_out_samples()
     scored: list[ScoredSample] = []
 
     def _score_one(sample) -> tuple:
         t0 = time.perf_counter()
-        score = float(scorer.predict(sample.text))
+        try:
+            score: float | None = float(scorer.predict(sample.text))
+        except ClassifierUnavailable:
+            # A failed call is not a 0.0 ("benign") — that would silently
+            # inflate or deflate AUC. Count it and leave it out, and keep the
+            # scores already paid for instead of losing the whole run.
+            score = None
         return (sample, score, (time.perf_counter() - t0) * 1000.0)
 
     if workers > 1:
@@ -115,6 +128,21 @@ def evaluate(scorer: Scorer, gate_threshold: float, workers: int = 1) -> dict:
             results = list(pool.map(_score_one, samples))
     else:
         results = [_score_one(s) for s in samples]
+
+    failed = sum(1 for (_s, score, _lat) in results if score is None)
+    if failed:
+        print(
+            f"warning: {failed}/{len(results)} samples could not be scored "
+            "(classifier unavailable); excluded from every metric",
+            file=sys.stderr,
+        )
+    if failed > MAX_FAILED_FRACTION * len(results):
+        raise RuntimeError(
+            f"{failed}/{len(results)} samples failed to score — above "
+            f"{MAX_FAILED_FRACTION:.0%}, so the metrics would not describe the "
+            "corpus. Fix the backend and re-run."
+        )
+    results = [r for r in results if r[1] is not None]
 
     scored = [
         ScoredSample(text=s.text, score=score, is_attack=s.is_attack)
@@ -308,13 +336,15 @@ def main(argv: list[str] | None = None) -> int:
             scorer = SyntacticImperativeClassifier()
             scorer.name = "syntactic_imperative_scaffold"
         elif args.backend == "llm":
-            # Phase 4 wiring, verifiable without a key: LLMClassifier.predict
-            # returns 0.0 (with a logged warning) when no API key is set, so the
-            # harness still runs and correctly reports NOT shippable. With
-            # LLM_SCANNER_API_KEY set it scores for real.
+            # LLMClassifier raises ClassifierUnavailable without a key (it no
+            # longer pretends every sample scored 0.0), so check up front and
+            # exit cleanly rather than failing on the first sample.
             from trust_mediator.modules.injection_scanner.classifier import LLMClassifier
 
             scorer = LLMClassifier()
+            if not scorer._api_key:
+                print("error: --backend llm needs LLM_SCANNER_API_KEY", file=sys.stderr)
+                return 2
             scorer.name = "llm_scanner"
         else:
             # The shipped heuristic backend, measured for contrast and as the

@@ -26,6 +26,13 @@ are v1.0's and unaffected.
 - **Taint propagation:** derived values inherit the most restrictive label of their inputs (`TrustLabel.most_restrictive`).
 - **All config via env:** every tunable goes through `TRUST_MEDIATOR_*` env vars in `trust_mediator/config.py` (pydantic-settings). Never hardcode thresholds, URLs, or keys.
 - **Audit everything:** every mediation decision emits an `AuditEvent` through `AuditLogger` (SHA-256 hash chain). New decision points must log.
+- **A classifier that cannot score raises `ClassifierUnavailable`; it never returns 0.0.**
+  0.0 means "definitely benign", so returning it on failure (no API key, HTTP
+  error, bad reply, no model) marked unscanned content verified and bypassed
+  the scanner's `_unscannable` §9 path. The same goes for clients:
+  `strict=True` in the LangChain guard raises on `error` and `escalate`, and
+  `/tool-call` rejects unknown trust labels (422) rather than dropping them.
+  `test_fail_closed_clients.py` pins all three.
 - **Async callers use `InjectionScanner.scan_async`, never `scan`.** `scan` runs stage 2 inline, and `LLMClassifier.predict` bridges to async by blocking on `Future.result()` — a 1s classifier call measured 4 event-loop iterations instead of ~100, stalling every concurrent request, not just its own. A backend that performs I/O must override `predict_async`; the base class default delegates to `predict`, which is correct only for CPU-bound backends. `test_scanner_async_path.py` asserts both call sites.
 - **Traceability convention:** cite PRD requirement IDs (FR-*/NFR-*) in module docstrings and test names, as existing code does.
 - **The core install is the client SDK; the server stack lives in extras.** `pip install trust-mediator` must stay ~14 packages (`httpx`, `pydantic`, `pydantic-settings`). Everything else is `[server]`, `[ml]` (scikit-learn only, imported lazily in `HeuristicClassifier.train`), `[embedded]`. `[dev]` self-references `[server,ml]` so `pip install -e ".[dev]"` still gives a full stack. The `client-install` CI job fails if a server dependency leaks back into core — if you add a core dependency, that job is the thing telling you not to.

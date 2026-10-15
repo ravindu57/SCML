@@ -124,8 +124,10 @@ class MediationPipeline:
         # operator can see exactly what proceeded unverified and why — an
         # unscannable item logged as a plain ALLOW would be invisible.
         unverified = not scanned.is_verified and bool(scanned.unverified_reason)
-        if unverified and scanned.scanner_verdict.decision == ScanVerdict.ALLOW:
+        if unverified and scanned.scanner_verdict.decision in (ScanVerdict.ALLOW, ScanVerdict.SHADOW):
             # Genuinely failed open: unscannable, and it proceeded anyway.
+            # SHADOW proceeds too (shadow mode does not enforce), so it is a
+            # fail-open as well when the scan was not verified.
             decision = AuditDecision.FAIL_OPEN
         elif scanned.scanner_verdict.decision == ScanVerdict.ALLOW:
             decision = AuditDecision.ALLOW
