@@ -75,9 +75,10 @@ commit log.
 
 ### Known issues
 
-- **AgentDojo covers all four suites but one attack of seventeen.** ASR
-  29.0% -> 7.3% across 949 cases. Whether that generalises to the other sixteen
-  attack types is untested and is the largest remaining unknown.
+- **AgentDojo covers all four suites but two attacks of seventeen**
+  (`important_instructions` on all four; `ignore_previous` on banking and
+  slack). ASR 29.0% -> 7.3% across 949 cases. Whether that generalises to the
+  other fifteen attack types is untested and is the largest remaining unknown.
 - **19% of benign task completion is lost** (74.2% -> 59.8%), concentrated in
   domains whose legitimate workflow is "fetch untrusted content and act on it".
   Quote the benign comparison, not the under-attack one: the latter reads as 97%
@@ -88,6 +89,6 @@ commit log.
   `PUT /v1/policy/agents/{id}` for routine per-agent administration.
 - The injection scanner detects 0 of 1054 InjecAgent attacks; enforcement, not
   detection, is what holds.
-- Memory-poisoning ASR is 33.3% storage / 18.8% harm against a <10% target.
+- Memory-poisoning ASR is 20.8% storage / 18.8% harm against a <10% target.
 - TLS is supported but off in every shipped deployment; Postgres, Redis and
   Kafka connections remain plaintext.

@@ -55,11 +55,12 @@ and "Measured state" sections of [CLAUDE.md](CLAUDE.md):
 - **The injection scanner detects 0 of 1054 InjecAgent attacks.** Enforcement,
   not detection, is what holds. Demonstrating that a payload evades the scanner
   is expected; demonstrating that it evades *tool policy* is a vulnerability.
-- **Memory-poisoning ASR is 33.3% storage / 18.8% harm** against a <10% target.
+- **Memory-poisoning ASR is 20.8% storage / 18.8% harm** against a <10% target.
   §14.2 acceptance is not met and this is stated openly.
-- **The policy document is single-tenant.** `PUT /v1/policy` replaces it whole,
-  so two administrators clobber each other. Known; the fix is a per-agent
-  endpoint that is not built.
+- **Whole-document policy PUT clobbers.** `PUT /v1/policy` replaces a
+  tenant's entire document; use `PUT /v1/policy/agents/{id}` for routine
+  per-agent changes. Policy is namespaced per tenant (key-bound), but memory
+  and audit routes are not yet tenant-scoped.
 - **Audit overflow drops events**, records that it did, and does not spill to
   disk.
 - **No sandboxed tool executor** (PRD §11) — execution stays in the host app.

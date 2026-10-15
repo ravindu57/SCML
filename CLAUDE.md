@@ -11,7 +11,7 @@ are v1.0's and unaffected.
 
 ## Commands
 
-- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 639 passed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
+- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 639 passed with the `[grpc]` extra installed — without it, 628 passed and 6 skipped; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
 - TypeScript client tests: `cd clients/typescript && npm test` (expect 25 passed; run `npm install && npm run build` first)
 - Benchmarks: `.venv/bin/python -m benchmarks.cli --testbed memory_poisoning` (see `benchmarks/README.md`; the CLI pins its own env and DB, so it needs no env prefix)
 - Load/latency: `.venv/bin/python -m benchmarks.load` (§8.1/§8.2 NFRs; same self-pinning env)
@@ -109,10 +109,10 @@ are v1.0's and unaffected.
 ## Known gaps vs PRD (backlog — don't claim these exist)
 
 - `SCANNER_BACKEND=onnx` falls back to heuristic (no trained DeBERTa model shipped)
-- AgentDojo covers **one suite of four** (`workspace`) and **one attack of
-  seventeen**. `travel`, `banking` and `slack` are untested and each needs its
-  own policy. Do not describe AgentDojo coverage as complete — see "Measured
-  state". The InjecAgent testbed **does** exist
+- AgentDojo covers **all four suites** but only **two attacks of seventeen**
+  (`important_instructions` on all four; `ignore_previous` on banking and
+  slack). `manual` needs a human, so 14 automatable attacks remain. Do not
+  describe AgentDojo coverage as complete — see "Measured state". The InjecAgent testbed **does** exist
   (`benchmarks/testbeds/injecagent/`, 1054 external cases) — see "Measured state"
 - No sandboxed tool executor (PRD §11) — tool execution stays in the host app
 - **Per-agent policy updates exist; whole-document PUT still clobbers.**
@@ -149,8 +149,10 @@ are v1.0's and unaffected.
   nginx itself listens on :80 with no certificate configured. Connections to
   **Postgres, Redis and Kafka are still plaintext** and have no TLS settings at
   all. So "SCML supports TLS" is true; "SCML is deployed over TLS" is not.
-  There is no test against a real certificate — `cryptography` is not installed,
-  so `test_tls.py` asserts configuration and wiring, not a completed handshake.
+  There is no test on `main` against a real certificate — `test_tls.py` asserts
+  configuration and wiring, not a completed handshake. A real handshake/mTLS
+  test exists, unmerged, on branch `rescue/tls-by-default`; it needs
+  `cryptography`, which is not a declared dependency.
 - **Secrets management (NFR-SEC-04): file sources exist, rotation only for API
   keys.** Any setting can be read from `<VAR>_FILE` (`FileSecretSource` in
   `config.py`), which is the seam Docker Compose secrets, Kubernetes Secret
@@ -256,7 +258,8 @@ correctly denied (`untrusted_arg`). That is a *single-task* result: **do not
 quote a suite-level slack ASR number until the full `--sanitize` slack suite
 has been run**.
 
-One attack of seventeen. `important_instructions` only.
+Two attacks of seventeen: `important_instructions` (all four suites) and
+`ignore_previous` (banking 20.1% -> 0.0%, slack 17.1% -> 10.5%).
 
 **External validation now exists.** `benchmarks/results/injecagent.md` is the
 committed baseline for 1054 third-party indirect-injection cases (InjecAgent,
