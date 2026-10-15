@@ -10,7 +10,7 @@
     "orch-researcher": {
       "allowed_tools": ["search_corpus", "fetch_document"],
       "require_approval_for": ["irreversible", "high_impact"],
-      "untrusted_arg_policy": "allow",
+      "untrusted_arg_policy": "require_approval",
       "rate_limits": { "tool_calls_per_minute": 120 }
     },
 
@@ -24,7 +24,7 @@
     "orch-executor": {
       "allowed_tools": ["quote_shipment", "update_tracking"],
       "require_approval_for": ["irreversible", "high_impact"],
-      "untrusted_arg_policy": "allow",
+      "untrusted_arg_policy": "require_approval",
       "rate_limits": { "tool_calls_per_minute": 60 }
     },
 

@@ -495,6 +495,12 @@ class Settings(BaseSettings):
     policy_default_file: str = Field(
         default="policies/default_policy.yaml", alias="POLICY_DEFAULT_FILE"
     )
+    #: FR-PE-05 per-agent, per-tool limit applied when an agent's policy sets no
+    #: `rate_limits.tool_calls_per_minute` of its own (was a literal 120 in the
+    #: engine). Must be a positive integer.
+    policy_default_tool_calls_per_minute: int = Field(
+        default=120, gt=0, alias="POLICY_DEFAULT_TOOL_CALLS_PER_MINUTE"
+    )
 
     # ── Observability ─────────────────────────────────────────────────────────
     otel_exporter_otlp_endpoint: str = Field(

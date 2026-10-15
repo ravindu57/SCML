@@ -16,6 +16,10 @@ import yaml
 import structlog
 
 from trust_mediator.db.policy_repo import PolicyRepository, PolicyVersionORM
+from trust_mediator.modules.tool_policy.validation import (
+    validate_agent_policy,
+    validate_policy_document,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -146,7 +150,9 @@ class PolicyStore:
         return version
 
     async def rollback(self, version_id: str, tenant_id: str = "default") -> bool:
-        success = await self._repo.rollback(version_id, tenant_id=tenant_id)
+        success = await self._repo.rollback(
+            version_id, tenant_id=tenant_id, validator=validate_policy_document
+        )
         if success:
             logger.info(
                 "policy_store.rolled_back", tenant_id=tenant_id, version_id=version_id
@@ -164,6 +170,12 @@ class PolicyStore:
         data plane renders as deny-all — the same bootstrap principle as the
         `default` agent. The company's admin provisions its own policy through
         PUT /v1/policy with its own key.
+
+        An invalid YAML raises (via ``create_version``) and aborts startup.
+        That is deliberate and fail-closed: the alternative, starting with no
+        seeded policy, would be served as deny-all by the loader anyway, and a
+        loud start-up failure tells the operator why rather than leaving every
+        tool call mysteriously denied.
         """
         existing = await self._repo.get_active_policy()
         if existing:
@@ -189,62 +201,16 @@ class PolicyStore:
 
     @staticmethod
     def _validate_agent(agent_policy: dict[str, Any]) -> list[str]:
-        """Validate a single agent entry.
-
-        Deliberately narrow. The engine treats an absent `allowed_tools` as "no
-        restriction" and an empty list as "deny everything" (engine.py:79), so a
-        typo in that key is the difference between a locked-down agent and an
-        unrestricted one — with no error either way. Requiring the key makes
-        that choice explicit.
-
-        `untrusted_arg_policy` and `require_approval_for` are checked against
-        the values the engine actually branches on, because an unrecognised
-        value there fails open: the engine matches "deny" and
-        "require_approval"/"approve" and falls through to allow on anything
-        else, so `untrusted_arg_policy: denied` would silently permit every
-        tainted argument.
-        """
-        errors: list[str] = []
-        if not isinstance(agent_policy, dict):
-            return ["Agent policy must be an object"]
-
-        if "allowed_tools" not in agent_policy:
-            errors.append(
-                "missing 'allowed_tools' — omit it and the engine applies no "
-                "tool restriction at all; use [] to deny every tool"
-            )
-        elif not isinstance(agent_policy["allowed_tools"], list):
-            errors.append("'allowed_tools' must be a list")
-
-        uap = agent_policy.get("untrusted_arg_policy", "require_approval")
-        if uap not in ("deny", "require_approval", "approve", "allow"):
-            errors.append(
-                f"'untrusted_arg_policy' is {uap!r}; the engine only matches "
-                "'deny', 'require_approval'/'approve' and 'allow', and falls "
-                "through to allow on anything else"
-            )
-
-        raf = agent_policy.get("require_approval_for", [])
-        if not isinstance(raf, list):
-            errors.append("'require_approval_for' must be a list")
-        else:
-            unknown = [x for x in raf if x not in ("irreversible", "high_impact")]
-            if unknown:
-                errors.append(
-                    f"'require_approval_for' has unrecognised entries {unknown}; "
-                    "only 'irreversible' and 'high_impact' are checked"
-                )
-        return errors
+        """Validate a single agent entry (see ``tool_policy/validation.py``)."""
+        return validate_agent_policy(agent_policy)
 
     @staticmethod
     def _validate(policy_data: dict[str, Any]) -> list[str]:
-        """Basic structural validation of a policy document."""
-        errors: list[str] = []
-        if not isinstance(policy_data, dict):
-            errors.append("Policy must be a YAML/JSON object")
-            return errors
-        if "agents" not in policy_data:
-            errors.append("Policy missing required 'agents' section")
-        if "memory" not in policy_data:
-            errors.append("Policy missing required 'memory' section")
-        return errors
+        """Validate a whole document, every agent included.
+
+        This used to check only that `agents` and `memory` existed, so
+        `{"agents": {}, "memory": {}}` was stored and, read by an engine that
+        took a missing `allowed_tools` as "no restriction", authorised every
+        tool for every agent in the tenant.
+        """
+        return validate_policy_document(policy_data)

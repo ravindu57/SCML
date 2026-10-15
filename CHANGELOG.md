@@ -13,6 +13,29 @@ commit log.
 
 ### Security
 
+- **A malformed policy document could authorise every tool.** `PUT /v1/policy`
+  checked only that `agents` and `memory` existed, and the engine read an absent
+  `allowed_tools` as "no restriction", so `{"agents": {}, "memory": {}}` allowed
+  every tool for every agent in the tenant. A string `allowed_tools` became a
+  substring match, `untrusted_arg_policy: allow` let untrusted data authorise
+  calls (§5.2), and a malformed rate limit or constraint raised an unaudited
+  500, which a fail-open client reads as permission. Now:
+  - the whole document is validated (`tool_policy/validation.py`): a `default`
+    agent is required, every agent is checked, `allow` is rejected, every
+    constraint shape is typed, and patterns must compile;
+  - the engine denies on any shape it does not recognise, never raises (an
+    unexpected error is an audited `mediator_error`), resolves agents by key
+    presence so an empty entry cannot inherit `default`, and matches patterns
+    with `fullmatch`;
+  - an invalid gateway YAML is served as deny-all, and rollback re-validates
+    the target version (422 if it no longer passes).
+- **`require_approval_for` ignored tool names.** The shipped policies gate
+  `send_email` and `initiate_transfer` there, and those calls were allowed
+  outright. A tool name on the agent's allow-list now requires approval
+  (FR-PE-03).
+- Demo policies (`demo-agent/`, `orchestrator/`) used `untrusted_arg_policy:
+  allow` for three agents; changed to `require_approval`.
+
 - **Quarantine review endpoints required no authentication.** `GET
   /v1/mediate/memory/quarantined`, `POST …/{id}/release` and `DELETE …/{id}`
   shipped open. Release is the highest-privilege call in the API — it promotes

@@ -9,7 +9,7 @@ agents:
     require_approval_for:
       - irreversible
       - high_impact
-    untrusted_arg_policy: require_approval   # deny | require_approval | allow
+    untrusted_arg_policy: require_approval   # deny | require_approval (never allow — PRD §5.2)
     rate_limits:
       tool_calls_per_minute: 60
 

@@ -10,7 +10,7 @@
     "demo-agent-quoting": {
       "allowed_tools": ["quote_shipment", "track_container", "lookup_customer"],
       "require_approval_for": ["irreversible", "high_impact"],
-      "untrusted_arg_policy": "allow",
+      "untrusted_arg_policy": "require_approval",
       "rate_limits": { "tool_calls_per_minute": 60 }
     },
 

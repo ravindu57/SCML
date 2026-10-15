@@ -19,6 +19,8 @@ from typing import Any
 import structlog
 import yaml
 
+from trust_mediator.modules.tool_policy.validation import validate_policy_document
+
 logger = structlog.get_logger(__name__)
 
 #: Effective default from config, kept here only for the tenant fallback below
@@ -29,9 +31,10 @@ DEFAULT_TENANT = "default"
 #: Deny-all document a tenant falls back to when it has no policy of its own.
 #: A tenant that enrols no policy must be denied, not unrestricted — §9
 #: fail-closed applies at the tenant boundary just as at the agent boundary.
-#: The engine treats an absent ``allowed_tools`` as "no restriction", so the
-#: fallback *must* carry an explicit ``[]`` default agent; returning
-#: ``{"agents": {}}`` would fail open.
+#: The engine now denies on an absent ``allowed_tools`` too, but the fallback
+#: still carries an explicit ``[]`` default agent so it is a valid document
+#: in its own right (``validation.validate_policy_document``) and does not
+#: depend on that backstop.
 _TENANT_DENY_ALL: dict[str, Any] = {
     "agents": {
         "default": {
@@ -124,8 +127,17 @@ class PolicyLoader:
             if path.exists():
                 with open(path) as f:
                     data = yaml.safe_load(f)
-                    logger.info("policy_loader.loaded_from_yaml", path=str(path))
-                    return data or {}
+                # The gateway YAML reaches the engine without passing through
+                # PolicyStore, so it is validated here too; an invalid file is
+                # served as deny-all rather than as written (§9).
+                errors = validate_policy_document(data)
+                if errors:
+                    logger.error(
+                        "policy_loader.yaml_invalid_deny_all", path=str(path), errors=errors
+                    )
+                    return _TENANT_DENY_ALL.copy()
+                logger.info("policy_loader.loaded_from_yaml", path=str(path))
+                return data
         except Exception as e:
             logger.error("policy_loader.yaml_error", error=str(e))
 

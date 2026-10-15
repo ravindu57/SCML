@@ -10,7 +10,7 @@ import random
 import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy import (
     JSON,
@@ -282,12 +282,22 @@ class PolicyRepository:
             "update rather than assuming it applied."
         )
 
-    async def rollback(self, version_id: str, tenant_id: str = "default") -> bool:
+    async def rollback(
+        self,
+        version_id: str,
+        tenant_id: str = "default",
+        validator: Callable[[dict[str, Any]], list[str]] | None = None,
+    ) -> bool:
         """Reactivate a previous version of the caller's tenant, deactivating the current one.
 
         The target must belong to the caller's tenant: another tenant's version
         id is treated as not found, so a tenant cannot roll the *global* policy
         (or another company's) onto its own request path.
+
+        ``validator`` is applied to the target before anything changes. Old
+        versions were stored under whatever rules applied when they were
+        written, so reactivating one must meet today's rules, not those.
+        Raises ``ValueError`` (nothing written) if it fails.
         """
         async with AsyncSessionLocal() as session:
             # Deactivate current versions of this tenant
@@ -307,6 +317,11 @@ class PolicyRepository:
             target = target_result.scalar_one_or_none()
             if not target or target.tenant_id != tenant_id:
                 return False
+            if validator is not None:
+                errors = validator(target.policy_data)
+                if errors:
+                    await session.rollback()
+                    raise ValueError(f"Refusing to reactivate an invalid policy version: {errors}")
             target.is_active = True
             target.activated_at = datetime.now(timezone.utc)
             await session.commit()

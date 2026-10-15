@@ -205,7 +205,10 @@ async def rollback(version_id: str, store: PolicyStoreDep, caller: CallerDep):
     The target version must belong to the caller's tenant; another tenant's
     version id is treated as not found.
     """
-    success = await store.rollback(version_id, tenant_id=caller.tenant)
+    try:
+        success = await store.rollback(version_id, tenant_id=caller.tenant)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     if not success:
         raise HTTPException(status_code=404, detail=f"Policy version '{version_id}' not found")
     return {"rolled_back": True, "version_id": version_id}

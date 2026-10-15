@@ -36,7 +36,7 @@ from trust_mediator.modules.tool_policy.policy_loader import PolicyLoader
 ACME_A = {
     "agents": {
         "default": {"allowed_tools": [], "untrusted_arg_policy": "require_approval"},
-        "ops": {"allowed_tools": ["read_a"], "untrusted_arg_policy": "allow"},
+        "ops": {"allowed_tools": ["read_a"], "untrusted_arg_policy": "deny"},
     },
     "memory": {"integrity_score_threshold": 0.65},
 }
@@ -44,7 +44,7 @@ ACME_A = {
 GLOBEX_B = {
     "agents": {
         "default": {"allowed_tools": [], "untrusted_arg_policy": "require_approval"},
-        "ops": {"allowed_tools": ["read_b"], "untrusted_arg_policy": "allow"},
+        "ops": {"allowed_tools": ["read_b"], "untrusted_arg_policy": "deny"},
     },
     "memory": {"integrity_score_threshold": 0.65},
 }
