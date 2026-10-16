@@ -50,6 +50,8 @@ GLOBEX_B = {
 }
 
 ACME_KEY, GLOBEX_KEY = "sk-acme", "sk-globex"
+# Control-plane keys (FR-CP-03): policy writes need these, not the data keys.
+ACME_ADMIN, GLOBEX_ADMIN = "sk-acme-admin", "sk-globex-admin"
 
 
 @pytest.fixture
@@ -276,6 +278,11 @@ class TestApiTenantScoping:
         monkeypatch.setattr(
             settings, "api_keys_raw", f"acme@ops:{ACME_KEY},globex@ops:{GLOBEX_KEY}"
         )
+        monkeypatch.setattr(
+            settings,
+            "admin_api_keys_raw",
+            f"acme@secops:{ACME_ADMIN},globex@secops:{GLOBEX_ADMIN}",
+        )
         store = PolicyStore()
         await store.create_version(ACME_A, description="acme base", tenant_id="acme")
         await store.create_version(GLOBEX_B, description="globex base", tenant_id="globex")
@@ -345,10 +352,10 @@ class TestApiTenantScoping:
         r = await client.put(
             "/v1/policy/agents/ops",
             json={"agent_policy": {"allowed_tools": ["read_a", "read_a2"]}},
-            headers=self._key(ACME_KEY),
+            headers=self._key(ACME_ADMIN),
         )
         assert r.status_code == 200, r.text
-        assert r.json()["created_by"] == "ops"
+        assert r.json()["created_by"] == "secops"
 
         # globex still has its own document and its own agent.
         globex = await client.get("/v1/policy/agents/ops", headers=self._key(GLOBEX_KEY))
@@ -360,7 +367,7 @@ class TestApiTenantScoping:
         r = await client.put(
             "/v1/policy",
             json={"policy_data": ACME_A, "description": "acme wholesale"},
-            headers=self._key(ACME_KEY),
+            headers=self._key(ACME_ADMIN),
         )
         assert r.status_code == 200, r.text
         assert (await store.get_active_version(tenant_id="acme")).version_number == 2
@@ -380,6 +387,6 @@ class TestApiTenantScoping:
         r = await client.put(
             "/v1/policy/agents/default",
             json={"agent_policy": {"allowed_tools": ["*"]}},
-            headers=self._key(ACME_KEY),
+            headers=self._key(ACME_ADMIN),
         )
         assert r.status_code == 422

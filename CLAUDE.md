@@ -11,7 +11,7 @@ are v1.0's and unaffected.
 
 ## Commands
 
-- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 639 passed with the `[grpc]` extra installed — without it, 628 passed and 6 skipped; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
+- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 761 passed with the `[grpc]` extra installed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
 - TypeScript client tests: `cd clients/typescript && npm test` (expect 25 passed; run `npm install && npm run build` first)
 - Benchmarks: `.venv/bin/python -m benchmarks.cli --testbed memory_poisoning` (see `benchmarks/README.md`; the CLI pins its own env and DB, so it needs no env prefix)
 - Load/latency: `.venv/bin/python -m benchmarks.load` (§8.1/§8.2 NFRs; same self-pinning env)
@@ -54,6 +54,16 @@ are v1.0's and unaffected.
   `key in keys` short-circuits and leaks the key to timing analysis. Never put a
   raw key in a rate-limit bucket, log field or audit record; use
   `key_fingerprint`.
+- **Control-plane writes take `AdminDep`, never `AuthDep`/`CallerDep` (FR-CP-03).**
+  Policy PUT/upsert/delete/rollback and quarantine release/purge resolve
+  `_validate_admin` against `TRUST_MEDIATOR_ADMIN_API_KEYS[_FILE]`, a set
+  separate from the data-plane keys. Neither set substitutes for the other,
+  and data-plane keys with no admin keys means the control plane is *closed*:
+  falling back to data-plane keys is the escalation this exists to prevent.
+  `test_control_plane_authority.py` pins the exact admin route set; a new
+  control-plane write must be added there. A shadow policy version is never
+  active (FR-CP-02): nothing evaluates policy in shadow, so an active shadow
+  version would be enforced.
 - **Configuring a key file means this deployment authenticates.**
   `TRUST_MEDIATOR_API_KEYS_FILE` is re-read while running so keys rotate without
   a restart (`key_store.py`). Two rules that look like bugs and are not:
@@ -114,7 +124,7 @@ are v1.0's and unaffected.
 - Rate limiting: Redis-backed cluster-wide when `REDIS_URL` set (`modules/tool_policy/rate_limiter.py`), per-process in-memory otherwise.
 - Audit fan-out: Kafka (`modules/audit_log/kafka_forwarder.py`, optional `[kafka]` extra) + SIEM webhook; DB hash chain is authoritative.
 - Deploy: `k8s/` (gateway + sidecar), `.github/workflows/ci.yml` (lint, 3.11/3.12 tests, docker smoke).
-- Test commands must pass `DATABASE_URL="" TRUST_MEDIATOR_ENV=development REDIS_URL="" TRUST_MEDIATOR_API_KEYS=""` — the local `.env` sets production mode, docker-only hostnames, and a real API key, all of which break bare pytest runs.
+- Test commands must pass `DATABASE_URL="" TRUST_MEDIATOR_ENV=development REDIS_URL="" TRUST_MEDIATOR_API_KEYS="" TRUST_MEDIATOR_ADMIN_API_KEYS=""` — the local `.env` sets production mode, docker-only hostnames, and a real API key, all of which break bare pytest runs.
 - Audit chain integrity is enforced transactionally in `AuditRepository.append_chained` / `append_chained_batch` (row lock + unique (session_id, seq_no)); never reintroduce per-process chain state in AuditLogger. The batch variant re-reads each session's tail under the lock inside its own transaction, so it is safe across workers — chaining in memory is only valid *within* one locked transaction.
 - `AuditLogger.log()` must never block or await — it is on the request path (NFR-PERF-04). Overflow drops and records; it does not apply back-pressure. `log_async()` is the awaiting variant, for off-path callers only. Eviction under `drop_oldest` pairs every `get_nowait()` with a `task_done()`, or `stop()` hangs on `join()`.
 - The audit writer coalesces queued events into one transaction per batch (`AUDIT_BATCH_MAX`, default 128). Per-event writes measured ~140 events/s and made audit the throughput ceiling; batching lifts it to ~2,800/s across 50 sessions. Throughput falls as session fan-out rises (one locked tail read per session per batch). `AUDIT_BATCH_MAX=1` restores the old behaviour.

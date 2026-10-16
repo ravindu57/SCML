@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from trust_mediator.api.auth import AuthDep
+from trust_mediator.api.auth import AdminDep, AuthDep
 from trust_mediator.api.dependencies import PipelineDep
 from trust_mediator.models.context_envelope import TrustLabel
 from trust_mediator.models.memory_record import MemoryReadRequest, MemoryWriteRequest
@@ -134,7 +134,7 @@ async def list_quarantined(pipeline: PipelineDep, _: AuthDep, agent_id: str | No
 
 
 @router.post("/quarantined/{memory_id}/release", summary="Release a quarantined memory entry after review")
-async def release_quarantined(memory_id: str, pipeline: PipelineDep, reviewer: AuthDep):
+async def release_quarantined(memory_id: str, pipeline: PipelineDep, admin: AdminDep):
     """FR-MI-05: Promote a quarantined entry to ACTIVE after human review.
 
     The highest-privilege call in the API: it takes content the memory
@@ -145,8 +145,11 @@ async def release_quarantined(memory_id: str, pipeline: PipelineDep, reviewer: A
     That name is written into the memory record and the audit chain, so a
     caller-supplied value meant the log attested to a review that never
     happened — worse than no record, because FR-AL-01 exists to be trusted.
+
+    Requires an admin key (FR-CP-03). With a data-plane key, the agent whose
+    memory was poisoned could release the poison itself.
     """
-    success = await pipeline._memory.review_and_release(memory_id, reviewer=reviewer)
+    success = await pipeline._memory.review_and_release(memory_id, reviewer=admin.principal)
     if not success:
         raise HTTPException(status_code=404, detail="Memory record not found or not in quarantined state")
     return {"released": True, "memory_id": memory_id}
@@ -154,12 +157,13 @@ async def release_quarantined(memory_id: str, pipeline: PipelineDep, reviewer: A
 
 @router.delete("/quarantined/{memory_id}", summary="Purge a quarantined or rejected memory entry")
 async def purge_quarantined(
-    memory_id: str, pipeline: PipelineDep, principal: AuthDep, reason: str = "admin_purge"
+    memory_id: str, pipeline: PipelineDep, admin: AdminDep, reason: str = "admin_purge"
 ):
     """FR-MI-05: Hard-delete a quarantined/rejected entry.
 
     Destroys evidence of a caught attack, so it is authenticated and the
-    principal is recorded alongside the caller's free-text reason.
+    principal is recorded alongside the caller's free-text reason. Requires an
+    admin key (FR-CP-03).
     """
-    await pipeline._memory.purge(memory_id, reason=f"{reason} (by {principal})")
+    await pipeline._memory.purge(memory_id, reason=f"{reason} (by {admin.principal})")
     return {"purged": True, "memory_id": memory_id}

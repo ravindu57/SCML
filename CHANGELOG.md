@@ -13,6 +13,24 @@ commit log.
 
 ### Security
 
+- **Any data-plane key could administer the mediator (FR-CP-03).** The key an
+  agent holds to mediate its own traffic could also rewrite or roll back its
+  tenant's policy and release or purge quarantined memory. One injected
+  instruction ("add `transfer_funds` to your allow-list", "release memory
+  mem-…") needed only that key. Those six routes now require a key from a
+  separate set, `TRUST_MEDIATOR_ADMIN_API_KEYS` (or `_FILE`, live-reloading),
+  with the same syntax and tenant binding. The sets never substitute for each
+  other. **Behaviour change:** a deployment with data-plane keys and no admin
+  keys has a closed control plane (403). Keyless development stays open, so
+  the demo scripts are unaffected. `PUT /v1/policy` now records the admin
+  principal as `created_by`; the body field is accepted and ignored.
+- **A "shadow" policy version was enforced live (FR-CP-02).** `shadow: true,
+  activate: true` stored an active version flagged as shadow. Nothing
+  evaluates policy in shadow, so the data plane enforced it while every
+  listing called it shadow. That combination is now a 422. Stage with
+  `activate: false` and promote with `POST /v1/policy/rollback/{id}`, which now
+  clears the flag.
+
 - **The LangChain guard let tools run when the mediator failed, even with
   `strict=True`.** A timeout, a 401/403 for a revoked key or a 500 arrived as
   `error` and was ignored; `escalate` only logged. A revoked key silently turned

@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from trust_mediator.api.auth import CallerDep
+from trust_mediator.api.auth import AdminDep, CallerDep
 from trust_mediator.api.dependencies import PolicyStoreDep
 
 router = APIRouter(prefix="/v1/policy", tags=["policy"])
@@ -18,6 +18,8 @@ router = APIRouter(prefix="/v1/policy", tags=["policy"])
 class PolicyUpdateRequest(BaseModel):
     policy_data: dict[str, Any]
     description: str = ""
+    # Ignored: the version records the authenticated admin principal. Kept so
+    # existing clients that send it are not rejected.
     created_by: str = "api"
     activate: bool = True
     shadow: bool = False
@@ -55,24 +57,31 @@ async def get_policy(store: PolicyStoreDep, caller: CallerDep):
         "tenant": caller.tenant,
         "version": version.version_number if version else None,
         "policy": policy,
-        "shadow": version.is_shadow if version else False,
+        # The active version is enforced by definition. A row stored active
+        # *and* shadow before FR-CP-02 was fixed is reported as what it is.
+        "shadow": False,
     }
 
 
 @router.put("", summary="Create a new policy version")
-async def update_policy(request: PolicyUpdateRequest, store: PolicyStoreDep, caller: CallerDep):
+async def update_policy(request: PolicyUpdateRequest, store: PolicyStoreDep, caller: AdminDep):
     """FR-CP-01, FR-CP-02: Create a new policy version in the caller's tenant.
 
-    ``created_by`` stays a request field (documented choice: this endpoint is
-    the bootstrap/wholesale path) but the version is written into the caller's
-    tenant namespace, so a tenant with its own key cannot overwrite the global
-    document or another company's.
+    Control plane: requires an admin key (FR-CP-03). The version is written
+    into the admin key's tenant namespace, so a tenant's admin cannot overwrite
+    the global document or another company's, and ``created_by`` is the
+    authenticated principal — the history records who changed policy, not what
+    they typed.
+
+    ``shadow=true`` with ``activate=true`` is refused (422): shadow evaluation
+    is not implemented, and storing the flag on a live version enforced it
+    while labelling it as not enforced.
     """
     try:
         version = await store.create_version(
             policy_data=request.policy_data,
             description=request.description,
-            created_by=request.created_by,
+            created_by=caller.principal,
             activate=request.activate,
             shadow=request.shadow,
             tenant_id=caller.tenant,
@@ -129,7 +138,7 @@ async def upsert_agent_policy(
     agent_id: str,
     request: AgentPolicyRequest,
     store: PolicyStoreDep,
-    caller: CallerDep,
+    caller: AdminDep,
 ):
     """FR-CP-01: replace one agent's policy in the caller's tenant.
 
@@ -161,7 +170,7 @@ async def upsert_agent_policy(
 
 
 @router.delete("/agents/{agent_id}", summary="Remove one agent's policy")
-async def delete_agent_policy(agent_id: str, store: PolicyStoreDep, caller: CallerDep):
+async def delete_agent_policy(agent_id: str, store: PolicyStoreDep, caller: AdminDep):
     """FR-CP-01: remove one agent from the caller's tenant, leaving the rest intact.
 
     The agent then falls back to `default` and is denied everything. That is
@@ -199,11 +208,12 @@ async def list_versions(limit: int = 20, store: PolicyStoreDep = None, caller: C
 
 
 @router.post("/rollback/{version_id}", summary="Rollback to a previous policy version")
-async def rollback(version_id: str, store: PolicyStoreDep, caller: CallerDep):
+async def rollback(version_id: str, store: PolicyStoreDep, caller: AdminDep):
     """FR-CP-01: Reactivate a previous version of the caller's tenant.
 
     The target version must belong to the caller's tenant; another tenant's
-    version id is treated as not found.
+    version id is treated as not found. This is also how a shadow version is
+    promoted: reactivating it clears the shadow flag.
     """
     try:
         success = await store.rollback(version_id, tenant_id=caller.tenant)

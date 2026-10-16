@@ -49,7 +49,23 @@ class PolicyStore:
         shadow: bool = False,
         tenant_id: str = "default",
     ) -> PolicyVersionORM:
-        """Validate and create a new policy version for a tenant."""
+        """Validate and create a new policy version for a tenant.
+
+        FR-CP-02: a shadow version must not be active. Nothing evaluates a
+        policy in shadow — the data plane enforces whichever version is active
+        — so ``shadow=True, activate=True`` used to enforce the document live
+        while every listing reported it as shadow. Refused rather than
+        silently downgraded to either flag, because the two readings
+        (enforce now / do not enforce) are opposite. Stage a version with
+        ``activate=False`` and promote it with rollback.
+        """
+        if shadow and activate:
+            raise ValueError(
+                "Policy validation failed: ['a shadow version cannot be activated: "
+                "shadow evaluation is not implemented, so an active shadow version "
+                "would be enforced. Create it with activate=false and promote it "
+                "with POST /v1/policy/rollback/{version_id}']"
+            )
         errors = self._validate(policy_data)
         if errors:
             raise ValueError(f"Policy validation failed: {errors}")

@@ -31,7 +31,8 @@ class SecretFileError(RuntimeError):
 #: field with *live-reload* semantics (see api/key_store.py). Two mechanisms
 #: reading one path, one of them a startup-only snapshot, is the kind of
 #: near-duplicate that looks fine until a rotation half-applies.
-_NO_FILE_SOURCE = {"api_keys_raw"}
+#: ``admin_api_keys_raw`` is excluded for the same reason.
+_NO_FILE_SOURCE = {"api_keys_raw", "admin_api_keys_raw"}
 
 
 class FileSecretSource(PydanticBaseSettingsSource):
@@ -244,6 +245,21 @@ class Settings(BaseSettings):
     api_keys_reload_seconds: float = Field(
         default=5.0, alias="TRUST_MEDIATOR_API_KEYS_RELOAD_SECONDS"
     )
+
+    # Control-plane keys (FR-CP-03, PRD §10 "authz-gated"). A separate set,
+    # not a flag on a data-plane key: the key an agent holds to mediate its own
+    # traffic must not be able to rewrite the policy that mediates it or
+    # release its own quarantined memory. Same entry syntax and tenant binding
+    # as TRUST_MEDIATOR_API_KEYS (``acme@secops:sk-...``), and the same
+    # live-reloading file source. Empty means the control plane is closed
+    # whenever data-plane keys are configured — see api/auth.py.
+    admin_api_keys_raw: str = Field(default="", alias="TRUST_MEDIATOR_ADMIN_API_KEYS")
+    admin_api_keys_file: str = Field(default="", alias="TRUST_MEDIATOR_ADMIN_API_KEYS_FILE")
+
+    @property
+    def admin_api_key_entries(self) -> list[KeyEntry]:
+        """(tenant, principal, key) triples from TRUST_MEDIATOR_ADMIN_API_KEYS."""
+        return parse_key_entries_with_tenant(self.admin_api_keys_raw)
 
     @property
     def api_key_principals(self) -> list[tuple[str | None, str]]:

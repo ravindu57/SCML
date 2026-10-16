@@ -118,6 +118,10 @@ class PolicyRepository:
         shadow: bool = False,
         tenant_id: str = "default",
     ) -> PolicyVersionORM:
+        # FR-CP-02, repeated below PolicyStore so a caller that skips the store
+        # cannot store an enforced version labelled shadow.
+        if shadow and activate:
+            raise ValueError("a shadow policy version cannot be active")
         async with AsyncSessionLocal() as session:
             # Get next version number within this tenant
             result = await session.execute(
@@ -323,6 +327,9 @@ class PolicyRepository:
                     await session.rollback()
                     raise ValueError(f"Refusing to reactivate an invalid policy version: {errors}")
             target.is_active = True
+            # Promotion (FR-CP-02): an active version is enforced, so it must
+            # not keep claiming to be shadow.
+            target.is_shadow = False
             target.activated_at = datetime.now(timezone.utc)
             await session.commit()
             return True
