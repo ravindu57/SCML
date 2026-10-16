@@ -11,7 +11,7 @@ are v1.0's and unaffected.
 
 ## Commands
 
-- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 761 passed with the `[grpc]` extra installed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
+- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 768 passed with the `[grpc]` extra installed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
 - TypeScript client tests: `cd clients/typescript && npm test` (expect 25 passed; run `npm install && npm run build` first)
 - Benchmarks: `.venv/bin/python -m benchmarks.cli --testbed memory_poisoning` (see `benchmarks/README.md`; the CLI pins its own env and DB, so it needs no env prefix)
 - Load/latency: `.venv/bin/python -m benchmarks.load` (§8.1/§8.2 NFRs; same self-pinning env)
@@ -338,3 +338,15 @@ resources this core install deliberately excludes.
 
 Any classifier work must train on external data and evaluate against the
 in-house corpus as a held-out set, never the reverse.
+
+**The tool-affordance imperative detector is measured and is a no-go**
+(`benchmarks/affordance_detector/`, `benchmarks/results/affordance_detector.md`).
+It is CPU-only (spaCy parse + bge-small via onnxruntime, `[detect]` extra) and
+reaches held-out InjecAgent AUC **0.779** with hard negatives, at 158 ms p95.
+That is better than any shipped backend, but short of FR-SC-07 (0.85, and 7.6%
+FPR at the externally frozen threshold). Its own ablation refutes the
+"imperative x affordance" product: tool similarity *alone* scores 0.834, and the
+mood term lowers it. Do not describe the product score as a contribution. It
+does not reach memory poisoning at all (0% recall), because poisoned memory is
+phrased as notes and facts. Any follow-up change needs a held-out set this run
+did not see.

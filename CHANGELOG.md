@@ -11,6 +11,19 @@ commit log.
 
 ## [Unreleased]
 
+### Added
+
+- **Research prototype: tool-affordance imperative detector**
+  (`benchmarks/affordance_detector/`, optional `[detect]` extra). It flags
+  untrusted text that tells the assistant to do something one of *this agent's*
+  tools could do. Measured against the literature review's gates
+  (`docs/research/DETECTION_LITERATURE_REVIEW.md`), with the threshold frozen on
+  external data only (LLMail-Inject, NotInject; MIT). **Result: no-go.**
+  Held-out InjecAgent AUC is 0.779 against a 0.85 target, FPR at the frozen
+  threshold is 7.6%, and memory recall is 0%. The mood term lowers AUC relative
+  to tool similarity alone (0.834). Not wired into the scanner. See
+  `benchmarks/results/affordance_detector.md`.
+
 ### Security
 
 - **Any data-plane key could administer the mediator (FR-CP-03).** The key an

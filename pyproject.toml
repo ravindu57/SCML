@@ -105,6 +105,15 @@ grpc = [
     "grpcio>=1.62.0",
     "protobuf>=4.25.0",
 ]
+# Tool-affordance imperative detector prototype (FR-SC-07 research,
+# benchmarks/affordance_detector/). CPU-only, no torch: spaCy for the
+# dependency parse, fastembed (onnxruntime) for bge-small-en-v1.5 embeddings.
+# The spaCy model is not on PyPI, so install it separately:
+#   python -m spacy download en_core_web_sm
+detect = [
+    "spacy>=3.7,<3.9",
+    "fastembed>=0.5",
+]
 
 [project.scripts]
 trust-mediator = "trust_mediator.api.app:main"
