@@ -112,6 +112,39 @@ def validate_policy_document(policy_data: Any) -> list[str]:
         )
     for name, agent_policy in agents.items():
         errors.extend(f"agent {name!r}: {e}" for e in validate_agent_policy(agent_policy))
+    if "redaction" in policy_data:
+        errors.extend(f"redaction: {e}" for e in _validate_redaction(policy_data["redaction"]))
+    return errors
+
+
+def _validate_redaction(section: Any) -> list[str]:
+    """The FR-OR-02 section the output redactor reads per tenant.
+
+    The redactor blocks every labelled output on a malformed section, so a bad
+    document would be a silent egress outage; it is refused here instead.
+    """
+    if not isinstance(section, dict):
+        return ["must be an object"]
+    errors: list[str] = []
+    if "pii_patterns_enabled" in section and not isinstance(section["pii_patterns_enabled"], bool):
+        errors.append("'pii_patterns_enabled' must be true or false")
+    if "entropy_threshold" in section:
+        t = section["entropy_threshold"]
+        if isinstance(t, bool) or not isinstance(t, (int, float)) or t <= 0:
+            errors.append("'entropy_threshold' must be a positive number")
+    protected = section.get("protected_classes", [])
+    if not isinstance(protected, list) or not all(isinstance(c, str) for c in protected):
+        errors.append("'protected_classes' must be a list of names")
+    rules = section.get("data_flow_rules", {})
+    if not isinstance(rules, dict):
+        errors.append("'data_flow_rules' must map a data class to a list of destinations")
+    else:
+        for cls, dests in rules.items():
+            if not isinstance(cls, str) or not cls.strip():
+                errors.append(f"data_flow_rules: class name {cls!r} must be a non-empty string")
+                continue
+            if not isinstance(dests, list) or not all(isinstance(d, str) for d in dests):
+                errors.append(f"data_flow_rules.{cls}: must be a list of destination names")
     return errors
 
 

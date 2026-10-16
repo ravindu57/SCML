@@ -180,6 +180,7 @@ class MediationServicer(mediation_pb2_grpc.MediationServiceServicer):
             session_id=await _session(context, caller, request.session_id),
             destination=request.destination or "user",
             data_class_labels=list(request.data_class_labels),
+            tenant_id=caller.tenant,
         )
         return mediation_pb2.OutputResponse(
             blocked=result.blocked,

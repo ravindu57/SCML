@@ -11,7 +11,7 @@ are v1.0's and unaffected.
 
 ## Commands
 
-- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 813 passed with the `[grpc]` extra installed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
+- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 845 passed with the `[grpc]` extra installed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
 - TypeScript client tests: `cd clients/typescript && npm test` (expect 25 passed; run `npm install && npm run build` first)
 - Benchmarks: `.venv/bin/python -m benchmarks.cli --testbed memory_poisoning` (see `benchmarks/README.md`; the CLI pins its own env and DB, so it needs no env prefix)
 - Load/latency: `.venv/bin/python -m benchmarks.load` (§8.1/§8.2 NFRs; same self-pinning env)
@@ -92,6 +92,10 @@ are v1.0's and unaffected.
   client). There is no `untrusted_arg_policy: allow`. An absent `allowed_tools`
   denies. Keep validation and the engine's shape checks in step;
   `test_policy_fail_closed.py` pins both and validates every shipped policy.
+- **FR-OR-02 data-flow rules are per tenant and deny by default.** `_process_output` reads only
+  `protected_classes`/`data_flow_rules` from the tenant policy; PII/entropy settings stay built-in
+  so a tenant cannot disable redaction. Policy `memory`/`scanner` sections are NOT enforced (env
+  governs). `test_data_flow_rules.py` pins this.
 - **Tenant is key-bound, never client-supplied.** A key like `acme@ops:sk-...`
   binds the caller to tenant `acme` (see `KeyEntry` / `parse_key_entries_with_tenant`
   in `config.py`); an unqualified key resolves to `TRUST_MEDIATOR_DEFAULT_TENANT`,

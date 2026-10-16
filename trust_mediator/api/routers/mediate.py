@@ -7,7 +7,7 @@ Every response includes decision, reason_code, trust labels, and an audit_ref.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
@@ -70,8 +70,11 @@ class ToolCallMediationResponse(BaseModel):
 class OutputMediationRequest(BaseModel):
     session_id: str = ""
     content: str
-    destination: str = "user"
-    data_class_labels: list[str] = Field(default_factory=list)
+    destination: str = Field(default="user", max_length=128)
+    # Bounded: labels are client strings and are written into the audit chain.
+    data_class_labels: list[Annotated[str, Field(max_length=64)]] = Field(
+        default_factory=list, max_length=32
+    )
 
 
 class OutputMediationResponse(BaseModel):
@@ -191,6 +194,7 @@ async def mediate_output(request: OutputMediationRequest, pipeline: PipelineDep,
         session_id=session_for(caller, request.session_id),
         destination=request.destination,
         data_class_labels=request.data_class_labels,
+        tenant_id=caller.tenant,
     )
     return OutputMediationResponse(
         content=result.content,

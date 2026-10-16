@@ -57,6 +57,6 @@
     "pii_patterns_enabled": true,
     "entropy_threshold": 4.5,
     "protected_classes": ["pii", "secret", "credential"],
-    "data_flow_rules": {}
+    "data_flow_rules": { "pii": ["user"], "secret": [], "credential": [] }
   }
 }

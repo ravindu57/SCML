@@ -318,10 +318,13 @@ class TestOutputRedactionFailsClosed:
     """§9 — fail-closed on redaction failure prevents leaking unredacted data."""
 
     async def test_redactor_failure_blocks_the_response(self, pipeline, monkeypatch):
-        def _boom(content, destination="user", data_class_labels=None):
+        from trust_mediator.modules.output_redaction.redactor import OutputRedactor
+
+        def _boom(self, content, destination="user", data_class_labels=None):
             raise RuntimeError("redactor exploded")
 
-        monkeypatch.setattr(pipeline._redactor, "redact", _boom)
+        # On the class: the pipeline builds the tenant's redactor per call.
+        monkeypatch.setattr(OutputRedactor, "redact", _boom)
 
         result = await pipeline.process_output(
             "here is the customer's card number 4111111111111111",
@@ -331,10 +334,13 @@ class TestOutputRedactionFailsClosed:
         assert "4111111111111111" not in result.content
 
     async def test_redactor_failure_is_audited(self, pipeline, monkeypatch):
-        def _boom(content, destination="user", data_class_labels=None):
+        from trust_mediator.modules.output_redaction.redactor import OutputRedactor
+
+        def _boom(self, content, destination="user", data_class_labels=None):
             raise RuntimeError("redactor exploded")
 
-        monkeypatch.setattr(pipeline._redactor, "redact", _boom)
+        # On the class: the pipeline builds the tenant's redactor per call.
+        monkeypatch.setattr(OutputRedactor, "redact", _boom)
         await pipeline.process_output("sensitive", session_id="fail-policy")
 
         assert pipeline.captured_events

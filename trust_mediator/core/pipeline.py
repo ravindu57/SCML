@@ -71,6 +71,10 @@ class MediationPipeline:
             integrity_threshold=settings.memory_integrity_threshold,
         )
 
+        # FR-OR-02: an explicit config pins the redactor (tests, benchmarks).
+        # Otherwise each call reads the tenant's policy `redaction` section,
+        # which used to be ignored entirely: data_flow_rules never loaded.
+        self._redaction_pinned = redaction_config is not None
         self._redactor = OutputRedactor(redaction_config)
 
     def _emit(self, event) -> None:
@@ -254,16 +258,48 @@ class MediationPipeline:
 
     # ── §5.3 Step 7: Output redaction ─────────────────────────────────────────
 
+    async def _redactor_for(self, tenant_id: str) -> tuple[OutputRedactor | None, str]:
+        """The tenant's redactor, or (None, reason) if its policy cannot be read."""
+        if self._redaction_pinned:
+            return self._redactor, ""
+        try:
+            policy = await self._loader.get_policy(tenant_id)
+        except Exception as e:
+            logger.error("pipeline.redaction_policy_unavailable", error_type=type(e).__name__)
+            return None, "policy_unavailable"
+        section = policy.get("redaction") if isinstance(policy, dict) else None
+        section = section if isinstance(section, dict) else {}
+        # Only the flow rules come from the tenant. PII patterns and the
+        # entropy threshold stay at the built-in defaults: otherwise a tenant
+        # admin could set pii_patterns_enabled: false and turn egress
+        # redaction off, the same loosening that keeps the scanner and memory
+        # thresholds env-governed.
+        return OutputRedactor({
+            "protected_classes": section.get("protected_classes", []),
+            "data_flow_rules": section.get("data_flow_rules", {}),
+        }), ""
+
     async def _process_output(
         self,
         content: str,
         session_id: str = "",
         destination: str = "user",
         data_class_labels: list[str] | None = None,
+        tenant_id: str = "default",
     ) -> RedactionResult:
         with tracer.start_as_current_span("mediate.output") as span:
+            unavailable = ""
             try:
-                result = self._redactor.redact(
+                # Inside the try: building the tenant's redactor must fail
+                # closed (and be audited as such), never escape as a 500.
+                redactor, unavailable = await self._redactor_for(tenant_id)
+                if redactor is None and data_class_labels:
+                    # §9: a flow decision needs the policy, and outbound
+                    # actions fail closed when the mediator cannot decide.
+                    raise RuntimeError("data-flow policy unavailable")
+                # Unlabelled output needs no flow decision: redact with the
+                # built-in rules rather than block every response in an outage.
+                result = (redactor or OutputRedactor()).redact(
                     content, destination=destination, data_class_labels=data_class_labels
                 )
             except Exception as e:
@@ -305,6 +341,8 @@ class MediationPipeline:
                 "redactions_count": len(result.redactions_applied),
                 "destination": destination,
                 "block_reason": result.block_reason,
+                "data_class_labels": [str(x)[:64] for x in (data_class_labels or [])[:20]],
+                **({"policy": unavailable} if unavailable else {}),
             },
         )
         self._emit(event)
@@ -381,11 +419,12 @@ class MediationPipeline:
         session_id: str = "",
         destination: str = "user",
         data_class_labels: list[str] | None = None,
+        tenant_id: str = "default",
     ) -> RedactionResult:
         try:
             return await self._process_output(
                 content, session_id=session_id, destination=destination,
-                data_class_labels=data_class_labels,
+                data_class_labels=data_class_labels, tenant_id=tenant_id,
             )
         except Exception as e:
             self._record_exception(e, stage="output", session_id=session_id)

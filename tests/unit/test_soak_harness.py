@@ -61,8 +61,10 @@ def test_every_fault_applies_and_reverts_exactly(fault):
     """
     pipeline = _FakePipeline()
 
+    from trust_mediator.modules.output_redaction.redactor import OutputRedactor
+
     def snapshot():
-        return {
+        snap = {
             (id(obj), attr): getattr(obj, attr)
             for obj in (
                 pipeline._scanner._classifier,
@@ -74,6 +76,10 @@ def test_every_fault_applies_and_reverts_exactly(fault):
             )
             for attr in vars(obj)
         }
+        # redactor_down patches the class: the pipeline builds the tenant's
+        # redactor per call, so an instance patch would inject nothing.
+        snap[(id(OutputRedactor), "redact")] = OutputRedactor.__dict__["redact"]
+        return snap
 
     before = snapshot()
     applied = fault.apply(pipeline)

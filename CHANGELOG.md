@@ -11,6 +11,24 @@ commit log.
 
 ## [Unreleased]
 
+### Security (data-flow rules, FR-OR-02)
+
+- **Data-flow rules were never loaded, and a missing rule meant allowed.** Each
+  output call now reads the caller's tenant `redaction.data_flow_rules`. A
+  protected class (always including pii, secret, credential) may flow only to
+  destinations a rule names: deny by default (PRD §6.6). Labels and
+  destinations are NFKC/casefold-normalised. A malformed section or an
+  unreadable policy blocks labelled output. Only the flow rules are
+  per-tenant; PII patterns and the entropy threshold stay built-in, so a
+  tenant cannot switch redaction off. Shipped policies now permit pii -> user
+  only. Labels are bounded (32 items x 64 chars). **Behaviour change:** output
+  sent with a protected label and no permitting rule is blocked.
+- Policy `memory` and `scanner` sections remain **not enforced**: the
+  thresholds come from env settings, mediator-wide. This is now documented in
+  the shipped policy.
+- The soak `redactor_down` fault patched an instance the pipeline no longer
+  used; it now patches the class.
+
 ### Security (audit completeness)
 
 - **Admin actions left no audit record.** Policy writes, per-agent updates
