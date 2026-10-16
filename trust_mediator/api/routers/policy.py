@@ -9,8 +9,10 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from trust_mediator.api.admin_audit import record_admin_action
 from trust_mediator.api.auth import AdminDep, CallerDep
-from trust_mediator.api.dependencies import PolicyStoreDep
+from trust_mediator.api.dependencies import AuditDep, PolicyStoreDep
+from trust_mediator.models.audit_event import AuditModule
 
 router = APIRouter(prefix="/v1/policy", tags=["policy"])
 
@@ -64,7 +66,9 @@ async def get_policy(store: PolicyStoreDep, caller: CallerDep):
 
 
 @router.put("", summary="Create a new policy version")
-async def update_policy(request: PolicyUpdateRequest, store: PolicyStoreDep, caller: AdminDep):
+async def update_policy(
+    request: PolicyUpdateRequest, store: PolicyStoreDep, caller: AdminDep, audit: AuditDep
+):
     """FR-CP-01, FR-CP-02: Create a new policy version in the caller's tenant.
 
     Control plane: requires an admin key (FR-CP-03). The version is written
@@ -87,7 +91,21 @@ async def update_policy(request: PolicyUpdateRequest, store: PolicyStoreDep, cal
             tenant_id=caller.tenant,
         )
     except ValueError as e:
+        record_admin_action(audit, caller, "policy_put", module=AuditModule.POLICY_STORE,
+                            succeeded=False, details={"error_type": type(e).__name__})
         raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        # Not a refusal: the store failed, possibly after committing. Record
+        # the attempt so the control-plane chain shows it, then let it 500.
+        record_admin_action(audit, caller, "policy_put", module=AuditModule.POLICY_STORE,
+                            succeeded=False, errored=True,
+                            details={"error_type": type(e).__name__})
+        raise
+    record_admin_action(audit, caller, "policy_put", module=AuditModule.POLICY_STORE,
+                        succeeded=True, details={"version_id": version.id,
+                                                 "version": version.version_number,
+                                                 "activate": request.activate,
+                                                 "shadow": request.shadow})
     return PolicyVersionResponse(
         id=version.id,
         version_number=version.version_number,
@@ -139,6 +157,7 @@ async def upsert_agent_policy(
     request: AgentPolicyRequest,
     store: PolicyStoreDep,
     caller: AdminDep,
+    audit: AuditDep,
 ):
     """FR-CP-01: replace one agent's policy in the caller's tenant.
 
@@ -165,12 +184,24 @@ async def upsert_agent_policy(
             tenant_id=caller.tenant,
         )
     except ValueError as e:
+        record_admin_action(audit, caller, "agent_policy_put", module=AuditModule.POLICY_STORE,
+                            succeeded=False, details={"agent_id": agent_id, "error_type": type(e).__name__})
         raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        record_admin_action(audit, caller, "agent_policy_put", module=AuditModule.POLICY_STORE,
+                            succeeded=False, errored=True,
+                            details={"error_type": type(e).__name__})
+        raise
+    record_admin_action(audit, caller, "agent_policy_put", module=AuditModule.POLICY_STORE,
+                        succeeded=True, details={"agent_id": agent_id, "version_id": version.id,
+                                                 "version": version.version_number})
     return _version_response(version)
 
 
 @router.delete("/agents/{agent_id}", summary="Remove one agent's policy")
-async def delete_agent_policy(agent_id: str, store: PolicyStoreDep, caller: AdminDep):
+async def delete_agent_policy(
+    agent_id: str, store: PolicyStoreDep, caller: AdminDep, audit: AuditDep
+):
     """FR-CP-01: remove one agent from the caller's tenant, leaving the rest intact.
 
     The agent then falls back to `default` and is denied everything. That is
@@ -178,13 +209,25 @@ async def delete_agent_policy(agent_id: str, store: PolicyStoreDep, caller: Admi
     unconfigured.
     """
     if await store.get_agent(agent_id, tenant_id=caller.tenant) is None:
+        record_admin_action(audit, caller, "agent_policy_delete", module=AuditModule.POLICY_STORE,
+                            succeeded=False, details={"agent_id": agent_id, "error": "not_found"})
         raise HTTPException(status_code=404, detail=f"agent '{agent_id}' has no policy")
     try:
         version = await store.delete_agent(
             agent_id=agent_id, created_by=caller.principal, tenant_id=caller.tenant
         )
     except ValueError as e:
+        record_admin_action(audit, caller, "agent_policy_delete", module=AuditModule.POLICY_STORE,
+                            succeeded=False, details={"agent_id": agent_id, "error_type": type(e).__name__})
         raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        record_admin_action(audit, caller, "agent_policy_delete", module=AuditModule.POLICY_STORE,
+                            succeeded=False, errored=True,
+                            details={"error_type": type(e).__name__})
+        raise
+    record_admin_action(audit, caller, "agent_policy_delete", module=AuditModule.POLICY_STORE,
+                        succeeded=True, details={"agent_id": agent_id, "version_id": version.id,
+                                                 "version": version.version_number})
     return _version_response(version)
 
 
@@ -208,7 +251,7 @@ async def list_versions(limit: int = 20, store: PolicyStoreDep = None, caller: C
 
 
 @router.post("/rollback/{version_id}", summary="Rollback to a previous policy version")
-async def rollback(version_id: str, store: PolicyStoreDep, caller: AdminDep):
+async def rollback(version_id: str, store: PolicyStoreDep, caller: AdminDep, audit: AuditDep):
     """FR-CP-01: Reactivate a previous version of the caller's tenant.
 
     The target version must belong to the caller's tenant; another tenant's
@@ -218,7 +261,17 @@ async def rollback(version_id: str, store: PolicyStoreDep, caller: AdminDep):
     try:
         success = await store.rollback(version_id, tenant_id=caller.tenant)
     except ValueError as e:
+        record_admin_action(audit, caller, "policy_rollback", module=AuditModule.POLICY_STORE,
+                            succeeded=False, details={"version_id": version_id, "error_type": type(e).__name__})
         raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        record_admin_action(audit, caller, "policy_rollback", module=AuditModule.POLICY_STORE,
+                            succeeded=False, errored=True,
+                            details={"error_type": type(e).__name__})
+        raise
+    record_admin_action(audit, caller, "policy_rollback", module=AuditModule.POLICY_STORE,
+                        succeeded=success, details={"version_id": version_id,
+                                                    **({} if success else {"error": "not_found"})})
     if not success:
         raise HTTPException(status_code=404, detail=f"Policy version '{version_id}' not found")
     return {"rolled_back": True, "version_id": version_id}

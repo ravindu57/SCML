@@ -11,6 +11,30 @@ commit log.
 
 ## [Unreleased]
 
+### Security (audit completeness)
+
+- **Admin actions left no audit record.** Policy writes, per-agent updates
+  and deletes, rollbacks, and quarantine release and purge, successful or
+  refused, now go into a per-tenant control-plane chain that no client
+  session id can reach. Admins replay it at `GET /v1/audit/control-plane`.
+- **The hash did not cover `agent_id`, `context_id` or `input_provenance`,** so
+  they could be edited without breaking the chain. Events now carry
+  `hash_version`; v2 hashes every field. Stored rows are migrated as v1 and
+  still verify, and a v1 event after a v2 one is reported as a downgrade.
+  **Upgrade note:** stop every old replica before new ones serve traffic
+  against a shared database. An old replica's rows are stored as v1, and
+  landing after a v2 event they read as a downgrade (`chain_valid: false`).
+- **A failed audit write left no trace.** It now leaves an `audit_gap` marker
+  (`cause: write_failed`) in the session's chain, as a queue overflow already
+  did.
+- **An unexpected exception in a mediation call was not audited.** It is now
+  recorded as `pipeline_exception` in the session's chain before the error
+  propagates.
+- Gap counters are bounded at 10,000 sessions (the rest fold into one
+  system marker), and a flush stops at the first failure, so a long outage
+  cannot turn client-chosen session ids into unbounded memory or one failing
+  write per session per batch.
+
 ### Security (tenant isolation)
 
 - **Memory, audit replay, gRPC and rate limits were not tenant-scoped.** A

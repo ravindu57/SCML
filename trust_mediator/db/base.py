@@ -91,6 +91,26 @@ async def _add_tenant_column(table: str) -> None:
         log.info("db.migrated_tenant_column", table=table)
 
 
+async def _migrate_audit_hash_version() -> None:
+    """Add ``audit_events.hash_version``. Existing rows are v1, the field set
+    they were hashed with, so chains written before v2 still verify."""
+    import structlog
+    from sqlalchemy import inspect, text
+
+    async with engine.connect() as conn:
+        cols = await conn.run_sync(
+            lambda c: {x["name"] for x in inspect(c).get_columns("audit_events")}
+        )
+        if "hash_version" in cols:
+            return
+        guard = "IF NOT EXISTS " if "postgresql" in settings.database_url else ""
+        await conn.execute(
+            text(f"ALTER TABLE audit_events ADD COLUMN {guard}hash_version INTEGER NOT NULL DEFAULT 1")
+        )
+        await conn.commit()
+        structlog.get_logger(__name__).info("db.migrated_audit_hash_version")
+
+
 async def _widen_session_columns() -> None:
     """Widen ``session_id`` from VARCHAR(36) to VARCHAR(200) on PostgreSQL.
 
@@ -163,6 +183,7 @@ async def create_all_tables() -> None:
             await _migrate_policy_tenant_column()
             await _migrate_memory_tenant_column()
             await _widen_session_columns()
+            await _migrate_audit_hash_version()
         finally:
             if is_postgres:
                 await conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _LOCK_KEY})

@@ -75,6 +75,11 @@ class AuditEvent(BaseModel):
     event_hash: str = ""                     # SHA-256(this event without event_hash)
     agent_id: str = "default"
     context_id: str = ""                     # ID of the ContextEnvelope involved
+    # Which fields the hash covers. 1: the original set, which left agent_id,
+    # context_id and input_provenance unhashed, so any of them could be edited
+    # without breaking the chain. 2 (all new events): every field. Stored per
+    # event so chains written before v2 still verify.
+    hash_version: int = 2
 
     def compute_hash(self, prev_hash: str = "") -> str:
         """
@@ -97,6 +102,13 @@ class AuditEvent(BaseModel):
             "prev_hash": prev_hash,
             "details": self.details,
         }
+        if self.hash_version >= 2:
+            payload.update(
+                hash_version=self.hash_version,
+                agent_id=self.agent_id,
+                context_id=self.context_id,
+                input_provenance=self.input_provenance,
+            )
         return hashlib.sha256(
             json.dumps(payload, sort_keys=True).encode("utf-8")
         ).hexdigest()

@@ -9,7 +9,9 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from trust_mediator.api.admin_audit import record_admin_action
 from trust_mediator.api.auth import AdminDep, CallerDep, session_for
+from trust_mediator.models.audit_event import AuditModule
 from trust_mediator.api.dependencies import PipelineDep
 from trust_mediator.models.context_envelope import TrustLabel
 from trust_mediator.models.memory_record import MemoryReadRequest, MemoryWriteRequest
@@ -151,9 +153,18 @@ async def release_quarantined(memory_id: str, pipeline: PipelineDep, admin: Admi
     Requires an admin key (FR-CP-03). With a data-plane key, the agent whose
     memory was poisoned could release the poison itself.
     """
-    success = await pipeline._memory.review_and_release(
-        memory_id, reviewer=admin.principal, tenant_id=admin.tenant
-    )
+    try:
+        success = await pipeline._memory.review_and_release(
+            memory_id, reviewer=admin.principal, tenant_id=admin.tenant
+        )
+    except Exception as e:
+        record_admin_action(pipeline._audit, admin, "memory_release",
+                            module=AuditModule.MEMORY_INTEGRITY, succeeded=False,
+                            details={"memory_id": memory_id, "error_type": type(e).__name__}, errored=True)
+        raise
+    record_admin_action(pipeline._audit, admin, "memory_release",
+                        module=AuditModule.MEMORY_INTEGRITY, succeeded=success,
+                        details={"memory_id": memory_id})
     if not success:
         raise HTTPException(status_code=404, detail="Memory record not found or not in quarantined state")
     return {"released": True, "memory_id": memory_id}
@@ -169,9 +180,18 @@ async def purge_quarantined(
     principal is recorded alongside the caller's free-text reason. Requires an
     admin key (FR-CP-03).
     """
-    purged = await pipeline._memory.purge(
-        memory_id, reason=f"{reason} (by {admin.principal})", tenant_id=admin.tenant
-    )
+    try:
+        purged = await pipeline._memory.purge(
+            memory_id, reason=f"{reason} (by {admin.principal})", tenant_id=admin.tenant
+        )
+    except Exception as e:
+        record_admin_action(pipeline._audit, admin, "memory_purge",
+                            module=AuditModule.MEMORY_INTEGRITY, succeeded=False,
+                            details={"memory_id": memory_id, "error_type": type(e).__name__}, errored=True)
+        raise
+    record_admin_action(pipeline._audit, admin, "memory_purge",
+                        module=AuditModule.MEMORY_INTEGRITY, succeeded=purged,
+                        details={"memory_id": memory_id, "reason": reason[:200]})
     if not purged:
         # Unknown id, another tenant's record, or not quarantined/rejected.
         # One answer for all three, so the response does not reveal which.

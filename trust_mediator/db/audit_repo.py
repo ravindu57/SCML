@@ -41,6 +41,8 @@ class AuditEventORM(Base):
     event_hash: Mapped[str] = mapped_column(Text, nullable=False)
     agent_id: Mapped[str] = mapped_column(String(100), default="default")
     context_id: Mapped[str] = mapped_column(String(36), default="")
+    # Rows written before v2 have no value and are v1 (see AuditEvent).
+    hash_version: Mapped[int] = mapped_column(Integer, nullable=False, default=2, server_default="1")
 
     def to_pydantic(self) -> AuditEvent:
         from trust_mediator.models.audit_event import AuditDecision, AuditModule
@@ -58,6 +60,7 @@ class AuditEventORM(Base):
             event_hash=self.event_hash,
             agent_id=self.agent_id,
             context_id=self.context_id,
+            hash_version=self.hash_version,
         )
 
 
@@ -76,6 +79,7 @@ def _to_orm(event: AuditEvent) -> AuditEventORM:
         event_hash=event.event_hash,
         agent_id=event.agent_id,
         context_id=event.context_id,
+        hash_version=event.hash_version,
     )
 
 

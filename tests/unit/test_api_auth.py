@@ -128,8 +128,17 @@ class _StubMemory:
         return False
 
 
+class _NullAudit:
+    def make_event(self, **kw):
+        return kw
+
+    def log(self, event):
+        pass
+
+
 class _StubPipeline:
     _memory = _StubMemory()
+    _audit = _NullAudit()
 
 
 class TestEveryV1RouteResolvesAuth:
@@ -203,6 +212,7 @@ class TestQuarantineRoutesRejectAnonymousCallers:
 
         class _P:
             _memory = _Capturing()
+            _audit = _NullAudit()
 
         app.dependency_overrides[get_pipeline] = _P
         try:

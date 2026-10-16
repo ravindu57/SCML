@@ -95,7 +95,7 @@ class MediationPipeline:
 
     # ── §5.3 Step 1+2+3: Context mediation ───────────────────────────────────
 
-    async def process_context(self, envelope: ContextEnvelope) -> ContextEnvelope:
+    async def _process_context(self, envelope: ContextEnvelope) -> ContextEnvelope:
         """
         Route, label, and scan a context envelope.
         Returns the envelope with scanner_verdict populated.
@@ -160,7 +160,7 @@ class MediationPipeline:
 
     # ── §5.3 Step 4: Tool call policy ─────────────────────────────────────────
 
-    async def process_tool_call(self, request: ToolCallRequest):
+    async def _process_tool_call(self, request: ToolCallRequest):
         """Evaluate a proposed tool call against policy. Returns PolicyDecision."""
         with tracer.start_as_current_span("mediate.tool_call") as span:
             decision = await self._policy_engine.evaluate(request)
@@ -193,7 +193,7 @@ class MediationPipeline:
 
     # ── §5.3 Step 6: Memory ops ───────────────────────────────────────────────
 
-    async def process_memory_write(self, request: MemoryWriteRequest) -> MemoryWriteResult:
+    async def _process_memory_write(self, request: MemoryWriteRequest) -> MemoryWriteResult:
         with tracer.start_as_current_span("mediate.memory_write") as span:
             result = await self._memory.vet_write(request)
             set_decision_attributes(
@@ -228,7 +228,7 @@ class MediationPipeline:
         self._emit(event)
         return result
 
-    async def process_memory_read(self, request: MemoryReadRequest) -> MemoryReadResult:
+    async def _process_memory_read(self, request: MemoryReadRequest) -> MemoryReadResult:
         with tracer.start_as_current_span("mediate.memory_read") as span:
             result = await self._memory.verify_read(request)
             set_decision_attributes(
@@ -254,7 +254,7 @@ class MediationPipeline:
 
     # ── §5.3 Step 7: Output redaction ─────────────────────────────────────────
 
-    async def process_output(
+    async def _process_output(
         self,
         content: str,
         session_id: str = "",
@@ -309,6 +309,87 @@ class MediationPipeline:
         )
         self._emit(event)
         return result
+
+    # ── Public entry points: every exception leaves an audit record ──────────
+    #
+    # An exception escaping a mediation call used to reach the client as a 500
+    # with nothing in the hash chain (security review Sec #9): the decision
+    # that was never made was also never recorded. Each entry point now writes
+    # a pipeline_exception event into the session's chain, then re-raises so
+    # the transport still answers with an error (never a verdict it did not
+    # reach). The fail-closed verdicts the modules render on their own errors
+    # are unchanged; this catches what they did not anticipate.
+
+    def _record_exception(
+        self, exc: Exception, *, stage: str, session_id: str, agent_id: str = "default"
+    ) -> None:
+        # The type only: an exception message can echo mediated content.
+        logger.error("pipeline.unhandled_exception", stage=stage, error_type=type(exc).__name__)
+        self._emit(
+            self._audit.make_event(
+                session_id=session_id,
+                module=AuditModule.PIPELINE,
+                decision=AuditDecision.ERROR,
+                reason_code="pipeline_exception",
+                details={"stage": stage, "error_type": type(exc).__name__},
+                agent_id=agent_id,
+            )
+        )
+
+    async def process_context(self, envelope: ContextEnvelope) -> ContextEnvelope:
+        try:
+            return await self._process_context(envelope)
+        except Exception as e:
+            self._record_exception(
+                e, stage="context", session_id=envelope.session_id,
+                # Provenance carries the agent id; the envelope itself has none.
+                # getattr: this handler must never raise and mask the original.
+                agent_id=getattr(envelope.provenance, "agent_id", "") or "default",
+            )
+            raise
+
+    async def process_tool_call(self, request: ToolCallRequest):
+        try:
+            return await self._process_tool_call(request)
+        except Exception as e:
+            self._record_exception(
+                e, stage="tool_call", session_id=request.session_id, agent_id=request.agent_id
+            )
+            raise
+
+    async def process_memory_write(self, request: MemoryWriteRequest) -> MemoryWriteResult:
+        try:
+            return await self._process_memory_write(request)
+        except Exception as e:
+            self._record_exception(
+                e, stage="memory_write", session_id=request.session_id, agent_id=request.agent_id
+            )
+            raise
+
+    async def process_memory_read(self, request: MemoryReadRequest) -> MemoryReadResult:
+        try:
+            return await self._process_memory_read(request)
+        except Exception as e:
+            self._record_exception(
+                e, stage="memory_read", session_id=request.session_id, agent_id=request.agent_id
+            )
+            raise
+
+    async def process_output(
+        self,
+        content: str,
+        session_id: str = "",
+        destination: str = "user",
+        data_class_labels: list[str] | None = None,
+    ) -> RedactionResult:
+        try:
+            return await self._process_output(
+                content, session_id=session_id, destination=destination,
+                data_class_labels=data_class_labels,
+            )
+        except Exception as e:
+            self._record_exception(e, stage="output", session_id=session_id)
+            raise
 
     # ── Audit replay ──────────────────────────────────────────────────────────
 

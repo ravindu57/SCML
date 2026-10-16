@@ -48,3 +48,14 @@ def scoped_session(tenant: str, session_id: str) -> str:
     if tenant == settings.default_tenant:
         return session_id
     return f"{tenant}{SEPARATOR}{session_id}"
+
+
+#: First segment of every control-plane chain. ``#`` is not a legal tenant
+#: character, and client ids cannot contain the separator, so no scoped client
+#: session can ever equal a control-plane session.
+CONTROL_PLANE = "#control-plane"
+
+
+def control_session(tenant: str) -> str:
+    """The audit chain that records a tenant's administrative actions."""
+    return f"{CONTROL_PLANE}{SEPARATOR}{tenant}"

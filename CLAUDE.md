@@ -11,7 +11,7 @@ are v1.0's and unaffected.
 
 ## Commands
 
-- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 795 passed with the `[grpc]` extra installed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
+- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 813 passed with the `[grpc]` extra installed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
 - TypeScript client tests: `cd clients/typescript && npm test` (expect 25 passed; run `npm install && npm run build` first)
 - Benchmarks: `.venv/bin/python -m benchmarks.cli --testbed memory_poisoning` (see `benchmarks/README.md`; the CLI pins its own env and DB, so it needs no env prefix)
 - Load/latency: `.venv/bin/python -m benchmarks.load` (§8.1/§8.2 NFRs; same self-pinning env)
@@ -25,7 +25,7 @@ are v1.0's and unaffected.
 - **Fail policy (PRD §9):** side-effect operations (tool execution, memory writes, outbound responses) fail CLOSED on mediator error; only low-risk reads may fail open, and every fail-open must be audit-logged.
 - **Taint propagation:** derived values inherit the most restrictive label of their inputs (`TrustLabel.most_restrictive`).
 - **All config via env:** every tunable goes through `TRUST_MEDIATOR_*` env vars in `trust_mediator/config.py` (pydantic-settings). Never hardcode thresholds, URLs, or keys.
-- **Audit everything:** every mediation decision emits an `AuditEvent` through `AuditLogger` (SHA-256 hash chain). New decision points must log.
+- **Audit everything:** every mediation decision emits an `AuditEvent` through `AuditLogger` (SHA-256 hash chain). New decision points must log. So do control-plane actions, via `api/admin_audit.record_admin_action` into the tenant's `#control-plane::<tenant>` chain (admin-only replay at `GET /v1/audit/control-plane`); a new admin route must record itself. The hash covers every field from `hash_version` 2 on; when you add a field to `AuditEvent`, add it to `compute_hash` under a *new* version, never by changing v2, or every stored v2 chain stops verifying. Public `MediationPipeline.process_*` methods are audit wrappers: implementations live in `_process_*`, and an unexpected exception is recorded as `pipeline_exception` before it propagates. A failed audit write leaves an `audit_gap` marker (`cause: write_failed`), like an overflow.
 - **A classifier that cannot score raises `ClassifierUnavailable`; it never returns 0.0.**
   0.0 means "definitely benign", so returning it on failure (no API key, HTTP
   error, bad reply, no model) marked unscanned content verified and bypassed

@@ -60,6 +60,7 @@ ADMIN_ROUTES = {
     ("POST", "/v1/policy/rollback/{version_id}"),
     ("POST", "/v1/mediate/memory/quarantined/{memory_id}/release"),
     ("DELETE", "/v1/mediate/memory/quarantined/{memory_id}"),
+    ("GET", "/v1/audit/control-plane"),
 }
 
 #: One concrete request per admin route, with a body the handler would accept.
@@ -114,6 +115,17 @@ class _Memory:
         return True
 
 
+class _RecordingAudit:
+    def __init__(self):
+        self.events = []
+
+    def make_event(self, **kw):
+        return kw
+
+    def log(self, event):
+        self.events.append(event)
+
+
 @pytest.fixture
 async def env(fresh_policy_table, monkeypatch):
     """A keyed deployment: one data-plane key, one admin key, default tenant."""
@@ -125,6 +137,7 @@ async def env(fresh_policy_table, monkeypatch):
 
     class _Pipeline:
         _memory = memory
+        _audit = _RecordingAudit()
 
     app = create_app()
     app.dependency_overrides[get_policy_store] = lambda: store
