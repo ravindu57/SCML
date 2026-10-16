@@ -11,6 +11,16 @@ commit log.
 
 ## [Unreleased]
 
+### CI
+
+- Ruff is pinned (`0.15.22`) in the `[dev]` extra and the lint job, and the
+  `[dev]` extra now includes `grpc`, so a plain dev install runs every test.
+- New jobs: build, test and `npm pack` the TypeScript client; typecheck the
+  orchestrator and demo-agent. None of them was built in CI before.
+- The test-count floor rises from 390 to 860.
+- The demo `load-policy` scripts send `SCML_ADMIN_API_KEY` (policy writes
+  are control-plane).
+
 ### Security (deploy defaults)
 
 - **HTTP rate limiting applied to no `/v1` route.** slowapi looks routes up in
