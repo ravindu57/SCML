@@ -137,7 +137,7 @@ class MemoryIntegrityLayer:
         try:
             # Stages 2-4: scan → consistency → score
             record, breakdown, consistency_report, scan_verified = await self._evaluate(
-                record, request.agent_id
+                record, request.agent_id, request.tenant_id
             )
 
             # Stage 5: Decision
@@ -167,7 +167,7 @@ class MemoryIntegrityLayer:
             )
 
             # Persist to store
-            await self._repo.save(record, agent_id=request.agent_id)
+            await self._repo.save(record, agent_id=request.agent_id, tenant_id=request.tenant_id)
 
             logger.info(
                 "memory_integrity.write_complete",
@@ -211,7 +211,7 @@ class MemoryIntegrityLayer:
             # must render a decision, not raise. Measured by the soak harness
             # as 879 escaped faults and 75% availability under memory_store_down.
             try:
-                await self._repo.save(record, agent_id=request.agent_id)
+                await self._repo.save(record, agent_id=request.agent_id, tenant_id=request.tenant_id)
             except Exception as save_error:
                 # The safety property still holds: nothing reached ACTIVE, so
                 # no poisoned memory is readable. What is lost is the audit
@@ -241,7 +241,7 @@ class MemoryIntegrityLayer:
             )
 
     async def _evaluate(
-        self, record: MemoryRecord, agent_id: str
+        self, record: MemoryRecord, agent_id: str, tenant_id: str = "default"
     ) -> tuple[MemoryRecord, IntegrityScoreBreakdown, ConsistencyReport, bool]:
         """
         Run stages 2-4 (scan → consistency → score) over a candidate record.
@@ -255,7 +255,7 @@ class MemoryIntegrityLayer:
         to the agent unchallenged.
         """
         record, _, scan_verified = await self._stage_scan(record)
-        consistency_report = await self._stage_consistency(record, agent_id)
+        consistency_report = await self._stage_consistency(record, agent_id, tenant_id)
         breakdown = self._scorer.score(record, consistency_report)
         record = record.model_copy(
             update={
@@ -289,9 +289,15 @@ class MemoryIntegrityLayer:
         verified = scanned.is_verified or scanned.trust_label == TrustLabel.TRUSTED_INSTRUCTION
         return record.model_copy(update={"scan_score": scan_score}), scan_score, verified
 
-    async def _stage_consistency(self, record: MemoryRecord, agent_id: str):
-        """Stage 3: check consistency against existing active memory."""
-        existing = await self._repo.list_active(agent_id=agent_id)
+    async def _stage_consistency(
+        self, record: MemoryRecord, agent_id: str, tenant_id: str = "default"
+    ):
+        """Stage 3: check consistency against the tenant's existing active memory.
+
+        Tenant-scoped: another company's memories must neither influence this
+        write's score nor be compared against it.
+        """
+        existing = await self._repo.list_active(agent_id=agent_id, tenant_id=tenant_id)
         # Exclude the record itself (shouldn't be there, but guard)
         existing = [r for r in existing if r.id != record.id]
         return self._checker.check(record.content, existing)
@@ -307,7 +313,7 @@ class MemoryIntegrityLayer:
           2. Content hash matches (tamper-evidence)
           3. Optional: re-scan if policy requires or caller forces it
         """
-        record = await self._repo.get(request.memory_id)
+        record = await self._repo.get(request.memory_id, tenant_id=request.tenant_id)
         if record is None:
             return MemoryReadResult(
                 record=None,
@@ -338,6 +344,10 @@ class MemoryIntegrityLayer:
                 record.id,
                 MemoryStatus.QUARANTINED,
                 "Hash mismatch detected on read — possible tampering",
+                tenant_id=request.tenant_id,
+                # Only from ACTIVE: a record purged since it was read must stay
+                # purged, not come back as reviewable (and releasable) quarantine.
+                from_status=(MemoryStatus.ACTIVE,),
             )
             return MemoryReadResult(
                 record=record,
@@ -358,7 +368,7 @@ class MemoryIntegrityLayer:
         should_rescan = request.rescan or settings.memory_rescan_on_read
         if should_rescan:
             rescored, breakdown, report, scan_verified = await self._evaluate(
-                record, request.agent_id
+                record, request.agent_id, request.tenant_id
             )
             if not scan_verified:
                 # Withhold, but leave the record ACTIVE: a scanner outage says
@@ -384,6 +394,8 @@ class MemoryIntegrityLayer:
                     MemoryStatus.QUARANTINED,
                     f"Re-verification on read scored {breakdown.composite:.2f} "
                     f"({breakdown.verdict}); withheld",
+                    tenant_id=request.tenant_id,
+                    from_status=(MemoryStatus.ACTIVE,),
                 )
                 return MemoryReadResult(
                     record=rescored,
@@ -392,32 +404,51 @@ class MemoryIntegrityLayer:
                     reason="reverification_below_threshold",
                 )
 
-        await self._repo.update_verified_at(record.id)
+        await self._repo.update_verified_at(record.id, tenant_id=request.tenant_id)
         return MemoryReadResult(record=record, verified=True)
 
     # ── Admin operations (FR-MI-05) ───────────────────────────────────────────
 
-    async def list_quarantined(self, agent_id: str | None = None) -> list[MemoryRecord]:
-        """Quarantined entries for review; every agent unless one is named."""
-        return await self._repo.list_quarantined(agent_id=agent_id)
+    async def list_quarantined(
+        self, agent_id: str | None = None, tenant_id: str = "default"
+    ) -> list[MemoryRecord]:
+        """The tenant's quarantined entries for review; every agent unless one is named."""
+        return await self._repo.list_quarantined(agent_id=agent_id, tenant_id=tenant_id)
 
     async def review_and_release(
-        self, memory_id: str, reviewer: str = "human_reviewer"
+        self, memory_id: str, reviewer: str = "human_reviewer", tenant_id: str = "default"
     ) -> bool:
-        """Promote a quarantined entry to ACTIVE after human review."""
-        record = await self._repo.get(memory_id)
-        if record is None or record.status != MemoryStatus.QUARANTINED:
-            return False
-        await self._repo.update_status(
+        """Promote one of the tenant's quarantined entries to ACTIVE after review.
+
+        The status check and the update are one conditional statement, so two
+        concurrent reviews, or a release racing a purge, cannot both succeed.
+        """
+        released = await self._repo.update_status(
             memory_id,
             MemoryStatus.ACTIVE,
             f"Released by reviewer: {reviewer}",
+            tenant_id=tenant_id,
+            from_status=(MemoryStatus.QUARANTINED,),
         )
-        logger.info("memory_integrity.released", record_id=memory_id, reviewer=reviewer)
-        return True
+        if released:
+            logger.info("memory_integrity.released", record_id=memory_id, reviewer=reviewer)
+        return released
 
-    async def purge(self, memory_id: str, reason: str = "admin_purge") -> bool:
-        """Hard-delete (mark as PURGED) a quarantined or rejected entry."""
-        await self._repo.update_status(memory_id, MemoryStatus.PURGED, reason)
-        logger.info("memory_integrity.purged", record_id=memory_id, reason=reason)
-        return True
+    async def purge(
+        self, memory_id: str, reason: str = "admin_purge", tenant_id: str = "default"
+    ) -> bool:
+        """Mark one of the tenant's quarantined or rejected entries PURGED.
+
+        Only those two states: purging used to accept any record, including an
+        ACTIVE one, and reported success for ids that did not exist.
+        """
+        purged = await self._repo.update_status(
+            memory_id,
+            MemoryStatus.PURGED,
+            reason,
+            tenant_id=tenant_id,
+            from_status=(MemoryStatus.QUARANTINED, MemoryStatus.REJECTED),
+        )
+        if purged:
+            logger.info("memory_integrity.purged", record_id=memory_id, reason=reason)
+        return purged

@@ -151,7 +151,9 @@ class PolicyEngine:
                 PolicyDecisionCode.DENY_RATE_LIMIT,
                 f"Malformed rate limit for agent '{request.agent_id}' — fail-closed",
             )
-        rate_key = f"{request.agent_id}:{request.tool_name}"
+        # Tenant first (Sec #12): agent ids are per tenant, so two companies'
+        # "ops" agents must not share, and exhaust, one bucket.
+        rate_key = f"{request.tenant_id}:{request.agent_id}:{request.tool_name}"
         if not await self._rate_limiter.is_allowed(rate_key, rpm_limit, window_seconds=60):
             return self._deny(
                 PolicyDecisionCode.DENY_RATE_LIMIT,

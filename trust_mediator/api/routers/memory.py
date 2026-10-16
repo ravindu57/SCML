@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from trust_mediator.api.auth import AdminDep, AuthDep
+from trust_mediator.api.auth import AdminDep, CallerDep, session_for
 from trust_mediator.api.dependencies import PipelineDep
 from trust_mediator.models.context_envelope import TrustLabel
 from trust_mediator.models.memory_record import MemoryReadRequest, MemoryWriteRequest
@@ -60,7 +60,7 @@ class QuarantineListResponse(BaseModel):
 
 
 @router.post("/write", response_model=MemoryWriteResponse, summary="Vet a candidate memory write")
-async def memory_write(body: MemoryWriteBody, pipeline: PipelineDep, _: AuthDep):
+async def memory_write(body: MemoryWriteBody, pipeline: PipelineDep, caller: CallerDep):
     """
     FR-MI-01: Run the full 5-stage memory write vetting pipeline.
     Returns persist | quarantine | reject with integrity score.
@@ -68,7 +68,8 @@ async def memory_write(body: MemoryWriteBody, pipeline: PipelineDep, _: AuthDep)
     label = body.trust_label
 
     request = MemoryWriteRequest(
-        session_id=body.session_id,
+        session_id=session_for(caller, body.session_id),
+        tenant_id=caller.tenant,
         content=body.content,
         source=body.source,
         source_uri=body.source_uri,
@@ -89,12 +90,13 @@ async def memory_write(body: MemoryWriteBody, pipeline: PipelineDep, _: AuthDep)
 
 
 @router.post("/read", response_model=MemoryReadResponse, summary="Verify a memory read")
-async def memory_read(body: MemoryReadBody, pipeline: PipelineDep, _: AuthDep):
+async def memory_read(body: MemoryReadBody, pipeline: PipelineDep, caller: CallerDep):
     """
     FR-MI-04: Verify provenance/integrity of a memory read before context re-entry.
     """
     request = MemoryReadRequest(
-        session_id=body.session_id,
+        session_id=session_for(caller, body.session_id),
+        tenant_id=caller.tenant,
         memory_id=body.memory_id,
         agent_id=body.agent_id,
         rescan=body.rescan,
@@ -111,13 +113,13 @@ async def memory_read(body: MemoryReadBody, pipeline: PipelineDep, _: AuthDep):
 
 
 @router.get("/quarantined", response_model=QuarantineListResponse, summary="List quarantined memory entries")
-async def list_quarantined(pipeline: PipelineDep, _: AuthDep, agent_id: str | None = None):
+async def list_quarantined(pipeline: PipelineDep, caller: CallerDep, agent_id: str | None = None):
     """FR-MI-05: Return all quarantined entries for human review.
 
     Quarantined content is attacker-controlled by definition, so listing it
     without a key hands an attacker back the payloads the mediator caught.
     """
-    records = await pipeline._memory.list_quarantined(agent_id=agent_id)
+    records = await pipeline._memory.list_quarantined(agent_id=agent_id, tenant_id=caller.tenant)
     return QuarantineListResponse(
         records=[
             {
@@ -149,7 +151,9 @@ async def release_quarantined(memory_id: str, pipeline: PipelineDep, admin: Admi
     Requires an admin key (FR-CP-03). With a data-plane key, the agent whose
     memory was poisoned could release the poison itself.
     """
-    success = await pipeline._memory.review_and_release(memory_id, reviewer=admin.principal)
+    success = await pipeline._memory.review_and_release(
+        memory_id, reviewer=admin.principal, tenant_id=admin.tenant
+    )
     if not success:
         raise HTTPException(status_code=404, detail="Memory record not found or not in quarantined state")
     return {"released": True, "memory_id": memory_id}
@@ -165,5 +169,13 @@ async def purge_quarantined(
     principal is recorded alongside the caller's free-text reason. Requires an
     admin key (FR-CP-03).
     """
-    await pipeline._memory.purge(memory_id, reason=f"{reason} (by {admin.principal})")
+    purged = await pipeline._memory.purge(
+        memory_id, reason=f"{reason} (by {admin.principal})", tenant_id=admin.tenant
+    )
+    if not purged:
+        # Unknown id, another tenant's record, or not quarantined/rejected.
+        # One answer for all three, so the response does not reveal which.
+        raise HTTPException(
+            status_code=404, detail="Memory record not found or not quarantined/rejected"
+        )
     return {"purged": True, "memory_id": memory_id}

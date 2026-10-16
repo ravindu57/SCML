@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
-from trust_mediator.api.auth import AuthDep, CallerDep
+from trust_mediator.api.auth import CallerDep, session_for
 from trust_mediator.api.dependencies import PipelineDep
 from trust_mediator.models.context_envelope import TrustLabel
 from trust_mediator.models.tool_call import ToolCallRequest
@@ -86,12 +86,16 @@ class OutputMediationResponse(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/context", response_model=ContextMediationResponse, summary="Label + scan retrieved/tool content")
-async def mediate_context(request: Request, body: ContextMediationRequest, pipeline: PipelineDep, _: AuthDep):
+async def mediate_context(
+    request: Request, body: ContextMediationRequest, pipeline: PipelineDep, caller: CallerDep
+):
     """
     FR-IG-01, FR-SC-01: Intercept and scan untrusted/risky content.
     Returns the verdict, trust label, and sanitised content.
     """
-    interceptor = IngressInterceptor(session_id=body.session_id, agent_id=body.agent_id)
+    interceptor = IngressInterceptor(
+        session_id=session_for(caller, body.session_id), agent_id=body.agent_id
+    )
 
     # Wrap content in the appropriate envelope based on source.
     #
@@ -157,7 +161,7 @@ async def mediate_tool_call(request: ToolCallMediationRequest, pipeline: Pipelin
     key resolves its own policy document no matter what any client sends.
     """
     tool_request = ToolCallRequest(
-        session_id=request.session_id,
+        session_id=session_for(caller, request.session_id),
         tool_name=request.tool_name,
         arguments=request.arguments,
         argument_trust_labels=request.argument_trust_labels,
@@ -178,13 +182,13 @@ async def mediate_tool_call(request: ToolCallMediationRequest, pipeline: Pipelin
 
 
 @router.post("/output", response_model=OutputMediationResponse, summary="Redact and authorise outbound response/action")
-async def mediate_output(request: OutputMediationRequest, pipeline: PipelineDep, _: AuthDep):
+async def mediate_output(request: OutputMediationRequest, pipeline: PipelineDep, caller: CallerDep):
     """
     FR-OR-01, FR-OR-02: Redact PII/secrets and block exfiltration.
     """
     result = await pipeline.process_output(
         content=request.content,
-        session_id=request.session_id,
+        session_id=session_for(caller, request.session_id),
         destination=request.destination,
         data_class_labels=request.data_class_labels,
     )

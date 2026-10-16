@@ -124,7 +124,7 @@ async def client(app):
 class _StubMemory:
     """No such record — enough to prove the handler ran, without a database."""
 
-    async def review_and_release(self, memory_id: str, reviewer: str = "") -> bool:
+    async def review_and_release(self, memory_id: str, reviewer: str = "", tenant_id: str = "default") -> bool:
         return False
 
 
@@ -197,7 +197,7 @@ class TestQuarantineRoutesRejectAnonymousCallers:
         seen: dict[str, str] = {}
 
         class _Capturing(_StubMemory):
-            async def review_and_release(self, memory_id, reviewer=""):
+            async def review_and_release(self, memory_id, reviewer="", tenant_id="default"):
                 seen["reviewer"] = reviewer
                 return True
 

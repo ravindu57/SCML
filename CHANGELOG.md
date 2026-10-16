@@ -11,6 +11,27 @@ commit log.
 
 ## [Unreleased]
 
+### Security (tenant isolation)
+
+- **Memory, audit replay, gRPC and rate limits were not tenant-scoped.** A
+  tenant could read another's memory record by id, see and (through its admin)
+  release or purge another's quarantine, and replay another's audit chain by
+  reusing a session id. gRPC mediated every call as `default`, and two
+  tenants' agents with the same id shared one rate-limit bucket. Memory records
+  now carry `tenant_id` (migrated in place, existing rows `default`) and every
+  query filters on it. Client session ids are namespaced per tenant at the API
+  boundary, the default tenant keeping raw ids so existing chains replay. gRPC
+  resolves the tenant from the key, and buckets are `tenant:agent:tool`.
+  **Behaviour change:** a `session_id` containing `::`, or longer than 128
+  characters, is now a 422. `session_id` columns widen from 36 to 200
+  characters (migrated on PostgreSQL), because a scoped UUID session
+  overflowed 36 and PostgreSQL would have dropped every such audit event.
+  Startup migrations now run under the multi-worker advisory lock.
+- **Purge accepted any record and always reported success.** It now purges
+  only quarantined or rejected records and returns 404 otherwise. Release and
+  purge are single conditional updates, so a release racing a purge or a second
+  release cannot both succeed.
+
 ### Added
 
 - **Research prototype: tool-affordance imperative detector**

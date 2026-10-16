@@ -39,7 +39,18 @@ class Base(DeclarativeBase):
 
 
 async def _migrate_policy_tenant_column() -> None:
-    """Add ``policy_versions.tenant_id`` to databases created before tenancy.
+    """Add ``policy_versions.tenant_id`` to databases created before tenancy."""
+    await _add_tenant_column("policy_versions")
+
+
+async def _migrate_memory_tenant_column() -> None:
+    """Add ``memory_records.tenant_id`` (Sec #6). Existing rows become ``default``,
+    which is where every pre-tenancy write was made from an unqualified key."""
+    await _add_tenant_column("memory_records")
+
+
+async def _add_tenant_column(table: str) -> None:
+    """Add ``<table>.tenant_id`` to databases created before tenancy.
 
     ``create_all`` only creates *missing* tables; it does not add columns to
     existing ones, so a pre-tenancy deployment would boot with the new column
@@ -53,27 +64,60 @@ async def _migrate_policy_tenant_column() -> None:
     from sqlalchemy import inspect, text
 
     log = structlog.get_logger(__name__)
+    # IF NOT EXISTS on PostgreSQL as a second guard behind the advisory lock
+    # (create_all_tables runs migrations while holding it). SQLite has no
+    # ADD COLUMN IF NOT EXISTS, but it is single-writer and dev-only here.
+    guard = "IF NOT EXISTS " if "postgresql" in settings.database_url else ""
     async with engine.connect() as conn:
         def _columns(sync_conn) -> set[str]:
-            return {c["name"] for c in inspect(sync_conn).get_columns("policy_versions")}
+            return {c["name"] for c in inspect(sync_conn).get_columns(table)}
 
         cols = await conn.run_sync(_columns)
         if "tenant_id" in cols:
             return
         await conn.execute(
             text(
-                "ALTER TABLE policy_versions "
-                "ADD COLUMN tenant_id VARCHAR(64) NOT NULL DEFAULT 'default'"
+                f"ALTER TABLE {table} "
+                f"ADD COLUMN {guard}tenant_id VARCHAR(64) NOT NULL DEFAULT 'default'"
             )
         )
         await conn.execute(
             text(
-                "CREATE INDEX ix_policy_versions_tenant_id "
-                "ON policy_versions (tenant_id)"
+                f"CREATE INDEX IF NOT EXISTS ix_{table}_tenant_id "
+                f"ON {table} (tenant_id)"
             )
         )
         await conn.commit()
-        log.info("db.migrated_policy_tenant_column")
+        log.info("db.migrated_tenant_column", table=table)
+
+
+async def _widen_session_columns() -> None:
+    """Widen ``session_id`` from VARCHAR(36) to VARCHAR(200) on PostgreSQL.
+
+    Tenant-scoped session ids exceed 36 characters (see audit_repo). SQLite
+    does not enforce VARCHAR lengths, so only PostgreSQL needs this.
+    """
+    if "postgresql" not in settings.database_url:
+        return
+    import structlog
+    from sqlalchemy import inspect, text
+
+    log = structlog.get_logger(__name__)
+    async with engine.connect() as conn:
+        for table in ("audit_events", "memory_records"):
+            def _length(sync_conn, table=table):
+                for c in inspect(sync_conn).get_columns(table):
+                    if c["name"] == "session_id":
+                        return getattr(c["type"], "length", None)
+                return None
+
+            length = await conn.run_sync(_length)
+            if length is not None and length < 200:
+                await conn.execute(
+                    text(f"ALTER TABLE {table} ALTER COLUMN session_id TYPE VARCHAR(200)")
+                )
+                log.info("db.widened_session_id", table=table, from_length=length)
+        await conn.commit()
 
 
 async def create_all_tables() -> None:
@@ -97,27 +141,32 @@ async def create_all_tables() -> None:
         if is_postgres:
             await conn.execute(text("SELECT pg_advisory_lock(:k)"), {"k": _LOCK_KEY})
         try:
-            await conn.run_sync(Base.metadata.create_all)
-            await conn.commit()
-        except Exception as e:
-            await conn.rollback()
+            try:
+                await conn.run_sync(Base.metadata.create_all)
+                await conn.commit()
+            except Exception as e:
+                await conn.rollback()
 
-            def _all_exist(sync_conn) -> bool:
-                from sqlalchemy import inspect
+                def _all_exist(sync_conn) -> bool:
+                    from sqlalchemy import inspect
 
-                names = set(inspect(sync_conn).get_table_names())
-                return all(t in names for t in Base.metadata.tables)
+                    names = set(inspect(sync_conn).get_table_names())
+                    return all(t in names for t in Base.metadata.tables)
 
-            if await conn.run_sync(_all_exist):
-                log.warning("db.create_all_race_benign", error=str(e))
-            else:
-                raise
+                if await conn.run_sync(_all_exist):
+                    log.warning("db.create_all_race_benign", error=str(e))
+                else:
+                    raise
+            # Migrations run while the lock is held: two workers upgrading
+            # together would otherwise both see a column missing, and the
+            # second would crash at boot on "column already exists".
+            await _migrate_policy_tenant_column()
+            await _migrate_memory_tenant_column()
+            await _widen_session_columns()
         finally:
             if is_postgres:
                 await conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _LOCK_KEY})
                 await conn.commit()
-
-    await _migrate_policy_tenant_column()
 
 
 async def get_session() -> AsyncSession:  # type: ignore[return]

@@ -59,8 +59,9 @@ and "Measured state" sections of [CLAUDE.md](CLAUDE.md):
   §14.2 acceptance is not met and this is stated openly.
 - **Whole-document policy PUT clobbers.** `PUT /v1/policy` replaces a
   tenant's entire document; use `PUT /v1/policy/agents/{id}` for routine
-  per-agent changes. Policy is namespaced per tenant (key-bound), but memory
-  and audit routes are not yet tenant-scoped.
+  per-agent changes. Policy, memory, audit replay, gRPC and rate-limit
+  buckets are namespaced per tenant (key-bound). Admin actions are not yet
+  written to the audit chain.
 - **Audit overflow drops events**, records that it did, and does not spill to
   disk.
 - **No sandboxed tool executor** (PRD §11) — execution stays in the host app.

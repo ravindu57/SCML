@@ -11,7 +11,7 @@ are v1.0's and unaffected.
 
 ## Commands
 
-- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 768 passed with the `[grpc]` extra installed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
+- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 795 passed with the `[grpc]` extra installed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
 - TypeScript client tests: `cd clients/typescript && npm test` (expect 25 passed; run `npm install && npm run build` first)
 - Benchmarks: `.venv/bin/python -m benchmarks.cli --testbed memory_poisoning` (see `benchmarks/README.md`; the CLI pins its own env and DB, so it needs no env prefix)
 - Load/latency: `.venv/bin/python -m benchmarks.load` (§8.1/§8.2 NFRs; same self-pinning env)
@@ -37,7 +37,7 @@ are v1.0's and unaffected.
 - **Traceability convention:** cite PRD requirement IDs (FR-*/NFR-*) in module docstrings and test names, as existing code does.
 - **The core install is the client SDK; the server stack lives in extras.** `pip install trust-mediator` must stay ~14 packages (`httpx`, `pydantic`, `pydantic-settings`). Everything else is `[server]`, `[ml]` (scikit-learn only, imported lazily in `HeuristicClassifier.train`), `[embedded]`. `[dev]` self-references `[server,ml]` so `pip install -e ".[dev]"` still gives a full stack. The `client-install` CI job fails if a server dependency leaks back into core — if you add a core dependency, that job is the thing telling you not to.
 - **`__all__` in `trust_mediator/__init__.py` is the public API contract.** Adding to it is a minor version; removing or renaming is a major one. Everything under `modules/`, `db/`, `api/` is internal and free to change. `MediationPipeline` and `settings` resolve lazily via module `__getattr__` so a client-only install can import the package without the server stack — do not make them eager. `test_public_api.py` pins all of this.
-- **Every `/v1` route takes `AuthDep`, and `AuthDep` yields a *principal*, never the key.**
+- **Every `/v1` route takes `AuthDep`, `CallerDep` or `AdminDep`; each yields a *principal*, never the key.**
   Three FR-MI-05 quarantine routes shipped unauthenticated because they declared
   `pipeline: PipelineDep = None` and a non-defaulted `_: AuthDep` cannot follow a
   defaulted parameter — so auth was dropped instead of the parameters reordered.
@@ -104,8 +104,17 @@ are v1.0's and unaffected.
   (`_TENANT_DENY_ALL` in `policy_loader.py`, with an explicit `allowed_tools:
   []` so it is a valid document in its own right), and only the `default`
   tenant falls back to the gateway YAML. `bootstrap_from_yaml` seeds `default`
-  only; a per-agent upsert needs an existing tenant document. The gRPC server
-  still resolves `default` — the proto has no tenant field.
+  only; a per-agent upsert needs an existing tenant document.
+  **The same binding covers memory, audit, gRPC and rate limits (Sec #6).**
+  Every `MemoryRepository` query filters on `tenant_id`, which routers set from
+  `caller.tenant` (never the body), and release/purge use the *admin* key's
+  tenant. Session ids pass through `session_for(caller, sid)` /
+  `core/tenancy.scoped_session` before reaching the pipeline: the default
+  tenant keeps raw ids (old chains replay), others become `tenant::sid`, and a
+  client id containing `::` is a 422, or a default caller could write into
+  another tenant's audit chain. gRPC resolves the tenant from `x-api-key`
+  per call. Rate-limit buckets are `tenant:agent:tool`.
+  `test_tenant_isolation.py` pins all of it.
 
 ## Layout
 

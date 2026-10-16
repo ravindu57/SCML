@@ -263,6 +263,21 @@ def _validate_admin(api_key: str | None = Security(_header_scheme)) -> Caller:
     return caller
 
 
+def session_for(caller: Caller, session_id: str) -> str:
+    """The caller's tenant-scoped session key; 422 on a reserved separator.
+
+    Every route that passes a client session id into the pipeline or the audit
+    log goes through this, so one tenant can neither read nor append to
+    another's hash chain (see core/tenancy.py).
+    """
+    from trust_mediator.core.tenancy import InvalidSessionId, scoped_session
+
+    try:
+        return scoped_session(caller.tenant, session_id)
+    except InvalidSessionId as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
 # Annotated dependency — import this in routers. Resolves to the caller's
 # principal name, never the key.
 AuthDep = Annotated[str, Depends(_validate_api_key)]

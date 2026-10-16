@@ -36,7 +36,13 @@ class MemoryRecordORM(Base):
         DateTime(timezone=True), nullable=True
     )
     agent_id: Mapped[str] = mapped_column(String(100), default="default", index=True)
-    session_id: Mapped[str] = mapped_column(String(36), default="", index=True)
+    # Key-bound tenant (Sec #6). Every query below filters on it: a record is
+    # invisible outside the tenant whose key wrote it, including to that
+    # tenant's admins' release and purge.
+    tenant_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="default", server_default="default", index=True
+    )
+    session_id: Mapped[str] = mapped_column(String(200), default="", index=True)  # see audit_repo
 
     def to_pydantic(self) -> MemoryRecord:
         from trust_mediator.models.context_envelope import Provenance, TrustLabel
@@ -61,7 +67,9 @@ class MemoryRecordORM(Base):
 class MemoryRepository:
     """CRUD operations for MemoryRecord."""
 
-    async def save(self, record: MemoryRecord, agent_id: str = "default") -> MemoryRecord:
+    async def save(
+        self, record: MemoryRecord, agent_id: str = "default", tenant_id: str = "default"
+    ) -> MemoryRecord:
         async with AsyncSessionLocal() as session:
             orm = MemoryRecordORM(
                 id=record.id,
@@ -79,32 +87,52 @@ class MemoryRepository:
                 created_at=record.created_at,
                 last_verified_at=record.last_verified_at,
                 agent_id=agent_id,
+                tenant_id=tenant_id,
                 session_id=record.source_provenance.session_id,
             )
             session.add(orm)
             await session.commit()
             return record
 
-    async def get(self, memory_id: str) -> MemoryRecord | None:
+    async def get(self, memory_id: str, tenant_id: str = "default") -> MemoryRecord | None:
         async with AsyncSessionLocal() as session:
             result = await session.execute(
-                select(MemoryRecordORM).where(MemoryRecordORM.id == memory_id)
+                select(MemoryRecordORM).where(
+                    MemoryRecordORM.id == memory_id, MemoryRecordORM.tenant_id == tenant_id
+                )
             )
             orm = result.scalar_one_or_none()
             return orm.to_pydantic() if orm else None
 
     async def update_status(
-        self, memory_id: str, status: MemoryStatus, reason: str = ""
-    ) -> None:
+        self,
+        memory_id: str,
+        status: MemoryStatus,
+        reason: str = "",
+        tenant_id: str = "default",
+        from_status: tuple[MemoryStatus, ...] | None = None,
+    ) -> bool:
+        """Set a record's status; True if a row changed.
+
+        ``from_status`` makes the transition conditional in the same
+        statement, so a release or purge cannot act on a record whose status
+        changed after it was read.
+        """
+        conditions = [MemoryRecordORM.id == memory_id, MemoryRecordORM.tenant_id == tenant_id]
+        if from_status is not None:
+            conditions.append(MemoryRecordORM.status.in_([s.value for s in from_status]))
         async with AsyncSessionLocal() as session:
-            await session.execute(
+            result = await session.execute(
                 update(MemoryRecordORM)
-                .where(MemoryRecordORM.id == memory_id)
+                .where(*conditions)
                 .values(status=status.value, quarantine_reason=reason)
             )
             await session.commit()
+            return result.rowcount > 0
 
-    async def list_quarantined(self, agent_id: str | None = None) -> list[MemoryRecord]:
+    async def list_quarantined(
+        self, agent_id: str | None = None, tenant_id: str = "default"
+    ) -> list[MemoryRecord]:
         """Quarantined records, for every agent unless one is named.
 
         agent_id defaulted to "default", so the review queue only ever showed
@@ -113,28 +141,34 @@ class MemoryRepository:
         identities — had a queue that was permanently empty, and a quarantined
         record no human ever saw. FR-MI-05 calls for all entries.
         """
-        conditions = [MemoryRecordORM.status == MemoryStatus.QUARANTINED.value]
+        conditions = [
+            MemoryRecordORM.status == MemoryStatus.QUARANTINED.value,
+            MemoryRecordORM.tenant_id == tenant_id,
+        ]
         if agent_id is not None:
             conditions.append(MemoryRecordORM.agent_id == agent_id)
         async with AsyncSessionLocal() as session:
             result = await session.execute(select(MemoryRecordORM).where(*conditions))
             return [row.to_pydantic() for row in result.scalars()]
 
-    async def list_active(self, agent_id: str = "default") -> list[MemoryRecord]:
+    async def list_active(
+        self, agent_id: str = "default", tenant_id: str = "default"
+    ) -> list[MemoryRecord]:
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(MemoryRecordORM).where(
                     MemoryRecordORM.status == MemoryStatus.ACTIVE.value,
                     MemoryRecordORM.agent_id == agent_id,
+                    MemoryRecordORM.tenant_id == tenant_id,
                 )
             )
             return [row.to_pydantic() for row in result.scalars()]
 
-    async def update_verified_at(self, memory_id: str) -> None:
+    async def update_verified_at(self, memory_id: str, tenant_id: str = "default") -> None:
         async with AsyncSessionLocal() as session:
             await session.execute(
                 update(MemoryRecordORM)
-                .where(MemoryRecordORM.id == memory_id)
+                .where(MemoryRecordORM.id == memory_id, MemoryRecordORM.tenant_id == tenant_id)
                 .values(last_verified_at=datetime.now(timezone.utc))
             )
             await session.commit()

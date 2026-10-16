@@ -27,7 +27,10 @@ class AuditEventORM(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     seq_no: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-    session_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    # 200, not 36: tenant-scoped ids are "<tenant>::<client id>" (core/tenancy.py),
+    # up to 64 + 2 + MAX_SESSION_ID. At 36 a UUID session from any non-default
+    # tenant overflowed on PostgreSQL and every one of its events was dropped.
+    session_id: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
     module: Mapped[str] = mapped_column(String(50), nullable=False)
     decision: Mapped[str] = mapped_column(String(50), nullable=False)
     reason_code: Mapped[str] = mapped_column(String(100), default="")

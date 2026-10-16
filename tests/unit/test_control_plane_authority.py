@@ -105,12 +105,13 @@ class _Memory:
         self.released: list[tuple[str, str]] = []
         self.purged: list[tuple[str, str]] = []
 
-    async def review_and_release(self, memory_id, reviewer=""):
+    async def review_and_release(self, memory_id, reviewer="", tenant_id="default"):
         self.released.append((memory_id, reviewer))
         return True
 
-    async def purge(self, memory_id, reason=""):
+    async def purge(self, memory_id, reason="", tenant_id="default"):
         self.purged.append((memory_id, reason))
+        return True
 
 
 @pytest.fixture
