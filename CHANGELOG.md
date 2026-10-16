@@ -11,6 +11,17 @@ commit log.
 
 ## [Unreleased]
 
+### Deployment
+
+- Single-host production setup (the chosen target): `docker-compose.prod.yml`
+  adds Caddy for automatic TLS on 80/443 and stops publishing the mediator's
+  port, so all traffic goes through TLS. It trusts `X-Forwarded-For` only
+  because nothing but Caddy can reach the mediator, so per-client rate limits
+  still work, and it sets the Host allow-list and HSTS. `docs/DEPLOY_VPS.md`
+  is the runbook (configuration, policy load, upgrade notes, backups).
+  `scripts/smoke.sh` checks a live deployment and passed against a
+  production-configured mediator locally.
+
 ### CI
 
 - Ruff is pinned (`0.15.22`) in the `[dev]` extra and the lint job, and the
