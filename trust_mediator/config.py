@@ -222,8 +222,14 @@ class Settings(BaseSettings):
     # ── Service ───────────────────────────────────────────────────────────────
     host: str = "0.0.0.0"
     port: int = 8000
-    env: Literal["development", "production", "test"] = "development"
+    # Production by default (security review E6). Development mode opens the
+    # API to unauthenticated callers when no keys are configured, so it must be
+    # asked for (TRUST_MEDIATOR_ENV=development), never fallen into because a
+    # variable was forgotten. Every dev script, CI job and .env.example sets it.
+    env: Literal["development", "production", "test"] = "production"
     log_level: str = "INFO"
+    # Not read anywhere: nothing in the mediator signs or encrypts with it.
+    # Kept so existing deployments that set it do not fail validation.
     secret_key: str = "change-me-to-a-random-256-bit-secret"
     workers: int = 1
     # Comma-separated API keys, e.g. "sk-abc123,sk-def456"
@@ -298,6 +304,14 @@ class Settings(BaseSettings):
     trusted_hosts_raw: str = Field(default="", alias="TRUST_MEDIATOR_TRUSTED_HOSTS")
     # Emit Strict-Transport-Security (enable once TLS terminates in front).
     hsts_enabled: bool = Field(default=False, alias="TRUST_MEDIATOR_HSTS_ENABLED")
+
+    # /metrics access (security review Sec #14). Metrics reveal traffic shape
+    # per endpoint and decision rates, so production serves them only with a
+    # bearer token, or with an explicit, greppable opt-out for scrapers inside
+    # a trusted network (like TRUST_MEDIATOR_ALLOW_INSECURE_HTTP). The token
+    # also reads from TRUST_MEDIATOR_METRICS_TOKEN_FILE.
+    metrics_token: str = Field(default="", alias="TRUST_MEDIATOR_METRICS_TOKEN")
+    metrics_public: bool = Field(default=False, alias="TRUST_MEDIATOR_METRICS_PUBLIC")
 
     @property
     def cors_origins(self) -> list[str]:

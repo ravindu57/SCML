@@ -47,6 +47,22 @@ logger = structlog.get_logger(__name__)
 _stdlib_logger = logging.getLogger(__name__)
 
 
+def slack_escape(value: object, limit: int = 200) -> str:
+    """Make untrusted text inert inside Slack mrkdwn (security review Sec #13).
+
+    Slack treats ``<...>`` as control sequences: ``<!channel>`` pings everyone
+    and ``<https://evil|Approve here>`` is a disguised link, both sitting in
+    the channel where reviewers decide on escalations. Slack's documented
+    escaping is ``&`` ``<`` ``>``. Newlines are flattened, so content cannot
+    start a fresh quoted line that looks like one of our fields, and backticks
+    are dropped because the value is shown inside a code span.
+    """
+    text = str(value)
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    text = " ".join(text.split()).replace("`", "'")
+    return (text[:limit] + "…") if len(text) > limit else text
+
+
 async def fire_escalation_webhook(
     *,
     session_id: str,
@@ -94,11 +110,14 @@ async def fire_escalation_webhook(
         "content_preview": preview,
         "action_required": "Review and approve or block this agent action at your dashboard.",
         # ── Slack-compatible field ──────────────────────────────────────────
+        # Every interpolated value is client- or attacker-controlled, so all
+        # of them go through slack_escape. The raw preview stays in the JSON
+        # field above for non-Slack consumers, truncated.
         "text": (
             f":rotating_light: *ESCALATION — Human Review Required*\n"
-            f">*Agent:* `{agent_id}`  |  *Session:* `{session_id}`\n"
-            f">*Score:* `{score:.3f}`  |  *Patterns:* `{', '.join(patterns_matched) or 'none'}`\n"
-            f">*Preview:* _{preview}_\n"
+            f">*Agent:* `{slack_escape(agent_id, 100)}`  |  *Session:* `{slack_escape(session_id, 100)}`\n"
+            f">*Score:* `{score:.3f}`  |  *Patterns:* `{slack_escape(', '.join(patterns_matched) or 'none')}`\n"
+            f">*Preview:* `{slack_escape(preview)}`\n"
             f">*Time:* {timestamp}"
         ),
     }

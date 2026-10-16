@@ -11,6 +11,38 @@ commit log.
 
 ## [Unreleased]
 
+### Security (deploy defaults)
+
+- **HTTP rate limiting applied to no `/v1` route.** slowapi looks routes up in
+  a flat `app.routes`, and FastAPI 0.139 nests included routers, so every
+  mediation, policy and admin route was treated as exempt (8 calls under a
+  5/minute limit: all 200). A replacement middleware walks nested routes.
+  Limits are per principal for valid keys and per IP otherwise, which also
+  throttles admin-key guessing.
+- **`TRUST_MEDIATOR_ENV` defaults to `production`.** Development, where no
+  keys means an open API, must now be set explicitly. **Behaviour change** for
+  anyone relying on the old default.
+- **A policy DB error fell back to the gateway YAML**, re-granting any tool
+  revoked in the DB but still listed in the file. It now serves the last
+  document the DB returned (for at most 5 minutes), else deny-all, and backs
+  off the DB for 2 s after an error. YAML remains the bootstrap for an empty
+  DB.
+- **`/metrics` was public and labelled by raw path.** Production now needs
+  `TRUST_MEDIATOR_METRICS_TOKEN` (bearer), or an explicit
+  `TRUST_MEDIATOR_METRICS_PUBLIC=true` (set in the k8s configmap for
+  in-cluster scraping). Latency is labelled by route template, so ids no
+  longer leak or create one series each.
+- **The escalation webhook put attacker text into Slack mrkdwn unescaped**
+  (`<!channel>`, disguised links). All interpolated values are escaped.
+- **docker-compose shipped `tmpassword` and published Postgres and Redis.** It
+  now refuses to start without `POSTGRES_PASSWORD` and `REDIS_PASSWORD`, Redis
+  requires its password, and neither datastore is published. **Upgrade note:**
+  an existing Postgres volume keeps its old password. Run `ALTER USER tmuser
+  PASSWORD '...'` once, or recreate the volume.
+  `deploy.sh` generates both passwords (URL-safe) into `.env`; the dev
+  compose binds datastores to loopback; demo scripts raise the rate limit,
+  since every keyless dashboard tab shares one bucket; `/health` is exempt.
+
 ### Security (data-flow rules, FR-OR-02)
 
 - **Data-flow rules were never loaded, and a missing rule meant allowed.** Each

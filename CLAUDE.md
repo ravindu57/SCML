@@ -11,7 +11,7 @@ are v1.0's and unaffected.
 
 ## Commands
 
-- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 845 passed with the `[grpc]` extra installed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
+- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 866 passed with the `[grpc]` extra installed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
 - TypeScript client tests: `cd clients/typescript && npm test` (expect 25 passed; run `npm install && npm run build` first)
 - Benchmarks: `.venv/bin/python -m benchmarks.cli --testbed memory_poisoning` (see `benchmarks/README.md`; the CLI pins its own env and DB, so it needs no env prefix)
 - Load/latency: `.venv/bin/python -m benchmarks.load` (§8.1/§8.2 NFRs; same self-pinning env)
@@ -64,6 +64,10 @@ are v1.0's and unaffected.
   control-plane write must be added there. A shadow policy version is never
   active (FR-CP-02): nothing evaluates policy in shadow, so an active shadow
   version would be enforced.
+- **HTTP rate limiting uses `rate_limit.build_rate_limit_middleware`, not `SlowAPIMiddleware`.** slowapi's
+  flat route lookup misses included routers (FastAPI 0.139) and exempted every `/v1` route;
+  `test_deploy_defaults.py` fails if any guarded route becomes invisible to the limiter again.
+  `env` defaults to production; a policy DB error never falls back to the gateway YAML.
 - **Configuring a key file means this deployment authenticates.**
   `TRUST_MEDIATOR_API_KEYS_FILE` is re-read while running so keys rotate without
   a restart (`key_store.py`). Two rules that look like bugs and are not:

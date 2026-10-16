@@ -20,7 +20,7 @@
 **Trust-aware context mediation for LLM agents, RAG pipelines, and tool-calling systems.**
 
 [![CI](https://github.com/ravindu57/SCML/actions/workflows/ci.yml/badge.svg)](https://github.com/ravindu57/SCML/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-845%20passed-brightgreen?style=flat-square)](tests/)
+[![Tests](https://img.shields.io/badge/tests-866%20passed-brightgreen?style=flat-square)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
 [![TypeScript](https://img.shields.io/badge/TS_client-25%20passed-3178C6?style=flat-square&logo=typescript&logoColor=white)](clients/typescript/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-orange?style=flat-square)](LICENSE)
@@ -272,7 +272,7 @@ DATABASE_URL="" REDIS_URL="" TRUST_MEDIATOR_API_KEYS="" \
   .venv/bin/uvicorn trust_mediator.api.app:app --port 8000 &
 sleep 2
 bash demo.sh                                        # run the demo
-.venv/bin/pytest tests/ -q                           # 845 passed (needs the [grpc] extra)
+.venv/bin/pytest tests/ -q                           # 866 passed (needs the [grpc] extra)
 cd clients/typescript && npm test                    # 25 passed
 ```
 
@@ -397,7 +397,7 @@ All config via `TRUST_MEDIATOR_*` env vars — nothing hardcoded. Every decision
 
 ```bash
 DATABASE_URL="" TRUST_MEDIATOR_ENV=development REDIS_URL="" TRUST_MEDIATOR_API_KEYS="" \
-  .venv/bin/pytest tests/ -q            # 845 passed (needs the [grpc] extra)
+  .venv/bin/pytest tests/ -q            # 866 passed (needs the [grpc] extra)
 
 cd clients/typescript && npm test       # 25 passed
 ```
