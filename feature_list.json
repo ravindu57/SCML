@@ -8,7 +8,7 @@
       "title": "Rescue on-disk-only work (TLS worktree → branch, stash → archive)",
       "tag": "D",
       "role": "CLI vibe coder",
-      "status": "implemented",
+      "status": "verified",
       "acceptance": [
         "TLS worktree preserved as branch rescue/tls-by-default",
         "stash and worktree leftovers archived with SHA256SUMS outside the repo"
@@ -17,17 +17,17 @@
         "branch rescue/tls-by-default",
         "../archive-2026-10-16/SHA256SUMS"
       ],
-      "passes": false,
+      "passes": true,
       "frozen": false,
       "paid": false,
-      "notes": "Implemented and committed; awaiting a verifier pass before passes=true."
+      "notes": "Verified 2026-10-18 (verifier sweep): evidence tests run and assert the criteria; frozen hashes match. Branch rescue/tls-by-default at 3c4df90; archive SHA256SUMS all OK."
     },
     {
       "id": 1,
       "title": "Policy validation: strict schema, require agents.default, missing allowed_tools = deny, no untrusted_arg_policy: allow, regex fullmatch",
       "tag": "D",
       "role": "CLI vibe coder",
-      "status": "implemented",
+      "status": "verified",
       "acceptance": [
         "§5.2/§9: a malformed policy is rejected before store/load/rollback",
         "PolicyEngine denies unrecognised shapes and never raises",
@@ -37,17 +37,17 @@
         "26c877d",
         "tests/unit/test_policy_fail_closed.py"
       ],
-      "passes": false,
+      "passes": true,
       "frozen": false,
       "paid": false,
-      "notes": "Implemented and committed; awaiting a verifier pass before passes=true."
+      "notes": "Verified 2026-10-18 (verifier sweep): evidence tests run and assert the criteria; frozen hashes match. Store: PUT 422 (test_audit_completeness::test_refused_policy_write); load: TestLoaderFallback; rollback: TestRollbackRevalidates; test_every_shipped_policy_validates."
     },
     {
       "id": 2,
       "title": "Separate control-plane authority; never enforce a shadow policy",
       "tag": "D",
       "role": "CLI vibe coder",
-      "status": "implemented",
+      "status": "verified",
       "acceptance": [
         "FR-CP-03: control-plane writes require admin keys separate from data-plane keys",
         "FR-CP-02: a shadow version is never active"
@@ -56,10 +56,10 @@
         "894399f",
         "tests/unit/test_control_plane_authority.py"
       ],
-      "passes": false,
+      "passes": true,
       "frozen": false,
       "paid": false,
-      "notes": "Implemented and committed; awaiting a verifier pass before passes=true."
+      "notes": "Verified 2026-10-18 (verifier sweep): evidence tests run and assert the criteria; frozen hashes match."
     },
     {
       "id": 3,
@@ -86,7 +86,7 @@
       "title": "Fail-closed clients and classifier",
       "tag": "D",
       "role": "CLI vibe coder",
-      "status": "implemented",
+      "status": "verified",
       "acceptance": [
         "§9: guard strict raises on error/escalate/unknown",
         "classifier failure raises ClassifierUnavailable, never 0.0"
@@ -96,17 +96,17 @@
         "tests/unit/test_fail_closed_clients.py",
         "tests/unit/test_fail_policy.py"
       ],
-      "passes": false,
+      "passes": true,
       "frozen": false,
       "paid": false,
-      "notes": "Implemented and committed; awaiting a verifier pass before passes=true."
+      "notes": "Verified 2026-10-18 (verifier sweep): evidence tests run and assert the criteria; frozen hashes match. Strict guard parametrised over error/revoked-key/escalate/mediator_error."
     },
     {
       "id": 5,
       "title": "Honour require_approval_for",
       "tag": "D/R",
       "role": "CLI vibe coder",
-      "status": "implemented",
+      "status": "verified",
       "acceptance": [
         "FR-PE-03: tools named in require_approval_for return require_approval"
       ],
@@ -114,17 +114,17 @@
         "26c877d",
         "tests/unit/test_policy_fail_closed.py"
       ],
-      "passes": false,
+      "passes": true,
       "frozen": false,
       "paid": false,
-      "notes": "Implemented and committed; awaiting a verifier pass before passes=true."
+      "notes": "Verified 2026-10-18 (verifier sweep): evidence tests run and assert the criteria; frozen hashes match."
     },
     {
       "id": 6,
       "title": "Tenant isolation: memory, audit, gRPC, rate-limit bucket",
       "tag": "D",
       "role": "CLI vibe coder",
-      "status": "implemented",
+      "status": "verified",
       "acceptance": [
         "Sec #6: every memory query filters on tenant",
         "session ids tenant-scoped; '::' in client id is 422",
@@ -135,17 +135,17 @@
         "72234fc",
         "tests/unit/test_tenant_isolation.py"
       ],
-      "passes": false,
+      "passes": true,
       "frozen": false,
       "paid": false,
-      "notes": "Implemented and committed; awaiting a verifier pass before passes=true."
+      "notes": "Verified 2026-10-18 (verifier sweep): evidence tests run and assert the criteria; frozen hashes match. Every MemoryRepository query filters tenant_id; '::' 422 on all six routes; gRPC and rate-limit tests present."
     },
     {
       "id": 7,
       "title": "Audit completeness: admin events, pipeline exceptions, write-failure gap markers, hash all fields",
       "tag": "D",
       "role": "CLI vibe coder",
-      "status": "implemented",
+      "status": "verified",
       "acceptance": [
         "FR-AL-01: admin actions recorded in #control-plane::<tenant>",
         "pipeline_exception recorded",
@@ -156,17 +156,17 @@
         "f4f1107",
         "tests/unit/test_audit_completeness.py"
       ],
-      "passes": false,
+      "passes": true,
       "frozen": false,
       "paid": false,
-      "notes": "Implemented and committed; awaiting a verifier pass before passes=true. [UNVERIFIED] whether the purge status check and release race from the original item are covered."
+      "notes": "Verified 2026-10-18 (verifier sweep): evidence tests run and assert the criteria; frozen hashes match. Purge status check and release race covered by test_tenant_isolation (purge_refuses_an_active_record, release_is_a_single_conditional_transition, purged_record_not_requarantined)."
     },
     {
       "id": 8,
       "title": "Wire FR-OR-02 data-flow rules per tenant, deny by default",
       "tag": "D",
       "role": "CLI vibe coder",
-      "status": "implemented",
+      "status": "verified",
       "acceptance": [
         "FR-OR-02: protected_classes/data_flow_rules read from tenant policy, deny by default"
       ],
@@ -174,17 +174,17 @@
         "f4805d0",
         "tests/unit/test_data_flow_rules.py"
       ],
-      "passes": false,
+      "passes": true,
       "frozen": false,
       "paid": false,
-      "notes": "Implemented and committed; awaiting a verifier pass before passes=true."
+      "notes": "Verified 2026-10-18 (verifier sweep): evidence tests run and assert the criteria; frozen hashes match."
     },
     {
       "id": 9,
       "title": "Deploy defaults fail closed; rate limiter actually limits",
       "tag": "D",
       "role": "Shipper",
-      "status": "implemented",
+      "status": "verified",
       "acceptance": [
         "env defaults to production",
         "no default compose passwords",
@@ -194,10 +194,10 @@
         "f28d6a3",
         "tests/unit/test_deploy_defaults.py"
       ],
-      "passes": false,
+      "passes": true,
       "frozen": false,
       "paid": false,
-      "notes": "Implemented and committed; awaiting a verifier pass before passes=true."
+      "notes": "Verified 2026-10-18 (verifier sweep): evidence tests run and assert the criteria; frozen hashes match."
     },
     {
       "id": 10,
@@ -349,7 +349,7 @@
       "passes": false,
       "frozen": false,
       "paid": false,
-      "notes": "Implemented and committed; awaiting a verifier pass before passes=true."
+      "notes": "Verifier 2026-10-18: ci.yml covers lint (ruff pinned 0.15.22), tests with [dev] incl. grpc, client-install, TS build+test, docker build+health. [UNVERIFIED] that a run is green: gh not installed locally. Keep passes=false until a green run is cited."
     },
     {
       "id": 19,
@@ -371,7 +371,7 @@
       "title": "ID-citing tests for uncited Must requirements",
       "tag": "N",
       "role": "CLI vibe coder",
-      "status": "implemented",
+      "status": "verified",
       "acceptance": [
         "every Must FR has a test citing its ID"
       ],
@@ -379,10 +379,10 @@
         "07da387",
         "tests/unit/test_must_requirements.py"
       ],
-      "passes": false,
+      "passes": true,
       "frozen": false,
       "paid": false,
-      "notes": "Implemented and committed; awaiting a verifier pass before passes=true. Commit covers six of the seven Musts listed in ANALYSIS §4; the ❓ NFR measurements remain."
+      "notes": "Verified 2026-10-18 (verifier sweep): evidence tests run and assert the criteria; frozen hashes match. All 22 Must FRs in ANALYSIS §4 are cited by at least one test. Must NFR measurements are outside this criterion."
     },
     {
       "id": 21,

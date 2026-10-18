@@ -6,13 +6,19 @@
 - **Phase:** 1 harness set up; Phase 2 (one backlog item per session) next.
 - **Tests:** 875 Python passed (2026-10-18). TypeScript client: 25 claimed in CLAUDE.md, not re-run this session.
 - **Frozen:** 47 files in FROZEN.md, all hashes match (`scripts/check_frozen.sh`).
-- **Backlog** (`feature_list.json`): 11 implemented awaiting verifier, 5 partial, 9 open. None has `passes: true` yet.
-- **Uncommitted:** `--offset` resume flag in `benchmarks/testbeds/agentdojo/runner.py` (for #11); drain-probe fix + ADR-0008 (Debugger session).
+- **Backlog** (`feature_list.json`): 10 verified (`passes: true`), 1 implemented (#18, CI run unconfirmed), 5 partial, 9 open.
+- **Uncommitted:** `--offset` resume flag in `benchmarks/testbeds/agentdojo/runner.py` (for #11). Drain-probe fix (ADR-0008) and this sweep are committed on branch `debugger/audit-drain-probe`, not yet merged or pushed.
 - **Environment:** Linux. `.venv` was built at an old path, so use `.venv/bin/python -m <tool>`. `socat` missing for the sandbox.
-- **Next:** a verifier sweep over the 11 implemented items, then #11 AgentDojo re-baseline (paid; estimate first).
+- **Next:** confirm a green CI run for #18 (needs `gh` or the GitHub UI), then #11 AgentDojo re-baseline (paid; estimate first).
 <!-- current-state:end -->
 
 ## Session log (newest first)
+
+### 2026-10-18 — Verifier — sweep over the 11 implemented items
+- Ran all cited evidence tests (245 passed) and read the key ones for what they assert; checked cited commits exist, `rescue/tls-by-default`, and the archive SHA256SUMS (all OK).
+- `passes: true` for #0, #1, #2, #4, #5, #6, #7, #8, #9, #20. #7's [UNVERIFIED] note resolved: purge-status and release-race tests exist in `test_tenant_isolation.py`.
+- #18 stays `implemented`: `ci.yml` covers every criterion, but no green run could be checked (`gh` not installed).
+- Evidence: 875 tests passed; 47 frozen hashes match.
 
 ### 2026-10-18 — Debugger — 337k audit drops under the load harness
 - Reproduced: ~311k `audit_logger.events_dropped` on `benchmarks.load --target pipeline`.
