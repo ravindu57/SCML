@@ -159,6 +159,10 @@ class TestLoaderNeverFallsBackToYamlOnError:
 @pytest.mark.asyncio
 class TestMetrics:
     async def _get(self, monkeypatch, headers=None, **cfg):
+        # Production refuses plain HTTP at app start; these tests are about
+        # /metrics auth, not transport, so declare TLS terminated upstream.
+        # Without this they passed only where a local .env happened to set it.
+        monkeypatch.setattr(settings, "allow_insecure_http", True)
         for k, v in cfg.items():
             monkeypatch.setattr(settings, k, v)
         async with AsyncClient(transport=ASGITransport(app=create_app()), base_url="http://t") as c:
