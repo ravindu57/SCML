@@ -338,18 +338,20 @@
       "title": "CI: pin ruff, grpc in [dev], TS build+test, image build",
       "tag": "N",
       "role": "Shipper",
-      "status": "implemented",
+      "status": "verified",
       "acceptance": [
         "CI runs lint, tests, client-install check, TS tests, image build"
       ],
       "evidence": [
         "8baba9a",
-        ".github/workflows/ci.yml"
+        ".github/workflows/ci.yml",
+        "5c9798f",
+        "https://github.com/ravindu57/SCML/actions/runs/39158432783"
       ],
-      "passes": false,
+      "passes": true,
       "frozen": false,
       "paid": false,
-      "notes": "Verifier 2026-10-18: ci.yml covers lint (ruff pinned 0.15.22), tests with [dev] incl. grpc, client-install, TS build+test, docker build+health. [UNVERIFIED] that a run is green: gh not installed locally. Keep passes=false until a green run is cited."
+      "notes": "Verified 2026-10-19: CI run 39158432783 green on 5c9798f (PR #1), all 8 jobs: lint, test 3.11/3.12, client-install, typescript-client, typescript-services (orchestrator, demo-agent), docker. The first run failed on two local-only leaks, fixed in 5c9798f."
     },
     {
       "id": 19,

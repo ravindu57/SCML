@@ -4,15 +4,20 @@
 ## Current state (updated 2026-10-18)
 
 - **Phase:** 1 harness set up; Phase 2 (one backlog item per session) next.
-- **Tests:** 875 Python passed (2026-10-18). TypeScript client: 25 claimed in CLAUDE.md, not re-run this session.
+- **Tests:** 875 Python passed locally (2026-10-19). CI green on PR #1, TypeScript client tests included.
 - **Frozen:** 47 files in FROZEN.md, all hashes match (`scripts/check_frozen.sh`).
-- **Backlog** (`feature_list.json`): 10 verified (`passes: true`), 1 implemented (#18, CI run unconfirmed), 5 partial, 9 open.
-- **Uncommitted:** `--offset` resume flag in `benchmarks/testbeds/agentdojo/runner.py` (for #11). Drain-probe fix (ADR-0008) and this sweep are committed on branch `debugger/audit-drain-probe`, not yet merged or pushed.
+- **Backlog** (`feature_list.json`): 11 verified (`passes: true`), 5 partial, 9 open.
+- **Uncommitted:** `--offset` resume flag in `benchmarks/testbeds/agentdojo/runner.py` (for #11). Everything else is pushed on `debugger/audit-drain-probe` (draft PR #1), not merged into `main`.
 - **Environment:** Linux. `.venv` was built at an old path, so use `.venv/bin/python -m <tool>`. `socat` missing for the sandbox.
-- **Next:** confirm a green CI run for #18 (needs `gh` or the GitHub UI), then #11 AgentDojo re-baseline (paid; estimate first).
+- **Next:** review/merge PR #1 into `main`, then #11 AgentDojo re-baseline (paid; estimate first).
 <!-- current-state:end -->
 
 ## Session log (newest first)
+
+### 2026-10-19 — Shipper — confirm CI for #18
+- Installed `gh` 2.102.0 to `~/.local/bin` (official release, checksum verified). Pushed `debugger/audit-drain-probe`, opened draft PR #1 (CI runs only on `main` pushes and PRs).
+- First run failed on two leaks hidden locally: (1) `/metrics` tests needed `ALLOW_INSECURE_HTTP`, which only the local `.env` set; (2) services type-checked against a gitignored client `dist/`. Fixed in 5c9798f; the test env prefix in CLAUDE.md now pins `ALLOW_INSECURE_HTTP=false`.
+- Run 39158432783: all 8 jobs green. #18 `passes: true`.
 
 ### 2026-10-18 — Verifier — sweep over the 11 implemented items
 - Ran all cited evidence tests (245 passed) and read the key ones for what they assert; checked cited commits exist, `rescue/tls-by-default`, and the archive SHA256SUMS (all OK).
