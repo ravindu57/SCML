@@ -10,7 +10,7 @@
     "demo-agent-quoting": {
       "allowed_tools": ["quote_shipment", "track_container", "lookup_customer"],
       "require_approval_for": ["irreversible", "high_impact"],
-      "untrusted_arg_policy": "allow",
+      "untrusted_arg_policy": "require_approval",
       "rate_limits": { "tool_calls_per_minute": 60 }
     },
 
@@ -36,6 +36,6 @@
     "pii_patterns_enabled": true,
     "entropy_threshold": 4.5,
     "protected_classes": ["pii", "secret", "credential"],
-    "data_flow_rules": {}
+    "data_flow_rules": { "pii": ["user"], "secret": [], "credential": [] }
   }
 }

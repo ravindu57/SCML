@@ -1,0 +1,30 @@
+# TLS front for a single-host deployment (docs/DEPLOY_VPS.md).
+# Caddy obtains and renews a certificate for $SCML_DOMAIN automatically;
+# the domain's A/AAAA record must point at this host and ports 80/443 be open.
+{$SCML_DOMAIN} {
+	encode zstd gzip
+
+	# Same cap as nginx/trust-mediator.conf: mediation bodies are small, and a
+	# large one is more likely an attempt to stall the scanner than real work.
+	request_body {
+		max_size 2MB
+	}
+
+	# /metrics is for an in-network scraper with a bearer token, never the
+	# public internet (the mediator also requires TRUST_MEDIATOR_METRICS_TOKEN).
+	@metrics path /metrics
+	respond @metrics 404
+
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		-Server
+	}
+
+	# Caddy sets X-Forwarded-For; the mediator trusts it only because its
+	# port is not published (docker-compose.prod.yml), so nothing but Caddy
+	# can reach it. Per-client rate limits depend on that.
+	reverse_proxy trust-mediator:8000
+}

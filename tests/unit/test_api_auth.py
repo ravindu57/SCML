@@ -32,12 +32,18 @@ from fastapi.routing import APIRoute
 from httpx import ASGITransport, AsyncClient
 
 from trust_mediator.api.app import create_app
-from trust_mediator.api.auth import _validate_api_key, key_fingerprint, principal_for
+from trust_mediator.api.auth import (
+    _validate_admin,
+    _validate_api_key,
+    key_fingerprint,
+    principal_for,
+)
 from trust_mediator.api.dependencies import get_pipeline
 from trust_mediator.api.rate_limit import _key_func
 from trust_mediator.config import settings
 
 TEST_KEY = "test-key-for-auth-suite"
+ADMIN_KEY = "test-admin-key-for-auth-suite"
 
 # Unauthenticated by design: liveness probes and Prometheus scraping both run
 # before, or outside, any credential the mediator holds.
@@ -45,8 +51,12 @@ PUBLIC_PATHS = {"/health", "/metrics", "/docs", "/redoc", "/openapi.json"}
 
 
 def _resolves_auth(dependant) -> bool:
-    """True if _validate_api_key appears anywhere in this route's dependency graph."""
-    if dependant.call is _validate_api_key:
+    """True if a key validator appears anywhere in this route's dependency graph.
+
+    Either the data-plane validator or the control-plane one: both reject a
+    missing key with 401 and an unknown key with 403.
+    """
+    if dependant.call in (_validate_api_key, _validate_admin):
         return True
     return any(_resolves_auth(sub) for sub in dependant.dependencies)
 
@@ -94,6 +104,13 @@ def keyed(monkeypatch):
 
 
 @pytest.fixture
+def admin_keyed(monkeypatch, keyed):
+    """A data-plane key plus a separate control-plane key (FR-CP-03)."""
+    monkeypatch.setattr(settings, "admin_api_keys_raw", ADMIN_KEY)
+    return ADMIN_KEY
+
+
+@pytest.fixture
 def app():
     return create_app()
 
@@ -107,12 +124,21 @@ async def client(app):
 class _StubMemory:
     """No such record — enough to prove the handler ran, without a database."""
 
-    async def review_and_release(self, memory_id: str, reviewer: str = "") -> bool:
+    async def review_and_release(self, memory_id: str, reviewer: str = "", tenant_id: str = "default") -> bool:
         return False
+
+
+class _NullAudit:
+    def make_event(self, **kw):
+        return kw
+
+    def log(self, event):
+        pass
 
 
 class _StubPipeline:
     _memory = _StubMemory()
+    _audit = _NullAudit()
 
 
 class TestEveryV1RouteResolvesAuth:
@@ -175,16 +201,18 @@ class TestQuarantineRoutesRejectAnonymousCallers:
     ):
         """FR-MI-05/FR-AL-01 — the reviewer in the audit chain is whoever's key
         was used, not whoever the caller claimed to be."""
-        monkeypatch.setattr(settings, "api_keys_raw", "alice:sk-alice-key")
+        monkeypatch.setattr(settings, "api_keys_raw", "agent:sk-agent-key")
+        monkeypatch.setattr(settings, "admin_api_keys_raw", "alice:sk-alice-key")
         seen: dict[str, str] = {}
 
         class _Capturing(_StubMemory):
-            async def review_and_release(self, memory_id, reviewer=""):
+            async def review_and_release(self, memory_id, reviewer="", tenant_id="default"):
                 seen["reviewer"] = reviewer
                 return True
 
         class _P:
             _memory = _Capturing()
+            _audit = _NullAudit()
 
         app.dependency_overrides[get_pipeline] = _P
         try:
@@ -200,7 +228,7 @@ class TestQuarantineRoutesRejectAnonymousCallers:
         assert seen["reviewer"] == "alice"
         assert "security-team-lead" not in seen["reviewer"]
 
-    async def test_valid_key_reaches_the_handler(self, app, client, keyed):
+    async def test_valid_key_reaches_the_handler(self, app, client, admin_keyed):
         """A correct key must get past auth, or the fix has locked out the
         legitimate reviewer too. The pipeline is stubbed so this asserts on
         auth alone and not on database fixture state."""
@@ -208,7 +236,7 @@ class TestQuarantineRoutesRejectAnonymousCallers:
         try:
             r = await client.post(
                 "/v1/mediate/memory/quarantined/mem-123/release",
-                headers={"X-API-Key": keyed},
+                headers={"X-API-Key": admin_keyed},
             )
         finally:
             app.dependency_overrides.clear()

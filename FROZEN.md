@@ -1,0 +1,71 @@
+# Frozen evidence
+
+Approved 2026-10-18 (from `docs/recovery/FROZEN_CANDIDATES.md`, plus `affordance_detector.{md,json}` from a1ae261).
+Hashes taken at HEAD `07da387`; all matched the 2026-10-15 proposal.
+
+These files are read-only evidence. `.claude/hooks/frozen_guard.py` blocks Edit/Write on them and Bash commands that
+would write to them; `scripts/check_frozen.sh` verifies the hashes (run by `/session-end`).
+
+- If a frozen file looks wrong, **report it; don't fix it.** Put the correction in a new versioned file.
+- New runs go to `benchmarks/results/v2/<testbed>_<YYYY-MM-DD>.{md,json}` (ADR-0001).
+- Production code (`trust_mediator/**`) and tests are **not** frozen; the code behind each result is pinned by
+  its commit (see `docs/recovery/FROZEN_CANDIDATES.md` for the commit per result).
+- Changing this list needs the owner's explicit approval and an ADR. The guard asks before any edit to this file.
+
+## Known defects inside frozen files (correct in v2, never in place)
+
+- `agentdojo.md`: the CaMeL table says "Attack types: 1 of 17"; its own per-attack table shows 2.
+- `memory_poisoning.md` / `injecagent.md`: the settings table shows `memory_rescan_on_read=False` (picked up from a
+  local `.env`); a clean re-run shows `True`. Headline numbers are unaffected.
+
+## sha256
+
+```
+5b625a4ab735824e0d8315196fac01d85eee323bf68cc160a43a314179bb0c5c  benchmarks/results/affordance_detector.json
+064ab35ce9095df6d76c816f0bb6aa4aec94586fdb9cf0202226dd0a69c11dd1  benchmarks/results/affordance_detector.md
+d2a415b87b07e91035e4491bddad6c7e2d5be6c4212a6dc794d9c90ba416640d  benchmarks/results/agentdojo_banking_benign_noscml.txt
+faf4ba636eb20475d7b717b9d8866afdd75b24eac60975b1e9b00dd7f4086c0a  benchmarks/results/agentdojo_banking_benign.txt
+f1f9803189e6d28156152da44c56cdae073b754f6f787500c7e1eb9547976ac5  benchmarks/results/agentdojo_banking_ignore_previous_scml.txt
+44c659ab308cecfa1011e27c52e9757bbae4672cd349471555d34cbdc67ec526  benchmarks/results/agentdojo_banking_ignore_previous_undefended.txt
+98a04fc5f346d535c7c2726ab6ac1597b59eeed20b7b23607be0f998d9745dfc  benchmarks/results/agentdojo_banking_scml.txt
+93f3dcc070a8e1705da704e9fd65723f2a9ebf683ccb255cb6247a94f2b4a43c  benchmarks/results/agentdojo_banking_undefended.txt
+ffff0c3e5aaa679e88de5072b5f188127f59be26b7afa2cdc13a70dabe121598  benchmarks/results/agentdojo.json
+2b191cd73f98e3f7e417239501d0963d51b083707c0464b9d33634717dfa58ff  benchmarks/results/agentdojo.md
+0f329003b4f2269d47c9e2a7992ece94c98e797150bf576fed52c5aca06fb827  benchmarks/results/agentdojo_slack_benign_noscml.txt
+26779d315ed9006327a1a5179dea51ae6431aad079e911c2fa7d4b168c9631f1  benchmarks/results/agentdojo_slack_benign.txt
+18acbc9b9e5a7785625fc3073904cf2499e3a17e42d3eea37ef72f8c7445a4cd  benchmarks/results/agentdojo_slack_ignore_previous_scml.txt
+d68ee9dac7a002a43666ba07077279b05f5e18212dcbc0fa5b747e12f67a90bb  benchmarks/results/agentdojo_slack_ignore_previous_undefended.txt
+156e7c5cf59b143da5148c63c46d4ea7670372ff7b0fe3a8ed41236e4c8364a1  benchmarks/results/agentdojo_slack_scml.txt
+c39d8b781dbf7400d7f38f571c2a1469228858ff29f2947573d55c57c45e7b26  benchmarks/results/agentdojo_slack_undefended.txt
+208306c62cf1bc60e206f3aa1bfd221b3006d4017f74351d6a16199b238eaf6d  benchmarks/results/agentdojo_travel_benign_noscml.txt
+5139f7c34980c360280c0054b19de0b97f0a762080e35040949217b277cee5b5  benchmarks/results/agentdojo_travel_benign.txt
+b60642df1511c0e646c1675f6e4fd61b791ab7c2495f463ae1c83104186eef08  benchmarks/results/agentdojo_travel_scml.txt
+9708554edb112bac246445ae9775478d56212e6b194d56f4a5c6a7b8131caa7e  benchmarks/results/agentdojo_travel_undefended.txt
+cdedfd23f38f12e0d7a397f54e2e8d80685451532a598521177c912664e034aa  benchmarks/results/agentdojo_workspace_benign_scml.txt
+e8d78833ba3f22f20f25e21ae87a75d78279bda8a0e08cd521c67faa74557c9b  benchmarks/results/agentdojo_workspace_scml.txt
+ae171d8e38d380f380496bb1cfa182c1c80ee69096433d75b675d4bb951f8d50  benchmarks/results/agentdojo_workspace_undefended.txt
+fa60896aea6d4df1cdd5ca89b9716a5112c4ae11f2e41e5f825be7a37c779086  benchmarks/results/classifier_llm.md
+a2a0cee7ec0bf6c498be2ea46f9a75518dc99fd5335986218c56a243709d8939  benchmarks/results/injecagent.json
+7bf0a66a2d4a99c6e78870385ef98971112fa7d92463a05f6679b1527b9adc42  benchmarks/results/injecagent.md
+d928b4dcef846afe767669ec408affc108deaa57c7f52239e3aa606b6107d82e  benchmarks/results/load.json
+09dd29623b3ba3c06383b99dd2226973c29b919d8853c5b51d8502823cb7b6b5  benchmarks/results/load.md
+1b7d32013bfe4e1c535e5ffb70348713dc98e0d265917c949defec934e7e7d5b  benchmarks/results/memory_poisoning_harm.json
+75511b8e8c070402329676c66e2b6067993fb65d0968d0d8cb96caa1ebb9e447  benchmarks/results/memory_poisoning_harm.md
+a0856253d133ac78c3715ba1cca316bc178c80f983f0d0e5e3a08a417044e603  benchmarks/results/memory_poisoning.json
+7d2ef0bc35ca0e56ed3116d7c0927a038cc277367b8cff027f18fbbfec4b8f03  benchmarks/results/memory_poisoning.md
+bc304b5cde2d42208bc87246e1cfd586fc110260087a23ad6632795e9790dfd4  benchmarks/results/output_sanitizer.md
+935995f8d32a544e04e46e4b4264fb4fff1c149a2a042717de9a5873ce7bd0a8  benchmarks/results/soak.json
+31f9f2a8599093cc76a9994294b81de4f865fdb3f76f6daf6c1a0a1a3b07d772  benchmarks/results/soak.md
+6b53ba67f7e2b57db83edb1a634457c50892c8d583e4018ecbcc5a7e067c0f9e  benchmarks/testbeds/agentdojo/policies/agentdojo.yaml
+c74b3bc98b107a92352b4c8dfc2cde1462d45b5498010ef511cad183cee9c2ca  benchmarks/testbeds/agentdojo/policies/workspace.yaml
+999d52e15af3c80a3303a09430af0f3878d1f91e4c573ca7b477a91cdfa6b991  benchmarks/testbeds/injecagent/data/attacker_cases_dh.jsonl
+87952398c989d8ca841724e38ecdbb789676d3841e19dfc44aac7b710df9cb1f  benchmarks/testbeds/injecagent/data/attacker_cases_ds.jsonl
+3637e04943f1fe94135c46ed105e50e8fbb31bd3d4dcf059168ae8f3d0f333bf  benchmarks/testbeds/injecagent/data/ATTRIBUTION.md
+c840e2b00fdce68e7142d0970220522303d67b2530d6fb36ef1112448cdd8977  benchmarks/testbeds/injecagent/data/user_cases.jsonl
+86266cea0c9a6a8948679a7236dd219eafa06b7a655d90cc4405104ac68fbcd5  benchmarks/testbeds/memory_poisoning/corpus.py
+c1bb510fb94e64b09fef88accf8b2ecfc0d0272f5ea28432782c4da5cf8525c4  benchmarks/testbeds/memory_poisoning/harm.py
+67246d49db23e9d836cbbe34813eb8f0c419a66ee72a328986126794e898ca62  benchmarks/testbeds/memory_poisoning/harm_report.py
+02266749bdbf6b70a2122ed2ce203a2910c38584439bcf76698d20ed95989900  benchmarks/testbeds/memory_poisoning/testbed.py
+719c646f3d64109aa4dd90773963c41dc7715a16ed7d5aef4fa6be362488f4a9  PRD_v1.1_ADDENDUM.md
+fce46ec93738f732d216f949ec0a0987d69891c9293d854b6419d2b8981e6f5f  TrustMediator_PRD (1).docx
+```

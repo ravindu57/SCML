@@ -84,7 +84,7 @@ if curl -sf "http://localhost:$API_PORT/health" >/dev/null 2>&1; then
 else
   # The repo .env is production mode with docker-only hostnames and a live API
   # key; all three break a bare local run, so they are pinned here.
-  DATABASE_URL="" TRUST_MEDIATOR_ENV=development REDIS_URL="" TRUST_MEDIATOR_API_KEYS="" \
+  DATABASE_URL="" TRUST_MEDIATOR_ENV=development REDIS_URL="" TRUST_MEDIATOR_API_KEYS="" TRUST_MEDIATOR_RATE_LIMIT="100000/minute" \
     setsid .venv/bin/uvicorn trust_mediator.api.app:app \
       --host 0.0.0.0 --port "$API_PORT" \
       > "$RUN/api.log" 2>&1 < /dev/null &

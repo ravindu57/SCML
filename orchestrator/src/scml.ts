@@ -28,8 +28,13 @@ export const mediatorUrl = url;
 
 // ── Taint lattice ────────────────────────────────────────────────────────────
 
-/** Least → most restrictive. Anything unrecognised sorts as most restrictive. */
-const ORDER = ['trusted', 'user_input', 'risky_external', 'untrusted_data'];
+/**
+ * Least → most restrictive, mirroring the server's `TrustLabel.most_restrictive`
+ * (models/context_envelope.py). Anything unrecognised sorts as most restrictive.
+ * These are the server's own label values: the mediator rejects any other
+ * string on /tool-call and /memory/write (422).
+ */
+const ORDER = ['trusted_instruction', 'derived', 'untrusted_data', 'risky_external'];
 
 export function mostRestrictive(labels: string[]): string {
   if (labels.length === 0) return 'untrusted_data';

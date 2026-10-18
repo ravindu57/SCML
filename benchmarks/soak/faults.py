@@ -18,6 +18,8 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from trust_mediator.modules.output_redaction.redactor import OutputRedactor
+
 
 class InjectedFault(RuntimeError):
     """Raised by a broken dependency. Distinguishable from a real defect."""
@@ -111,7 +113,9 @@ REDACTOR_DOWN = Fault(
     description="Redaction engine failure on the egress path",
     expected="fail closed: outbound response blocked, nothing released",
     _apply=lambda p: [
-        _patch(p._redactor, "redact", _raiser("redactor unavailable")),
+        # The class, not p._redactor: the pipeline builds the tenant's
+        # redactor per call, so patching the instance would inject nothing.
+        _patch(OutputRedactor, "redact", _raiser("redactor unavailable")),
     ],
 )
 

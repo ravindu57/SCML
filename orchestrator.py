@@ -32,6 +32,10 @@ _API_KEY = (os.getenv("TRUST_MEDIATOR_API_KEYS", "").split(",")[0]).strip()
 _session = requests.Session()
 if _API_KEY:
     _session.headers["X-API-Key"] = _API_KEY
+# Policy writes are control-plane (FR-CP-03) and need an admin key, which is a
+# separate set. Empty is fine in keyless development.
+_ADMIN_KEY = (os.getenv("TRUST_MEDIATOR_ADMIN_API_KEYS", "").split(",")[0]).strip()
+_ADMIN_HEADERS = {"X-API-Key": _ADMIN_KEY} if _ADMIN_KEY else {}
 
 # ── Terminal colours ──────────────────────────────────────────────
 R="\033[0;31m"; G="\033[0;32m"; Y="\033[1;33m"; C="\033[0;36m"
@@ -142,7 +146,7 @@ def setup_policy():
                      json={"policy_data": policy_doc,
                            "description": f"Demo: register {AGENT} allowlist",
                            "activate": True},
-                     headers={"Content-Type":"application/json"},
+                     headers={"Content-Type":"application/json", **_ADMIN_HEADERS},
                      timeout=5)
         r.raise_for_status()
         print(f"  {G}✔ Policy configured for '{AGENT}'{NC}")

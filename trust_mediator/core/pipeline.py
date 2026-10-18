@@ -71,6 +71,10 @@ class MediationPipeline:
             integrity_threshold=settings.memory_integrity_threshold,
         )
 
+        # FR-OR-02: an explicit config pins the redactor (tests, benchmarks).
+        # Otherwise each call reads the tenant's policy `redaction` section,
+        # which used to be ignored entirely: data_flow_rules never loaded.
+        self._redaction_pinned = redaction_config is not None
         self._redactor = OutputRedactor(redaction_config)
 
     def _emit(self, event) -> None:
@@ -95,7 +99,7 @@ class MediationPipeline:
 
     # ── §5.3 Step 1+2+3: Context mediation ───────────────────────────────────
 
-    async def process_context(self, envelope: ContextEnvelope) -> ContextEnvelope:
+    async def _process_context(self, envelope: ContextEnvelope) -> ContextEnvelope:
         """
         Route, label, and scan a context envelope.
         Returns the envelope with scanner_verdict populated.
@@ -124,8 +128,10 @@ class MediationPipeline:
         # operator can see exactly what proceeded unverified and why — an
         # unscannable item logged as a plain ALLOW would be invisible.
         unverified = not scanned.is_verified and bool(scanned.unverified_reason)
-        if unverified and scanned.scanner_verdict.decision == ScanVerdict.ALLOW:
+        if unverified and scanned.scanner_verdict.decision in (ScanVerdict.ALLOW, ScanVerdict.SHADOW):
             # Genuinely failed open: unscannable, and it proceeded anyway.
+            # SHADOW proceeds too (shadow mode does not enforce), so it is a
+            # fail-open as well when the scan was not verified.
             decision = AuditDecision.FAIL_OPEN
         elif scanned.scanner_verdict.decision == ScanVerdict.ALLOW:
             decision = AuditDecision.ALLOW
@@ -158,7 +164,7 @@ class MediationPipeline:
 
     # ── §5.3 Step 4: Tool call policy ─────────────────────────────────────────
 
-    async def process_tool_call(self, request: ToolCallRequest):
+    async def _process_tool_call(self, request: ToolCallRequest):
         """Evaluate a proposed tool call against policy. Returns PolicyDecision."""
         with tracer.start_as_current_span("mediate.tool_call") as span:
             decision = await self._policy_engine.evaluate(request)
@@ -191,7 +197,7 @@ class MediationPipeline:
 
     # ── §5.3 Step 6: Memory ops ───────────────────────────────────────────────
 
-    async def process_memory_write(self, request: MemoryWriteRequest) -> MemoryWriteResult:
+    async def _process_memory_write(self, request: MemoryWriteRequest) -> MemoryWriteResult:
         with tracer.start_as_current_span("mediate.memory_write") as span:
             result = await self._memory.vet_write(request)
             set_decision_attributes(
@@ -226,7 +232,7 @@ class MediationPipeline:
         self._emit(event)
         return result
 
-    async def process_memory_read(self, request: MemoryReadRequest) -> MemoryReadResult:
+    async def _process_memory_read(self, request: MemoryReadRequest) -> MemoryReadResult:
         with tracer.start_as_current_span("mediate.memory_read") as span:
             result = await self._memory.verify_read(request)
             set_decision_attributes(
@@ -252,16 +258,48 @@ class MediationPipeline:
 
     # ── §5.3 Step 7: Output redaction ─────────────────────────────────────────
 
-    async def process_output(
+    async def _redactor_for(self, tenant_id: str) -> tuple[OutputRedactor | None, str]:
+        """The tenant's redactor, or (None, reason) if its policy cannot be read."""
+        if self._redaction_pinned:
+            return self._redactor, ""
+        try:
+            policy = await self._loader.get_policy(tenant_id)
+        except Exception as e:
+            logger.error("pipeline.redaction_policy_unavailable", error_type=type(e).__name__)
+            return None, "policy_unavailable"
+        section = policy.get("redaction") if isinstance(policy, dict) else None
+        section = section if isinstance(section, dict) else {}
+        # Only the flow rules come from the tenant. PII patterns and the
+        # entropy threshold stay at the built-in defaults: otherwise a tenant
+        # admin could set pii_patterns_enabled: false and turn egress
+        # redaction off, the same loosening that keeps the scanner and memory
+        # thresholds env-governed.
+        return OutputRedactor({
+            "protected_classes": section.get("protected_classes", []),
+            "data_flow_rules": section.get("data_flow_rules", {}),
+        }), ""
+
+    async def _process_output(
         self,
         content: str,
         session_id: str = "",
         destination: str = "user",
         data_class_labels: list[str] | None = None,
+        tenant_id: str = "default",
     ) -> RedactionResult:
         with tracer.start_as_current_span("mediate.output") as span:
+            unavailable = ""
             try:
-                result = self._redactor.redact(
+                # Inside the try: building the tenant's redactor must fail
+                # closed (and be audited as such), never escape as a 500.
+                redactor, unavailable = await self._redactor_for(tenant_id)
+                if redactor is None and data_class_labels:
+                    # §9: a flow decision needs the policy, and outbound
+                    # actions fail closed when the mediator cannot decide.
+                    raise RuntimeError("data-flow policy unavailable")
+                # Unlabelled output needs no flow decision: redact with the
+                # built-in rules rather than block every response in an outage.
+                result = (redactor or OutputRedactor()).redact(
                     content, destination=destination, data_class_labels=data_class_labels
                 )
             except Exception as e:
@@ -303,10 +341,94 @@ class MediationPipeline:
                 "redactions_count": len(result.redactions_applied),
                 "destination": destination,
                 "block_reason": result.block_reason,
+                "data_class_labels": [str(x)[:64] for x in (data_class_labels or [])[:20]],
+                **({"policy": unavailable} if unavailable else {}),
             },
         )
         self._emit(event)
         return result
+
+    # ── Public entry points: every exception leaves an audit record ──────────
+    #
+    # An exception escaping a mediation call used to reach the client as a 500
+    # with nothing in the hash chain (security review Sec #9): the decision
+    # that was never made was also never recorded. Each entry point now writes
+    # a pipeline_exception event into the session's chain, then re-raises so
+    # the transport still answers with an error (never a verdict it did not
+    # reach). The fail-closed verdicts the modules render on their own errors
+    # are unchanged; this catches what they did not anticipate.
+
+    def _record_exception(
+        self, exc: Exception, *, stage: str, session_id: str, agent_id: str = "default"
+    ) -> None:
+        # The type only: an exception message can echo mediated content.
+        logger.error("pipeline.unhandled_exception", stage=stage, error_type=type(exc).__name__)
+        self._emit(
+            self._audit.make_event(
+                session_id=session_id,
+                module=AuditModule.PIPELINE,
+                decision=AuditDecision.ERROR,
+                reason_code="pipeline_exception",
+                details={"stage": stage, "error_type": type(exc).__name__},
+                agent_id=agent_id,
+            )
+        )
+
+    async def process_context(self, envelope: ContextEnvelope) -> ContextEnvelope:
+        try:
+            return await self._process_context(envelope)
+        except Exception as e:
+            self._record_exception(
+                e, stage="context", session_id=envelope.session_id,
+                # Provenance carries the agent id; the envelope itself has none.
+                # getattr: this handler must never raise and mask the original.
+                agent_id=getattr(envelope.provenance, "agent_id", "") or "default",
+            )
+            raise
+
+    async def process_tool_call(self, request: ToolCallRequest):
+        try:
+            return await self._process_tool_call(request)
+        except Exception as e:
+            self._record_exception(
+                e, stage="tool_call", session_id=request.session_id, agent_id=request.agent_id
+            )
+            raise
+
+    async def process_memory_write(self, request: MemoryWriteRequest) -> MemoryWriteResult:
+        try:
+            return await self._process_memory_write(request)
+        except Exception as e:
+            self._record_exception(
+                e, stage="memory_write", session_id=request.session_id, agent_id=request.agent_id
+            )
+            raise
+
+    async def process_memory_read(self, request: MemoryReadRequest) -> MemoryReadResult:
+        try:
+            return await self._process_memory_read(request)
+        except Exception as e:
+            self._record_exception(
+                e, stage="memory_read", session_id=request.session_id, agent_id=request.agent_id
+            )
+            raise
+
+    async def process_output(
+        self,
+        content: str,
+        session_id: str = "",
+        destination: str = "user",
+        data_class_labels: list[str] | None = None,
+        tenant_id: str = "default",
+    ) -> RedactionResult:
+        try:
+            return await self._process_output(
+                content, session_id=session_id, destination=destination,
+                data_class_labels=data_class_labels, tenant_id=tenant_id,
+            )
+        except Exception as e:
+            self._record_exception(e, stage="output", session_id=session_id)
+            raise
 
     # ── Audit replay ──────────────────────────────────────────────────────────
 

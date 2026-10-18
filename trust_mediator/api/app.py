@@ -20,7 +20,6 @@ from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.middleware import SlowAPIMiddleware
 
 from trust_mediator.config import require_secure_transport, settings
 from trust_mediator.api.dependencies import get_pipeline, get_policy_store
@@ -126,7 +125,11 @@ def create_app() -> FastAPI:
     # ── Rate limiting ─────────────────────────────────────────────────────────
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-    app.add_middleware(SlowAPIMiddleware)
+    # Not slowapi's own middleware: its route lookup misses included routers
+    # and exempted every /v1 route (see rate_limit.build_rate_limit_middleware).
+    from trust_mediator.api.rate_limit import build_rate_limit_middleware
+
+    app.add_middleware(build_rate_limit_middleware())
 
     # ── Middleware: request ID + structured logging ───────────────────────────
     @app.middleware("http")
@@ -144,7 +147,12 @@ def create_app() -> FastAPI:
             status_code=response.status_code,
             duration_ms=round(duration_ms, 2),
         )
-        REQUEST_LATENCY.labels(endpoint=request.url.path).observe(duration_ms / 1000)
+        # The route template, never the raw path: a path carries ids
+        # (/v1/audit/replay/<session>), which leaked into a public endpoint
+        # and grew one time series per id without bound (Sec #14).
+        route = request.scope.get("route")
+        endpoint = getattr(route, "path", None) or "unmatched"
+        REQUEST_LATENCY.labels(endpoint=endpoint).observe(duration_ms / 1000)
         response.headers["X-Request-ID"] = request_id
         response.headers["X-TrustMediator-Latency-Ms"] = f"{duration_ms:.1f}"
         structlog.contextvars.unbind_contextvars("request_id")
@@ -176,7 +184,10 @@ def create_app() -> FastAPI:
     app.include_router(policy.router)
 
     # ── Health & metrics ──────────────────────────────────────────────────────
+    # Exempt from the rate limit: behind a platform proxy every client shares
+    # one IP, and a keyless flood would otherwise 429 the platform health check.
     @app.get("/health", tags=["system"], summary="Health check")
+    @limiter.exempt
     async def health():
         return {
             "status": "ok",
@@ -186,8 +197,23 @@ def create_app() -> FastAPI:
         }
 
     @app.get("/metrics", tags=["system"], summary="Prometheus metrics")
-    async def metrics():
+    async def metrics(request: Request):
+        import hmac
+
         from fastapi.responses import Response
+
+        if settings.metrics_token:
+            supplied = request.headers.get("authorization", "")
+            expected = f"Bearer {settings.metrics_token}"
+            if not hmac.compare_digest(supplied.encode(), expected.encode()):
+                return JSONResponse(status_code=401, content={"detail": "metrics token required"},
+                                    headers={"WWW-Authenticate": "Bearer"})
+        elif not (settings.is_development or settings.metrics_public):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "set TRUST_MEDIATOR_METRICS_TOKEN, or "
+                                   "TRUST_MEDIATOR_METRICS_PUBLIC=true for a trusted network"},
+            )
         return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     # ── Global error handler ──────────────────────────────────────────────────

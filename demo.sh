@@ -43,7 +43,7 @@ echo -e "${BOLD}${CYAN}╚══════════════════
 echo ""
 
 echo -e "${DIM}Starting mediator on :$PORT ...${RESET}"
-DATABASE_URL="" REDIS_URL="" TRUST_MEDIATOR_API_KEYS="" \
+DATABASE_URL="" REDIS_URL="" TRUST_MEDIATOR_API_KEYS="" TRUST_MEDIATOR_RATE_LIMIT="100000/minute" \
   TRUST_MEDIATOR_ENV=development \
   TRUST_MEDIATOR_ALLOW_INSECURE_HTTP=true \
   SQLALCHEMY_ECHO=0 \

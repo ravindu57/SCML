@@ -31,7 +31,8 @@ class SecretFileError(RuntimeError):
 #: field with *live-reload* semantics (see api/key_store.py). Two mechanisms
 #: reading one path, one of them a startup-only snapshot, is the kind of
 #: near-duplicate that looks fine until a rotation half-applies.
-_NO_FILE_SOURCE = {"api_keys_raw"}
+#: ``admin_api_keys_raw`` is excluded for the same reason.
+_NO_FILE_SOURCE = {"api_keys_raw", "admin_api_keys_raw"}
 
 
 class FileSecretSource(PydanticBaseSettingsSource):
@@ -221,8 +222,14 @@ class Settings(BaseSettings):
     # ── Service ───────────────────────────────────────────────────────────────
     host: str = "0.0.0.0"
     port: int = 8000
-    env: Literal["development", "production", "test"] = "development"
+    # Production by default (security review E6). Development mode opens the
+    # API to unauthenticated callers when no keys are configured, so it must be
+    # asked for (TRUST_MEDIATOR_ENV=development), never fallen into because a
+    # variable was forgotten. Every dev script, CI job and .env.example sets it.
+    env: Literal["development", "production", "test"] = "production"
     log_level: str = "INFO"
+    # Not read anywhere: nothing in the mediator signs or encrypts with it.
+    # Kept so existing deployments that set it do not fail validation.
     secret_key: str = "change-me-to-a-random-256-bit-secret"
     workers: int = 1
     # Comma-separated API keys, e.g. "sk-abc123,sk-def456"
@@ -244,6 +251,21 @@ class Settings(BaseSettings):
     api_keys_reload_seconds: float = Field(
         default=5.0, alias="TRUST_MEDIATOR_API_KEYS_RELOAD_SECONDS"
     )
+
+    # Control-plane keys (FR-CP-03, PRD §10 "authz-gated"). A separate set,
+    # not a flag on a data-plane key: the key an agent holds to mediate its own
+    # traffic must not be able to rewrite the policy that mediates it or
+    # release its own quarantined memory. Same entry syntax and tenant binding
+    # as TRUST_MEDIATOR_API_KEYS (``acme@secops:sk-...``), and the same
+    # live-reloading file source. Empty means the control plane is closed
+    # whenever data-plane keys are configured — see api/auth.py.
+    admin_api_keys_raw: str = Field(default="", alias="TRUST_MEDIATOR_ADMIN_API_KEYS")
+    admin_api_keys_file: str = Field(default="", alias="TRUST_MEDIATOR_ADMIN_API_KEYS_FILE")
+
+    @property
+    def admin_api_key_entries(self) -> list[KeyEntry]:
+        """(tenant, principal, key) triples from TRUST_MEDIATOR_ADMIN_API_KEYS."""
+        return parse_key_entries_with_tenant(self.admin_api_keys_raw)
 
     @property
     def api_key_principals(self) -> list[tuple[str | None, str]]:
@@ -282,6 +304,14 @@ class Settings(BaseSettings):
     trusted_hosts_raw: str = Field(default="", alias="TRUST_MEDIATOR_TRUSTED_HOSTS")
     # Emit Strict-Transport-Security (enable once TLS terminates in front).
     hsts_enabled: bool = Field(default=False, alias="TRUST_MEDIATOR_HSTS_ENABLED")
+
+    # /metrics access (security review Sec #14). Metrics reveal traffic shape
+    # per endpoint and decision rates, so production serves them only with a
+    # bearer token, or with an explicit, greppable opt-out for scrapers inside
+    # a trusted network (like TRUST_MEDIATOR_ALLOW_INSECURE_HTTP). The token
+    # also reads from TRUST_MEDIATOR_METRICS_TOKEN_FILE.
+    metrics_token: str = Field(default="", alias="TRUST_MEDIATOR_METRICS_TOKEN")
+    metrics_public: bool = Field(default=False, alias="TRUST_MEDIATOR_METRICS_PUBLIC")
 
     @property
     def cors_origins(self) -> list[str]:
@@ -494,6 +524,12 @@ class Settings(BaseSettings):
     # ── Policy ────────────────────────────────────────────────────────────────
     policy_default_file: str = Field(
         default="policies/default_policy.yaml", alias="POLICY_DEFAULT_FILE"
+    )
+    #: FR-PE-05 per-agent, per-tool limit applied when an agent's policy sets no
+    #: `rate_limits.tool_calls_per_minute` of its own (was a literal 120 in the
+    #: engine). Must be a positive integer.
+    policy_default_tool_calls_per_minute: int = Field(
+        default=120, gt=0, alias="POLICY_DEFAULT_TOOL_CALLS_PER_MINUTE"
     )
 
     # ── Observability ─────────────────────────────────────────────────────────

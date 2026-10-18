@@ -92,12 +92,32 @@ _BENIGN_EXAMPLES = [
 ]
 
 
+class ClassifierUnavailable(Exception):
+    """The classifier could not produce a score (§9).
+
+    Deliberately not a RuntimeError: ``LLMClassifier.predict`` catches
+    RuntimeError to detect "already inside an event loop", and would otherwise
+    swallow this and repeat the (paid) call on a worker thread.
+
+    Raised instead of returning 0.0. On a scale where 0.0 means "definitely
+    benign", returning it on failure made an outage indistinguishable from a
+    clean scan: the content was marked verified and the scanner's
+    ``_unscannable`` path — escalate risky content, tag the rest unverified —
+    never ran.
+    """
+
+
 class BaseClassifier(ABC):
     """Abstract base for all injection classifiers (NFR-COMP-02)."""
 
     @abstractmethod
     def predict(self, text: str) -> float:
-        """Return an injection probability score in [0.0, 1.0]."""
+        """Return an injection probability score in [0.0, 1.0].
+
+        Raise ``ClassifierUnavailable`` when no score can be produced — never
+        return 0.0 for "I don't know", which the scanner would record as a
+        verified clean scan.
+        """
         ...
 
     async def predict_async(self, text: str) -> float:
@@ -177,18 +197,28 @@ class HeuristicClassifier(BaseClassifier):
             except Exception as e:
                 logger.warning("heuristic_classifier.cache_write_failed", error=str(e))
         except ImportError:
-            logger.warning("heuristic_classifier.sklearn_not_available")
+            # Loud, once, at construction: without a model every stage-2 call
+            # raises ClassifierUnavailable, so risky_external content escalates
+            # and gated untrusted content proceeds unverified. Install the
+            # [ml] extra (the Dockerfile does).
+            logger.error(
+                "heuristic_classifier.no_model",
+                hint="scikit-learn missing: install trust-mediator[ml]; stage-2 "
+                "scanning is unavailable and will fail closed/unverified",
+            )
 
     def predict(self, text: str) -> float:
         if self._model is None or self._vectorizer is None:
-            return 0.0
+            # No model means scikit-learn ([ml] extra) is missing or training
+            # failed. That is a broken install, not a benign verdict.
+            raise ClassifierUnavailable("heuristic classifier has no model loaded")
         try:
             X = self._vectorizer.transform([text])
             prob = self._model.predict_proba(X)[0][1]
             return float(prob)
         except Exception as e:
             logger.error("heuristic_classifier.predict_error", error=str(e))
-            return 0.0
+            raise ClassifierUnavailable(f"heuristic prediction failed: {type(e).__name__}") from e
 
 
 class LLMClassifier(BaseClassifier):
@@ -232,7 +262,7 @@ class LLMClassifier(BaseClassifier):
         import httpx
         if not self._api_key:
             logger.warning("llm_classifier.no_api_key_configured")
-            return 0.0
+            raise ClassifierUnavailable("SCANNER_BACKEND=llm but no LLM_SCANNER_API_KEY is set")
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
@@ -259,10 +289,16 @@ class LLMClassifier(BaseClassifier):
                 resp.raise_for_status()
                 content = resp.json()["choices"][0]["message"]["content"]
                 data = json.loads(content)
-                return float(data.get("score", 0.0))
+                # A reply without a score, or outside [0, 1], is a failed
+                # classification — not a 0.0, and not a value to clamp, since
+                # the model may have been steered by the text it is judging.
+                score = float(data["score"])
+                if not 0.0 <= score <= 1.0:
+                    raise ValueError(f"score {score!r} outside [0, 1]")
+                return score
         except Exception as e:
-            logger.error("llm_classifier.predict_error", error=str(e))
-            return 0.0
+            logger.error("llm_classifier.predict_error", error_type=type(e).__name__)
+            raise ClassifierUnavailable(f"LLM classification failed: {type(e).__name__}") from e
 
 
 def get_classifier() -> BaseClassifier:

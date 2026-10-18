@@ -36,8 +36,9 @@ trail, but on their own they do not stop anything.
 
 There are exactly two enforcement points:
 
-* ``strict=True`` — a block, an approval gate or an unrecognised verdict raises
-  ``TrustMediatorError``, which aborts the run. Coarse, but real.
+* ``strict=True`` — a block, an approval gate, an escalation, an unreachable
+  or erroring mediator (timeout, 401/403, 500) or an unrecognised verdict
+  raises ``TrustMediatorError``, which aborts the run. Coarse, but real.
 * ``guard.redact(text)`` — returns the redacted text for you to substitute.
   Call it on your final answer; ``on_chain_end`` cannot do this for you.
 
@@ -53,6 +54,7 @@ from typing import Any, Union
 
 from trust_mediator.client import SCMLClient, Verdict, classify_decision
 from trust_mediator.config import settings
+from trust_mediator.models.context_envelope import TrustLabel
 from trust_mediator.modules.trust_router.router import TrustRouter
 
 logger = logging.getLogger(__name__)
@@ -128,6 +130,13 @@ class TrustMediatorGuard(BaseCallbackHandler):
         self.session_id = session_id or f"lc-{uuid.uuid4().hex[:12]}"
         self.strict    = strict
         self.timeout   = timeout
+        # Validated here: a typo would otherwise be rejected by the server on
+        # every tool call (422), which reads as "mediator unreachable".
+        if arg_trust_label and arg_trust_label not in {lbl.value for lbl in TrustLabel}:
+            raise ValueError(
+                f"arg_trust_label {arg_trust_label!r} is not a trust label; use one of "
+                f"{sorted(lbl.value for lbl in TrustLabel)} or None"
+            )
         self.arg_trust_label = arg_trust_label
 
         # Retained untrusted tool output, so a later tool call that *constructs*
@@ -225,10 +234,24 @@ class TrustMediatorGuard(BaseCallbackHandler):
 
         elif verdict is Verdict.ESCALATE:
             self.stats["escalated"] += 1
-            logger.warning("[TrustMediator] ESCALATE — %s | requires human review", context)
+            msg = f"[TrustMediator] ESCALATE — {context} | requires human review"
+            logger.warning(msg)
+            if self.strict:
+                raise TrustMediatorError(msg)
 
+        # Transport failure: timeout, connection refused, or an HTTP error —
+        # including 401/403 for a revoked key and 500 from the mediator. Counted
+        # in _post. This used to `pass` even under strict, so a revoked key or
+        # a mediator fault silently turned enforcement off (§9: tool execution
+        # fails closed). Non-strict stays notify-only, as documented.
         elif verdict is Verdict.ERROR:
-            pass  # transport failure — already counted in _post
+            msg = (
+                f"[TrustMediator] MEDIATOR UNREACHABLE — {context} | "
+                f"reason: {result.get('reason', '—')}"
+            )
+            logger.warning(msg)
+            if self.strict:
+                raise TrustMediatorError(msg)
 
         else:
             # Never silently ignore an unrecognised verdict: that is how the
@@ -366,6 +389,12 @@ class TrustMediatorGuard(BaseCallbackHandler):
             "destination": "user",
         })
         if result.get("decision") == "error":
+            # Audit-only hook (it cannot alter the result), so it does not
+            # raise even under strict; guard.redact() is the enforcing path.
+            logger.warning(
+                "[TrustMediator] output mediation unreachable on chain end: %s",
+                result.get("reason", "—"),
+            )
             return
 
         redactions = result.get("redactions_applied") or []

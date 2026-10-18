@@ -9,7 +9,7 @@ agents:
     require_approval_for:
       - irreversible
       - high_impact
-    untrusted_arg_policy: require_approval   # deny | require_approval | allow
+    untrusted_arg_policy: require_approval   # deny | require_approval (never allow — PRD §5.2)
     rate_limits:
       tool_calls_per_minute: 60
 
@@ -52,6 +52,10 @@ agents:
       tool_calls_per_minute: 10
 
 
+# NOT ENFORCED from here (memory, scanner): the mediator reads these
+# thresholds from TRUST_MEDIATOR_* environment settings, mediator-wide, so a
+# tenant's admin cannot loosen scanning for the deployment. They are kept for
+# compatibility and as documentation of the intended values. See CLAUDE.md.
 memory:
   integrity_score_threshold: 0.65    # Below this → quarantine; below half → reject
   rescan_on_read: false              # Set true for high-security deployments
@@ -70,6 +74,10 @@ redaction:
     - pii
     - secret
     - credential
-  # data_flow_rules defines which protected classes can flow to which destinations
-  # Omitting this means no extra flow restrictions beyond redaction
-  data_flow_rules: {}
+  # FR-OR-02 (enforced, per tenant): which destinations each protected class
+  # may flow to. DENY BY DEFAULT: a protected class with no rule, or [],
+  # may flow nowhere. Only outputs sent with data_class_labels are checked.
+  data_flow_rules:
+    pii: [user]
+    secret: []
+    credential: []

@@ -1,0 +1,45 @@
+# Single-host production override (docs/DEPLOY_VPS.md):
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Adds Caddy for TLS on 80/443 and stops publishing the mediator's port, so
+# the only way in is through TLS. Without this, :8000 on every interface
+# bypasses the proxy entirely (security review, #9).
+services:
+  trust-mediator:
+    ports: !reset []
+    expose:
+      - "8000"
+    environment:
+      # Behind Caddy every request comes from Caddy's address. uvicorn
+      # rewrites the client address from X-Forwarded-For only for these
+      # sources; "*" is safe here solely because the port is not published.
+      - FORWARDED_ALLOW_IPS=*
+      # Host-header allow-list: the public name, plus localhost for the
+      # container's own health check.
+      - TRUST_MEDIATOR_TRUSTED_HOSTS=${SCML_DOMAIN:?set SCML_DOMAIN},localhost
+      - TRUST_MEDIATOR_HSTS_ENABLED=true
+    command: ["uvicorn", "trust_mediator.api.app:app", "--host", "0.0.0.0", "--port", "8000",
+              "--workers", "4", "--proxy-headers"]
+
+  caddy:
+    image: caddy:2.8.4-alpine
+    container_name: trust-mediator-caddy
+    depends_on:
+      trust-mediator:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SCML_DOMAIN: ${SCML_DOMAIN:?set SCML_DOMAIN}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

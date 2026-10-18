@@ -5,6 +5,10 @@ metadata:
   namespace: trust-mediator
 data:
   TRUST_MEDIATOR_ENV: "production"
+  # /metrics is scraped in-cluster by annotation (deployment.yaml) without a
+  # token. Keep it unreachable from outside (no Ingress route; NetworkPolicy)
+  # or set TRUST_MEDIATOR_METRICS_TOKEN and configure the scraper instead.
+  TRUST_MEDIATOR_METRICS_PUBLIC: "true"
   # NFR-SEC-03. TLS terminates at the Ingress, so the pod itself listens in
   # plaintext inside the cluster. Production refuses to start without this
   # acknowledgement, so the decision is visible in review rather than implied

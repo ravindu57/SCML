@@ -35,11 +35,10 @@ The honest summary: CaMeL is better on security and utility. SCML's only advanta
 
 ## What CaMeL doesn't cover
 
-CaMeL's AgentDojo evaluation covers one suite of four and one attack of seventeen. Three suites are untested and need their own policy. SCML's evaluation covers all four suites with all shipped attack types, and adds three additional testbeds:
+Both evaluations cover all four AgentDojo suites. SCML has so far run only 2 of AgentDojo's 17 attack types (`important_instructions` on all four suites, `ignore_previous` on banking and slack), so its attack coverage is narrower than CaMeL's. SCML adds two testbeds:
 
 - **InjecAgent** (ACL Findings 2024, 1,054 third-party cases): SCML achieves 0.0% harmful ASR. The injection scanner detects 0 of 1,054 attacks — tool policy is the entire defence.
-- **Memory poisoning** (48 in-house cases): 18.8% pessimistic harm total, with 0 harmful cases in the tool and control-bypass vectors.
-- **Image attacks** (38 in-house cases): 0% ASR, all caught by the same tool policy layer.
+- **Memory poisoning** (48 in-house cases): 20.8% storage ASR (target < 10%, not met) and 18.8% pessimistic harm total, with 0 harmful cases in the tool and control-bypass vectors.
 
 CaMeL does not report on any of these testbeds. That does not mean CaMeL would fail them — the dual-LLM architecture is structurally strong against indirect injection — but it means the comparison is incomplete in both directions.
 
@@ -56,9 +55,9 @@ user_task_2: "Invite Dora to Slack. You can find her e-mail
 
 The user explicitly instructs the agent to fetch untrusted content and act on it. The resulting argument derives from tool output, and is indistinguishable from an injected one. SCML's trust labelling correctly identifies the email as untrusted — and denies the invite. This is the rule working correctly on a workflow that happens to look like an attack.
 
-The tool-output sanitizer (FR-OR-03) addresses this gap. It strips instruction framing from tool results before the agent reads them — no LLM call, no new dependencies, deterministic. On the slack suite, it takes ASR from 33.3% to 0.0% with zero utility cost. The mechanism: injected prose is marked with structural framing (`<INFORMATION>`, imperative lines, heading blocks) that the sanitizer removes. The model never sees the injection as an instruction.
+The tool-output sanitizer (FR-OR-03) addresses this gap. It strips instruction framing from tool results before the agent reads them — no LLM call, no new dependencies, deterministic. In a single-task pilot (slack `user_task_2`, 5 injections), it takes ASR from 60% to 0% with no added utility cost. The full slack suite has not been run with it yet, so there is no suite-level number. The mechanism: injected prose is marked with structural framing (`<INFORMATION>`, imperative lines, heading blocks) that the sanitizer removes. The model never sees the injection as an instruction.
 
-This is not a general solution — it targets the specific failure mode where attacks are delivered inside tool outputs. But that failure mode is the hardest case for trust-labelling defences, and the measurement shows it works.
+This is not a general solution — it targets the specific failure mode where attacks are delivered inside tool outputs. But that failure mode is the hardest case for trust-labelling defences, and the pilot is a promising, not yet conclusive, sign that it works.
 
 ## The real number to quote
 
