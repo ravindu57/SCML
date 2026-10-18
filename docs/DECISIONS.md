@@ -74,3 +74,17 @@ ADR-0004 onwards up to ADR-0007 were recorded retroactively on 2026-10-18 from c
   frozen threshold, 158 ms p95, 0% recall on memory poisoning. Tool similarity alone scores 0.834; the mood term lowers it.
 - **Consequences:** §6.3 detection (backlog #17) stays open. Previously rejected: two TF-IDF approaches (AUC 0.660,
   0.506) and the token-level route gate.
+
+## ADR-0008: The load drain probe stays inside the audit queue bound; harness overload drops are capacity, not a bug
+
+- **Status:** active
+- **Date:** 2026-10-18
+- **Decision:** `_measure_audit_drain_rate` caps its burst at `AUDIT_QUEUE_MAXSIZE` and counts only persisted events.
+  The 20k burst predated the 10k bound (eb36b03), so since then it dropped 10k events and counted them as drained
+  (reported 7,185 events/s, actual 3,851). Regression test:
+  `test_load_harness.py::TestAuditDrainProbe`.
+- **Evidence:** `benchmarks/results/v2/load_2026-10-18.md`. The frozen `load.md` (2,809 events/s, 2026-08-05) predates
+  the bound and is unaffected.
+- **Consequences:** the 337k drops in `docs/recovery/ANALYSIS.md` were about 10k probe artifact plus real overload:
+  the in-process pipeline scenarios run at ~8k–35k req/s against a ~3.8k events/s writer. No `AuditLogger` change;
+  preventing the loss is spill-to-disk (backlog #19).

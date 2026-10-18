@@ -364,7 +364,7 @@
       "passes": false,
       "frozen": false,
       "paid": false,
-      "notes": ""
+      "notes": "2026-10-18 (ADR-0008): load-harness audit drops (~300k) are real overload of the ~3.8k events/s writer by in-process scenarios, not a bug; spill-to-disk is what would prevent the loss."
     },
     {
       "id": 20,

@@ -64,6 +64,11 @@ async def _measure_audit_drain_rate(pipeline, burst: int = 20_000) -> float:
     last scenario happened to leave queued: once batching made the writer fast
     enough to keep up with HTTP load, the leftover backlog was a handful of
     events and far too small to time.
+
+    The burst is capped at the queue bound. A 20k burst into the default 10k
+    queue had half of it dropped by `log()` on the spot, and those drops were
+    then counted as drained — reporting ~1.9x the real write rate and adding
+    10k phantom drops to the logged total. Only persisted events count.
     """
     import time as _time
 
@@ -77,6 +82,10 @@ async def _measure_audit_drain_rate(pipeline, burst: int = 20_000) -> float:
             queue.task_done()
         except Exception:  # noqa: BLE001
             break
+
+    if queue.maxsize > 0:
+        burst = min(burst, queue.maxsize)
+    dropped_before = audit.dropped_total
 
     for i in range(burst):
         audit.log(
@@ -94,7 +103,8 @@ async def _measure_audit_drain_rate(pipeline, burst: int = 20_000) -> float:
     except asyncio.TimeoutError:
         pass
     elapsed = _time.perf_counter() - started
-    drained = burst - queue.qsize()
+    # Anything `log()` dropped was never queued, so it was never drained either.
+    drained = burst - queue.qsize() - (audit.dropped_total - dropped_before)
     return drained / elapsed if elapsed > 0 and drained > 0 else 0.0
 
 
