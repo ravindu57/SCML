@@ -9,361 +9,82 @@ production NFRs (§16). It lowers no v1.0 target. New IDs start at FR-MI-06,
 FR-PE-06, FR-SC-06 — FR-MI-05 (quarantine review) and FR-PE-05 (rate limiting)
 are v1.0's and unaffected.
 
+## Working in this repo
+
+- **Start of session:** `/session-start <role>` (prints `PROGRESS.md`, names the role, picks **one** item from `feature_list.json`). **End:** `/session-end`.
+- `PROGRESS.md` — current state + newest-first session log. `feature_list.json` — the backlog; `passes: true` only with evidence that reproduces.
+- `docs/DECISIONS.md` — ADRs (active / superseded / rejected; never delete). Every decision gets one.
+- `FROZEN.md` — completed evidence (result files, corpora, policies, specs) with sha256. A PreToolUse hook blocks edits to these paths. If a frozen file looks wrong, report it; don't fix it.
+- **New benchmark runs go to new, versioned files** (`benchmarks/results/v2/<testbed>_<YYYY-MM-DD>.{md,json}`), never over a committed baseline (ADR-0001). Use `/run-eval`.
+- Module-specific rules live in `.claude/rules/*.md` and load when you touch matching paths. Read the relevant one before changing a module.
+- Files are the source of truth. If code and docs disagree, stop and ask. Mark anything uncertain `[UNVERIFIED]`.
+- Ask before installing system packages, changing dependencies, pushing, or spending money (paid LLM runs).
+
 ## Commands
 
-- Unit + integration tests: `.venv/bin/pytest tests/ -q` (expect 874 passed with the `[grpc]` extra installed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
+Test env prefix (the local `.env` sets production mode, docker-only hostnames and a real API key, all of which break bare test runs):
+`DATABASE_URL="" TRUST_MEDIATOR_ENV=development REDIS_URL="" TRUST_MEDIATOR_API_KEYS="" TRUST_MEDIATOR_ADMIN_API_KEYS=""`
+
+- Unit + integration tests: `.venv/bin/python -m pytest tests/ -q` (expect 874 passed with the `[grpc]` extra installed; integration tests need `DATABASE_URL` blank → SQLite fallback, or the docker-compose Postgres running)
 - TypeScript client tests: `cd clients/typescript && npm test` (expect 25 passed; run `npm install && npm run build` first)
 - Benchmarks: `.venv/bin/python -m benchmarks.cli --testbed memory_poisoning` (see `benchmarks/README.md`; the CLI pins its own env and DB, so it needs no env prefix)
 - Load/latency: `.venv/bin/python -m benchmarks.load` (§8.1/§8.2 NFRs; same self-pinning env)
-- Lint: `.venv/bin/ruff check trust_mediator/ tests/`
-- Run API locally: `.venv/bin/uvicorn trust_mediator.api.app:app --reload --port 8000` (docs at /docs)
+- Lint: `.venv/bin/python -m ruff check trust_mediator/ tests/`
+- Run API locally: `.venv/bin/python -m uvicorn trust_mediator.api.app:app --reload --port 8000` (docs at /docs)
 - Full stack: `docker compose up -d` (service on :8000, Postgres, Redis)
+- Frozen hashes: `scripts/check_frozen.sh`
+
+Use `python -m <tool>`, not `.venv/bin/<tool>`: the venv was created at an older path, so its console-script shebangs are broken (the interpreter symlink still works). On Windows the venv is `.venv\Scripts\python.exe`; run the same `-m` commands, or use WSL.
 
 ## Architecture rules — do not violate
+
+Details, history and the tests that pin each rule are in `.claude/rules/`.
 
 - **Core invariant (PRD §5.2):** data labelled `untrusted_data` or `risky_external` may inform content but must NEVER enter the control path or authorise a tool call. Preserve this in any refactor.
 - **Fail policy (PRD §9):** side-effect operations (tool execution, memory writes, outbound responses) fail CLOSED on mediator error; only low-risk reads may fail open, and every fail-open must be audit-logged.
 - **Taint propagation:** derived values inherit the most restrictive label of their inputs (`TrustLabel.most_restrictive`).
 - **All config via env:** every tunable goes through `TRUST_MEDIATOR_*` env vars in `trust_mediator/config.py` (pydantic-settings). Never hardcode thresholds, URLs, or keys.
-- **Audit everything:** every mediation decision emits an `AuditEvent` through `AuditLogger` (SHA-256 hash chain). New decision points must log. So do control-plane actions, via `api/admin_audit.record_admin_action` into the tenant's `#control-plane::<tenant>` chain (admin-only replay at `GET /v1/audit/control-plane`); a new admin route must record itself. The hash covers every field from `hash_version` 2 on; when you add a field to `AuditEvent`, add it to `compute_hash` under a *new* version, never by changing v2, or every stored v2 chain stops verifying. Public `MediationPipeline.process_*` methods are audit wrappers: implementations live in `_process_*`, and an unexpected exception is recorded as `pipeline_exception` before it propagates. A failed audit write leaves an `audit_gap` marker (`cause: write_failed`), like an overflow.
-- **A classifier that cannot score raises `ClassifierUnavailable`; it never returns 0.0.**
-  0.0 means "definitely benign", so returning it on failure (no API key, HTTP
-  error, bad reply, no model) marked unscanned content verified and bypassed
-  the scanner's `_unscannable` §9 path. The same goes for clients:
-  `strict=True` in the LangChain guard raises on `error` and `escalate`, and
-  `/tool-call` rejects unknown trust labels (422) rather than dropping them.
-  `test_fail_closed_clients.py` pins all three.
-- **Async callers use `InjectionScanner.scan_async`, never `scan`.** `scan` runs stage 2 inline, and `LLMClassifier.predict` bridges to async by blocking on `Future.result()` — a 1s classifier call measured 4 event-loop iterations instead of ~100, stalling every concurrent request, not just its own. A backend that performs I/O must override `predict_async`; the base class default delegates to `predict`, which is correct only for CPU-bound backends. `test_scanner_async_path.py` asserts both call sites.
+- **Audit everything:** every mediation decision and every control-plane action emits an audit event (SHA-256 hash chain). New decision points and admin routes must log. → `rules/audit.md`
+- **A classifier that cannot score raises `ClassifierUnavailable`; it never returns 0.0.** Async callers use `scan_async`. → `rules/scanner.md`
+- **Every `/v1` route takes `AuthDep`, `CallerDep` or `AdminDep`; control-plane writes take `AdminDep`. Tenant is key-bound, never client-supplied.** → `rules/api-auth.md`
+- **A malformed policy must never widen authority; FR-OR-02 data-flow rules are per tenant and deny by default.** → `rules/policy.md`
+- **Never classify a mediation verdict inline; the core install is the client SDK; `__all__` is the public API contract.** → `rules/clients.md`
+- **Tool-output sanitization is an inbound rewrite, not an egress verdict (FR-OR-03).** → `rules/output-sanitizer.md`
+- **The mediator never reads agent memory to decide authorisation.** → `rules/memory-integrity.md`
 - **Traceability convention:** cite PRD requirement IDs (FR-*/NFR-*) in module docstrings and test names, as existing code does.
-- **The core install is the client SDK; the server stack lives in extras.** `pip install trust-mediator` must stay ~14 packages (`httpx`, `pydantic`, `pydantic-settings`). Everything else is `[server]`, `[ml]` (scikit-learn only, imported lazily in `HeuristicClassifier.train`), `[embedded]`. `[dev]` self-references `[server,ml]` so `pip install -e ".[dev]"` still gives a full stack. The `client-install` CI job fails if a server dependency leaks back into core — if you add a core dependency, that job is the thing telling you not to.
-- **`__all__` in `trust_mediator/__init__.py` is the public API contract.** Adding to it is a minor version; removing or renaming is a major one. Everything under `modules/`, `db/`, `api/` is internal and free to change. `MediationPipeline` and `settings` resolve lazily via module `__getattr__` so a client-only install can import the package without the server stack — do not make them eager. `test_public_api.py` pins all of this.
-- **Every `/v1` route takes `AuthDep`, `CallerDep` or `AdminDep`; each yields a *principal*, never the key.**
-  Three FR-MI-05 quarantine routes shipped unauthenticated because they declared
-  `pipeline: PipelineDep = None` and a non-defaulted `_: AuthDep` cannot follow a
-  defaulted parameter — so auth was dropped instead of the parameters reordered.
-  Put dependencies before defaulted parameters.
-  `test_api_auth.py::test_all_v1_routes_require_a_key` walks the route tree and
-  fails on any `/v1` route that does not resolve `_validate_api_key`; its
-  companion `test_at_least_one_route_was_discovered` exists because the first
-  version of that walk found nothing and passed vacuously (FastAPI 0.139 nests
-  included routers under `_IncludedRouter` rather than flattening them into
-  `app.routes`). Auth returns the principal so handlers cannot leak the secret
-  into a log line or span, and so admin actions are attributable: the FR-MI-05
-  release reviewer is the authenticated caller, not a query parameter. Compare
-  keys only with `hmac.compare_digest` over every candidate with no early exit —
-  `key in keys` short-circuits and leaks the key to timing analysis. Never put a
-  raw key in a rate-limit bucket, log field or audit record; use
-  `key_fingerprint`.
-- **Control-plane writes take `AdminDep`, never `AuthDep`/`CallerDep` (FR-CP-03).**
-  Policy PUT/upsert/delete/rollback and quarantine release/purge resolve
-  `_validate_admin` against `TRUST_MEDIATOR_ADMIN_API_KEYS[_FILE]`, a set
-  separate from the data-plane keys. Neither set substitutes for the other,
-  and data-plane keys with no admin keys means the control plane is *closed*:
-  falling back to data-plane keys is the escalation this exists to prevent.
-  `test_control_plane_authority.py` pins the exact admin route set; a new
-  control-plane write must be added there. A shadow policy version is never
-  active (FR-CP-02): nothing evaluates policy in shadow, so an active shadow
-  version would be enforced.
-- **HTTP rate limiting uses `rate_limit.build_rate_limit_middleware`, not `SlowAPIMiddleware`.** slowapi's
-  flat route lookup misses included routers (FastAPI 0.139) and exempted every `/v1` route;
-  `test_deploy_defaults.py` fails if any guarded route becomes invisible to the limiter again.
-  `env` defaults to production; a policy DB error never falls back to the gateway YAML.
-- **Configuring a key file means this deployment authenticates.**
-  `TRUST_MEDIATOR_API_KEYS_FILE` is re-read while running so keys rotate without
-  a restart (`key_store.py`). Two rules that look like bugs and are not:
-  an unreadable file **retains the last good key set** (a transient mount glitch
-  must not be a total auth outage — revoke by *emptying* the file, never
-  deleting it), and setting the file **suppresses development open-access**
-  entirely, or emptying it to revoke everything would instead open the API to
-  everyone. Last-good is per *source*: if the configured path changes, the old
-  keys are dropped.
-- **Production refuses to serve plaintext unless told to.**
-  `require_secure_transport()` runs in `create_app()` and `create_grpc_server()`
-  — not in `main()`, because the Dockerfile CMD and the systemd unit both invoke
-  `uvicorn trust_mediator.api.app:app` directly and never call it. Terminating
-  TLS at an ingress is legitimate, so it is an opt-out
-  (`TRUST_MEDIATOR_ALLOW_INSECURE_HTTP`), but it must stay an explicit, greppable
-  choice rather than the silent default it was. Both listeners honour a keypair;
-  set `_TLS_CA_FILE` + `_TLS_REQUIRE_CLIENT_CERT` for mTLS.
-- **Never classify a mediation verdict inline.** `client.classify_decision` is the single implementation, shared by the SDK and the LangChain guard. `require_approval` and `deny` both arrive *suffixed* (`.irreversible`, `.schema_violation`), and an unrecognised verdict must map to `unknown`, never `allow` — matching `require_approval` exactly once let gated irreversible actions through (FR-PE-03). The TypeScript client mirrors the same branch order and must stay in sync.
-- **Tool-output sanitization is an inbound rewrite, not an egress verdict (FR-OR-03).** `ToolOutputSanitizer` (modules/output_redaction/sanitizer.py) strips *instruction framing* (``<INFORMATION>`` blocks, `IMPORTANT:` directive lines, dangling imperatives) from tool results *before* the agent model reads them. It is deliberately pattern-free with respect to adversarial vocabularies — patterns target how a payload is marked as an instruction, never the payload text, so it is not corpus-tuned (overfitting, benchmarks/README.md). A recognised injection must be removed, never passed through (§9 fail-closed in the inbound direction); unrecognised content passes through unchanged. It is deterministic and core-safe, and `client.sanitize_tool_output` must not pull in the server stack (structlog is optional with a stdlib fallback; `OutputRedactor` stays lazy). Use it through the *SDK method*, whose returned string is what a caller substitutes — it is the enforcement side, like `guard.redact`. `benchmarks/results/output_sanitizer.md` documents the seam, the measured slack `user_task_2` pilot (ASR 60% → 0% at no added utility cost) and the TypeScript mirror (portable regex engine, byte-for-byte parity corpus); do not quote a suite-level slack ASR number until the full `--sanitize` slack suite has been run.
-
-- **A malformed policy must never widen authority (§5.2, §9).** Two layers,
-  both required: `tool_policy/validation.py` rejects a bad document before it
-  is stored, loaded from YAML or rolled back to, and `PolicyEngine` denies on
-  any shape it does not recognise and never raises (an unexpected error is an
-  audited `mediator_error`, because a 500 reads as permission to a fail-open
-  client). There is no `untrusted_arg_policy: allow`. An absent `allowed_tools`
-  denies. Keep validation and the engine's shape checks in step;
-  `test_policy_fail_closed.py` pins both and validates every shipped policy.
-- **FR-OR-02 data-flow rules are per tenant and deny by default.** `_process_output` reads only
-  `protected_classes`/`data_flow_rules` from the tenant policy; PII/entropy settings stay built-in
-  so a tenant cannot disable redaction. Policy `memory`/`scanner` sections are NOT enforced (env
-  governs). `test_data_flow_rules.py` pins this.
-- **Tenant is key-bound, never client-supplied.** A key like `acme@ops:sk-...`
-  binds the caller to tenant `acme` (see `KeyEntry` / `parse_key_entries_with_tenant`
-  in `config.py`); an unqualified key resolves to `TRUST_MEDIATOR_DEFAULT_TENANT`,
-  so pre-tenancy deployments behave exactly as before. `CallerDep` yields a
-  `Caller(tenant, principal)` and the handler scopes every policy read/write and
-  every tool-call mediation by `caller.tenant`. **No request model accepts a
-  `tenant_id`/`tenant` field** — the router sets `tenant_id=caller.tenant` on the
-  `ToolCallRequest` (`mediate.py`), so a caller cannot claim another company's
-  namespace by shaping the body. A tenant with no policy document is **deny-all**
-  (`_TENANT_DENY_ALL` in `policy_loader.py`, with an explicit `allowed_tools:
-  []` so it is a valid document in its own right), and only the `default`
-  tenant falls back to the gateway YAML. `bootstrap_from_yaml` seeds `default`
-  only; a per-agent upsert needs an existing tenant document.
-  **The same binding covers memory, audit, gRPC and rate limits (Sec #6).**
-  Every `MemoryRepository` query filters on `tenant_id`, which routers set from
-  `caller.tenant` (never the body), and release/purge use the *admin* key's
-  tenant. Session ids pass through `session_for(caller, sid)` /
-  `core/tenancy.scoped_session` before reaching the pipeline: the default
-  tenant keeps raw ids (old chains replay), others become `tenant::sid`, and a
-  client id containing `::` is a 422, or a default caller could write into
-  another tenant's audit chain. gRPC resolves the tenant from `x-api-key`
-  per call. Rate-limit buckets are `tenant:agent:tool`.
-  `test_tenant_isolation.py` pins all of it.
 
 ## Layout
 
 - `trust_mediator/modules/` — the 8 PRD components (ingress, trust_router, injection_scanner, tool_policy, memory_integrity, output_redaction, audit_log, policy_store), one package each; `output_redaction/` also holds the FR-OR-03 `sanitizer.py` (inbound tool-output rewrite)
 - `trust_mediator/core/pipeline.py` — wires the modules; the object API + SDK adapters use
-- `trust_mediator/client.py` — the client SDK (`SCMLClient`/`AsyncSCMLClient`). Normalises the five mediation endpoints, which return three different shapes: `/context` and `/tool-call` carry `decision`, `/output` carries `blocked` and **no `decision` at all**, `/memory/write` carries `verdict`. Callers branch on `result.allowed`, never on a raw field.
+- `trust_mediator/client.py` — the client SDK (`SCMLClient`/`AsyncSCMLClient`); see `rules/clients.md` for the response shapes
 - `scml/` — thin alias package so `from scml import SCMLClient` works; re-exports `trust_mediator` and adds no second implementation
 - `clients/typescript/` — zero-dependency Node/TS client mirroring the Python SDK method-for-method; `npm pack` produces the offline-installable tarball
-- `trust_mediator/api/` — FastAPI app, routers mirror PRD §10.2 endpoints
+- `trust_mediator/api/` — FastAPI app, routers mirror PRD §10.2 endpoints; gRPC in `api/grpc/`
 - `policies/` — declarative YAML policy; `default` agent is deny-all by design
+- `benchmarks/` — testbeds (InjecAgent, AgentDojo, memory poisoning), load, soak, classifier eval; results in `benchmarks/results/`
 - `tests/unit/` per module, `tests/integration/test_pipeline_e2e.py` end-to-end
-
-## Production infrastructure
-
-- gRPC transport: `trust_mediator/api/grpc/` (proto + generated stubs + grpc.aio server); enable via `TRUST_MEDIATOR_GRPC_ENABLED`. Regeneration instructions in that package's `__init__.py`. Generated `mediation_pb2*.py` are ruff-excluded — never hand-edit them.
-- Rate limiting: Redis-backed cluster-wide when `REDIS_URL` set (`modules/tool_policy/rate_limiter.py`), per-process in-memory otherwise.
-- Audit fan-out: Kafka (`modules/audit_log/kafka_forwarder.py`, optional `[kafka]` extra) + SIEM webhook; DB hash chain is authoritative.
-- Deploy: `k8s/` (gateway + sidecar), `.github/workflows/ci.yml` (lint, 3.11/3.12 tests, docker smoke).
-- Test commands must pass `DATABASE_URL="" TRUST_MEDIATOR_ENV=development REDIS_URL="" TRUST_MEDIATOR_API_KEYS="" TRUST_MEDIATOR_ADMIN_API_KEYS=""` — the local `.env` sets production mode, docker-only hostnames, and a real API key, all of which break bare pytest runs.
-- Audit chain integrity is enforced transactionally in `AuditRepository.append_chained` / `append_chained_batch` (row lock + unique (session_id, seq_no)); never reintroduce per-process chain state in AuditLogger. The batch variant re-reads each session's tail under the lock inside its own transaction, so it is safe across workers — chaining in memory is only valid *within* one locked transaction.
-- `AuditLogger.log()` must never block or await — it is on the request path (NFR-PERF-04). Overflow drops and records; it does not apply back-pressure. `log_async()` is the awaiting variant, for off-path callers only. Eviction under `drop_oldest` pairs every `get_nowait()` with a `task_done()`, or `stop()` hangs on `join()`.
-- The audit writer coalesces queued events into one transaction per batch (`AUDIT_BATCH_MAX`, default 128). Per-event writes measured ~140 events/s and made audit the throughput ceiling; batching lifts it to ~2,800/s across 50 sessions. Throughput falls as session fan-out rises (one locked tail read per session per batch). `AUDIT_BATCH_MAX=1` restores the old behaviour.
-- LangChain guard (`integrations/langchain_guard.py`): callbacks are notification-only, so the hooks scan and audit but cannot alter data in flight. The only enforcement points are `strict=True` (raises, aborting the run) and `guard.redact(text)` (returns safe text for the caller to substitute). It sends `argument_trust_labels` by default — without them FR-PE-04 never fires and a model-composed argument sails through as `allow`. It also prefers LangChain's structured `inputs` dict over the flat string, or declared `argument_schema`s can never match. Don't "simplify" either back.
-- Tracing: `trust_mediator/observability.py` (NFR-OBS-01). Spans wrap every pipeline decision point. Off unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set; export needs the `[otlp]` extra. **Span attributes carry decisions/labels/scores only — never mediated content**, since spans leave the process for a collector the mediator does not control. `test_spans_never_carry_mediated_content` enforces this.
+- `docs/recovery/` — Phase 0 analysis (2026-10-15) and the original ranked backlog; `docs/DEPLOY_VPS.md` — production runbook
 
 ## Known gaps vs PRD (backlog — don't claim these exist)
 
+Full text: `rules/infra.md` (TLS, secrets, audit overflow), `rules/policy.md` (per-agent policy), `rules/benchmarks.md`.
+
 - `SCANNER_BACKEND=onnx` falls back to heuristic (no trained DeBERTa model shipped)
-- AgentDojo covers **all four suites** but only **two attacks of seventeen**
-  (`important_instructions` on all four; `ignore_previous` on banking and
-  slack). `manual` needs a human, so 14 automatable attacks remain. Do not
-  describe AgentDojo coverage as complete — see "Measured state". The InjecAgent testbed **does** exist
-  (`benchmarks/testbeds/injecagent/`, 1054 external cases) — see "Measured state"
+- AgentDojo covers **all four suites** but only **two attacks of seventeen**. Do not describe AgentDojo coverage as complete.
 - No sandboxed tool executor (PRD §11) — tool execution stays in the host app
-- **Per-agent policy updates exist; whole-document PUT still clobbers.**
-  `PUT /v1/policy/agents/{id}` replaces one agent and leaves the rest alone, so
-  two teams can administer different agents on one mediator. `PUT /v1/policy`
-  still replaces the entire document including the `agents` map — it is for
-  bootstrapping and wholesale changes, not routine administration.
-  The concurrency is not incidental: the read-modify-write lives in
-  `PolicyRepository.upsert_agent` inside one transaction, guarded by a unique
-  constraint on `base_version_id`. Doing it in the router would reintroduce the
-  same lost update with a millisecond window instead of a permanent one.
-  Constraining `version_number` instead does **not** work and was measured
-  failing: the document is read from the active row while the number comes from
-  `max(version_number)`, so a writer can read v3, find max=4, write v5 and
-  erase everything v4 added.
-  Exhausting the retries raises rather than writing — a caller that sees an
-  error can retry; one whose write vanished cannot know to.
-  The `default` agent is refused through this endpoint: it is the deny-all
-  fallback every unconfigured agent lands on, so widening it there would grant
-  authority to agents nobody has configured.
-- Policy identity is per `agent_id`, and an unknown `agent_id` falls back to
-  `default` (deny-all). That is the correct fail-closed default, but it means
-  "install the SDK" never means "it works" — a new integration is fully denied
-  until someone writes policy for it. Grant authority per *capability*, not per
-  system: give each workflow or sub-agent its own id, so a compromised step
-  cannot borrow another's authority. One shared id makes the allow-list the
-  union of everything any part of the system needs, which is the opposite of
-  least agency. `demo-agent/` shows the pattern.
-- **TLS (NFR-SEC-03) is now supported but not on by default, and not everywhere.**
-  Both listeners accept a keypair and optional client-cert verification, and
-  production refuses plaintext without an explicit opt-out. But every shipped
-  deployment (`docker-compose.yml`, `k8s/`) still sets
-  `TRUST_MEDIATOR_ALLOW_INSECURE_HTTP=true` and terminates at nginx/Ingress —
-  nginx itself listens on :80 with no certificate configured. Connections to
-  **Postgres, Redis and Kafka are still plaintext** and have no TLS settings at
-  all. So "SCML supports TLS" is true; "SCML is deployed over TLS" is not.
-  There is no test on `main` against a real certificate — `test_tls.py` asserts
-  configuration and wiring, not a completed handshake. A real handshake/mTLS
-  test exists, unmerged, on branch `rescue/tls-by-default`; it needs
-  `cryptography`, which is not a declared dependency.
-- **Secrets management (NFR-SEC-04): file sources exist, rotation only for API
-  keys.** Any setting can be read from `<VAR>_FILE` (`FileSecretSource` in
-  `config.py`), which is the seam Docker Compose secrets, Kubernetes Secret
-  volumes, Vault Agent and External Secrets all plug into. That is **read once
-  at startup** — DB and Redis pools are built from those values, so rotating
-  `DATABASE_URL_FILE` on disk does nothing until restart. Only
-  `TRUST_MEDIATOR_API_KEYS_FILE` reloads live, and it is deliberately excluded
-  from the generic mechanism (`_NO_FILE_SOURCE`) so one path is not read by two
-  sources with different lifetimes. Still missing: no rotation for anything but
-  API keys, no integration with a secrets *API* (only files), and the k8s
-  manifests still pass keys via `envFrom: secretRef`, which cannot rotate —
-  env vars from a Secret are snapshotted at pod start, and only a
-  volume-mounted Secret refreshes in place. That volume is written into
-  `k8s/gateway/deployment.yaml` but left commented out, because enabling it
-  switches the auth source and needs three coordinated edits.
-- ~~NFR-AVAIL-01 unmeasured~~ — **measured**: `benchmarks/soak/` injects six
-  dependency failures into a live pipeline; committed result
-  `benchmarks/results/soak.md` shows 100.000% over 10,666 calls (target 99.9%).
-  Availability there means *a decision was rendered*, denials included — §9
-  makes a deny during an outage correct behaviour, and scoring it as downtime
-  would reward failing open. In-process only: no load balancer, network
-  partition, disk-exhaustion or OOM coverage, so it is **not** a production
-  uptime SLO. Re-run it after touching any fail-open/fail-closed path; its
-  first run found a §9 escape the unit tests missed.
-- Audit overflow still loses decisions, it just records that it did. The queue is bounded (`AUDIT_QUEUE_MAXSIZE`, default 10k) with `AUDIT_OVERFLOW_POLICY` = `drop_newest` (default) or `drop_oldest`; drops are counted per session and flushed into that session's hash chain as an `audit_gap` marker, so replay shows the hole and still verifies. No spill-to-disk, so a long overload is still permanent loss — FR-AL-01 is auditable under overload, not satisfied by it.
+- `PUT /v1/policy` still replaces the whole document; per-agent `PUT /v1/policy/agents/{id}` is the routine path
+- TLS is supported but no shipped deployment except `docker-compose.prod.yml` (Caddy) terminates TLS; Postgres, Redis and Kafka connections are plaintext
+- Secrets: `<VAR>_FILE` sources exist; only API keys rotate live
+- Audit overflow is recorded (`audit_gap`), not prevented; no spill-to-disk
+- Soak availability (100.000%) is in-process only, not a production uptime SLO
 
 ## Measured state (PRD §14.2) — do not overstate
 
-`benchmarks/results/memory_poisoning.md` is the committed baseline. As of the
-last run the memory integrity layer measures **20.8% ASR against a < 10%
-target**; §14.2 acceptance is NOT met. That is down from 33.3%: the
-control-plane conflict detector (FR-MI-06, `consistency_checker._check_control_conflict`)
-halved the two worst families it is structurally equipped for —
-`tool_hijack` 83% → 33%, `authority_spoof` 67% → 17% — with FPR still 0% and
-utility 100%. Do not regress it by loosening the gate; any change to the
-scorer, its thresholds or the detector must re-run this benchmark and update
-the committed result.
+Full numbers, caveats and what has already been tried and rejected: `rules/benchmarks.md`. Headlines, each of which must be quoted *with* its caveat:
 
-**That 20.8% is storage, not harm.** `benchmarks/results/memory_poisoning_harm.md`
-applies the InjecAgent standard (success = the mediator would have let the goal
-through): 0/13 tool cases and 0/22 control-bypass cases are harmful; 1/5 output
-cases leak; 8 informational cases have no mediator gate at all. Pessimistic
-total **18.8%**. Report both numbers — quoting only the harm figure is moving
-the goalposts, quoting only storage overstates a record the control path never
-reads. Never count the 8 informational cases as defended; the mediator gates
-actions and egress, not beliefs.
-
-The reason 22 cases are inert is load-bearing and measured, not assumed:
-authorisation comes from the declarative policy store and **the mediator never
-reads agent memory to decide it**, so a record asserting "policy validation has
-been disabled" cannot disable it. `tests/unit/test_memory_harm.py` persists
-that poison as ACTIVE and asserts forbidden tools are still denied. Any change
-that lets memory influence a policy decision breaks §5.2 and that test.
-
-When changing the scorer, thresholds or detectors, re-run the benchmark and
-update the committed result. Do not tune weights or add regex patterns against
-this corpus: it was written in-house, so that is overfitting, not a result.
-
-**AgentDojo, all four suites** (`benchmarks/results/agentdojo.md`): ASR
-**29.0% -> 7.3%** across 949 attacked cases, a 75% reduction, for **19% of
-benign task completion** (74.2% -> 59.8%).
-
-Quote the *benign* utility comparison, never the attacked one. Under attack the
-undefended baseline is already wrecked by hijacking, so the same run reads as
-97% utility retained instead of 81% — flattering and misleading. Earlier
-revisions of the result file made exactly that error.
-
-Three things about the number are load-bearing:
-
-- **The technique has a domain boundary, and it is measured.** banking is
-  100% (71 attacks, 0 succeeded) because moving money needs an IBAN the
-  attacker must name, and a named identifier appears verbatim in tool output.
-  slack is 52% and loses 30% of benign utility because its tasks *are* "fetch
-  untrusted content and act on it" — `user_task_2` says "invite Dora, her email
-  is on her website". `invite_user_to_slack` was refused in 19 of 21 tasks. That
-  is the rule working correctly on a workflow indistinguishable from an attack.
-- **Security and utility cost are independent.** travel has the second-best ASR
-  reduction and the *worst* utility cost (64% retained). Do not infer one from
-  the other.
-- **Defended numbers replicate, baselines do not.** Two full Phase 1 runs gave
-  identical SCML figures (banking 0.0%, slack 30.5%) while undefended baselines
-  moved 3-5 points. Differences of that size are noise.
-
-Against CaMeL's 77%/84%: **CaMeL is better on both axes** — 0% provable vs 7.3%
-measured, 92% utility retained vs 81%. SCML's advantage is integration cost
-alone (replace one class vs rebuild the agent around an interpreter). Do not
-present it as a security result.
-
-**The sanitizer seam (FR-OR-03) targets exactly the slack gap.** The scanner
-detects nothing and taint-by-overlap can't catch a payload the model *rewrites*
-rather than copies; `ToolOutputSanitizer` + `client.sanitize_tool_output`
-(strip instruction framing from tool results before the agent reads them) is
-the prototype for closing it, wired as `--sanitize` in the agentdojo runner.
-**It is core-safe by construction: structlog (a [server] extra) is optional
-with a stdlib `logging` fallback, and `OutputRedactor` is lazy in
-`output_redaction/__init__.py` — otherwise `sanitize_tool_output` breaks a
-client-only install (that is a real bug the pilot caught).** Measured pilot on
-slack `user_task_2` (`benchmarks/results/output_sanitizer.md`): undefended 100%
-ASR, SCML 60% ASR (replicated twice — the measured rewrite gap), SCML
-`--sanitize` 0% ASR with 5/5 tool results rewritten — at zero additional
-utility cost, because honouring the invite from untrusted web content stays
-correctly denied (`untrusted_arg`). That is a *single-task* result: **do not
-quote a suite-level slack ASR number until the full `--sanitize` slack suite
-has been run**.
-
-Two attacks of seventeen: `important_instructions` (all four suites) and
-`ignore_previous` (banking 20.1% -> 0.0%, slack 17.1% -> 10.5%).
-
-**External validation now exists.** `benchmarks/results/injecagent.md` is the
-committed baseline for 1054 third-party indirect-injection cases (InjecAgent,
-ACL 2024, MIT, vendored). All five §14.2 KPIs PASS — but never quote the
-headline without the ablation:
-
-- `no_scanner` is also 0.0%; `no_tool_policy` is **100.0%**. Tool policy is the
-  *entire* defence. **The injection scanner detects 0 of 1054 attacks.**
-- Do not describe the 0% ASR as evidence the scanner works. It is evidence that
-  least agency holds while detection contributes nothing.
-
-**§6.3 is broken in two independent ways, both measured** (details and the
-already-rejected fixes are in `benchmarks/README.md`):
-
-1. **Stage 2 is unreachable.** `scan()` runs the classifier only when the regex
-   pre-filter scores at or above `SCANNER_ML_GATE_THRESHOLD` (default 0.20);
-   992/1054 attacks score exactly 0.0. A mock oracle returning 1.0 is consulted
-   on **0 of 1054**. So `SCANNER_BACKEND=llm` buys nothing on the
-   `untrusted_data` path without also lowering the gate — it changes which
-   classifier runs, not whether it runs. `risky_external` bypasses the gate and
-   is always classified, so an LLM backend does work there today.
-2. **The classifier is anti-discriminative.** Ungated, it scores attacks at 0.478
-   and benign at 0.515 — benign *higher*. Measured: `SCANNER_ML_GATE_THRESHOLD=0.0`
-   on InjecAgent catches 19.7% more attacks but takes FPR 0.0% → 23.5% and
-   utility 100% → 76.5%, flipping two KPIs to FAIL. Neither fix works alone, so
-   the gate default stays at 0.20 until a classifier earns opening it.
-
-Two TF-IDF training approaches on external Apache-2.0 corpora were measured and
-rejected (held-out AUC 0.660 and 0.506 — the latter a coin flip). Bag-of-words
-cannot represent the discriminating signal, which is syntactic ("is there an
-imperative addressed to an assistant in this payload?"). Do not retry that
-family. **The LLM backend is now measured, not untested** (gpt-4o-mini, held-out
-InjecAgent, `benchmarks/results/classifier_llm.md`): it is the only backend that
-separates the classes — ROC-AUC 0.72 vs the heuristic's 0.35 (anti-discriminative)
-— but it is still **not FR-SC-07 shippable** (AUC 0.72 < 0.85, and any threshold
-that clears FPR ≤ 3% abandons recall), and it fails NFR-PERF-01 outright
-(p95 ≈ 2.2 s vs 400 ms). It cannot sit on the synchronous request path even if
-accuracy improved. The untested combination is a *fast CPU-bound syntactic gate*
-that routes only genuinely ambiguous payloads to the LLM — never the request
-path. **That gate is now measured and is a dead end at token level**
-(`SyntacticRouteGate`, `python -m benchmarks.classifier_eval.evaluate --route`,
-see `classifier_llm.md`): the injected instruction lives *inside a quoted JSON
-value* of tool output, so a gate that strips quotes (naive "quoted = content")
-drops 95.2% of attacks (only 4.8% preserved), while one that searches the full
-payload preserves 95.5% of attacks but routes 94% of *all* payloads to the LLM
-(saves no latency — benign data shares the same closed-class command vocabulary,
-so token-level can't separate command-mood from declarative use of the same
-verb). Only a real dependency/POS parser that recognises imperative *mood* (the
-`_syntactic_score` seam) or a fine-tuned transformer can resolve it; both need
-resources this core install deliberately excludes.
-
-Any classifier work must train on external data and evaluate against the
-in-house corpus as a held-out set, never the reverse.
-
-**The tool-affordance imperative detector is measured and is a no-go**
-(`benchmarks/affordance_detector/`, `benchmarks/results/affordance_detector.md`).
-It is CPU-only (spaCy parse + bge-small via onnxruntime, `[detect]` extra) and
-reaches held-out InjecAgent AUC **0.779** with hard negatives, at 158 ms p95.
-That is better than any shipped backend, but short of FR-SC-07 (0.85, and 7.6%
-FPR at the externally frozen threshold). Its own ablation refutes the
-"imperative x affordance" product: tool similarity *alone* scores 0.834, and the
-mood term lowers it. Do not describe the product score as a contribution. It
-does not reach memory poisoning at all (0% recall), because poisoned memory is
-phrased as notes and facts. Any follow-up change needs a held-out set this run
-did not see.
+- **Memory poisoning:** 20.8% storage ASR vs < 10% target — §14.2 NOT met. Harm 18.8% pessimistic. Report both.
+- **InjecAgent (1054 external cases):** all five §14.2 KPIs pass, but `no_tool_policy` is 100.0% ASR: tool policy is the *entire* defence, and **the injection scanner detects 0 of 1054**.
+- **AgentDojo:** ASR 29.0% → 7.3% (949 attacked cases) for 19% of benign utility (74.2% → 59.8%). Quote benign utility, never attacked. CaMeL is better on both axes.
+- **§6.3 detection:** no backend reaches FR-SC-07 (AUC 0.85). Best: affordance detector 0.779 (no-go), LLM 0.72 (also fails latency).
+- Never tune against the in-house memory-poisoning corpus. Classifier work trains on external data and evaluates against the in-house corpus as held-out, never the reverse.
