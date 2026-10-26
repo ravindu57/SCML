@@ -209,6 +209,9 @@ def main() -> int:
     parser.add_argument("--suite", default=DEFAULT_SUITE,
                         choices=["workspace", "travel", "banking", "slack"])
     parser.add_argument("--tasks", type=int, default=5, help="user tasks to run")
+    # Resume an interrupted run: skip the first N user tasks (in the same
+    # sorted order) so their logs are kept and only the rest are executed.
+    parser.add_argument("--offset", type=int, default=0, help="skip the first N user tasks")
     # Each user task is replayed once per injection task, so the run is
     # tasks x injections agent executions. workspace ships 14 injections, which
     # is far more than a free-tier daily quota tolerates while iterating.
@@ -271,7 +274,7 @@ def main() -> int:
     attack_pipeline.name = f"{mapped} ({args.model})"
     attack = None if args.no_attack else load_attack(args.attack, suite, attack_pipeline)
 
-    task_ids = sorted(suite.user_tasks)[: args.tasks]
+    task_ids = sorted(suite.user_tasks)[args.offset : args.offset + args.tasks]
     injection_ids = sorted(suite.injection_tasks)
     if args.injections:
         injection_ids = injection_ids[: args.injections]

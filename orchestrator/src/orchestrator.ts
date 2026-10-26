@@ -147,7 +147,7 @@ export async function run(task: string, sessionId: string, emit: Emit): Promise<
 
   // The operator's own instruction starts trusted. Everything the system reads
   // from here can only make the label worse.
-  let label = 'trusted';
+  let label = 'trusted_instruction';
 
   push({ role: 'system', stage: 'task', title: 'Operator task', detail: task, label });
 

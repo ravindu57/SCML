@@ -182,7 +182,8 @@ class TestAsyncCallersUseTheAsyncPath:
 
         from trust_mediator.core.pipeline import MediationPipeline
 
-        source = inspect.getsource(MediationPipeline.process_context)
+        # The public method is an audit wrapper; the scan lives in the body.
+        source = inspect.getsource(MediationPipeline._process_context)
         assert "scan_async" in source
         assert "self._scanner.scan(" not in source
 

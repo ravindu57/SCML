@@ -73,6 +73,17 @@ class MemoryRecord(BaseModel):
         return self.status == MemoryStatus.QUARANTINED
 
 
+def _default_tenant() -> str:
+    """TRUST_MEDIATOR_DEFAULT_TENANT, where an unqualified key also resolves.
+
+    Read lazily so an embedded caller that leaves ``tenant_id`` unset lands in
+    the same tenant as an unqualified HTTP key, even if the default is renamed.
+    """
+    from trust_mediator.config import settings
+
+    return settings.default_tenant
+
+
 class MemoryWriteRequest(BaseModel):
     """Request payload for POST /v1/mediate/memory/write."""
     session_id: str = ""
@@ -82,6 +93,9 @@ class MemoryWriteRequest(BaseModel):
     trust_label: TrustLabel = TrustLabel.UNTRUSTED_DATA
     agent_id: str = "default"
     metadata: dict[str, Any] = Field(default_factory=dict)
+    # Set by the transport from the authenticated key, never from a request
+    # body (the HTTP body model has no such field). Memory is per tenant.
+    tenant_id: str = Field(default_factory=lambda: _default_tenant())
 
 
 class MemoryReadRequest(BaseModel):
@@ -89,4 +103,5 @@ class MemoryReadRequest(BaseModel):
     session_id: str = ""
     memory_id: str
     agent_id: str = "default"
+    tenant_id: str = Field(default_factory=lambda: _default_tenant())  # from the key, as on writes
     rescan: bool = False                    # Force re-scan even if last_verified is recent

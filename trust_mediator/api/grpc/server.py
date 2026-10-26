@@ -18,7 +18,8 @@ import grpc
 import structlog
 
 from trust_mediator.config import require_secure_transport, settings
-from trust_mediator.api.auth import open_access_allowed, principal_for
+from trust_mediator.api.auth import ANONYMOUS, Caller, caller_for, open_access_allowed, principal_for
+from trust_mediator.core.tenancy import InvalidSessionId, scoped_session
 from trust_mediator.api.grpc import mediation_pb2, mediation_pb2_grpc
 from trust_mediator.core.pipeline import MediationPipeline
 from trust_mediator.models.context_envelope import ContextEnvelope, Provenance
@@ -54,13 +55,37 @@ class _ApiKeyInterceptor(grpc.aio.ServerInterceptor):
         return self._abort_handler
 
 
+async def _caller(context) -> Caller:
+    """Tenant and principal of the key on this call (Sec #6).
+
+    The interceptor has already rejected missing and unknown keys, so this only
+    resolves which tenant the key belongs to. It used to be skipped: every gRPC
+    call mediated against the ``default`` tenant whatever key it carried.
+    """
+    if open_access_allowed():
+        return Caller(tenant=settings.default_tenant, principal=ANONYMOUS)
+    metadata = dict(context.invocation_metadata() or ())
+    caller = caller_for(metadata.get("x-api-key") or "")
+    if caller is None:  # unreachable behind the interceptor; fail closed anyway
+        await context.abort(grpc.StatusCode.UNAUTHENTICATED, "invalid or missing x-api-key")
+    return caller
+
+
+async def _session(context, caller: Caller, session_id: str) -> str:
+    try:
+        return scoped_session(caller.tenant, session_id)
+    except InvalidSessionId as e:
+        await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(e))
+
+
 class MediationServicer(mediation_pb2_grpc.MediationServiceServicer):
     def __init__(self, pipeline: MediationPipeline) -> None:
         self._pipeline = pipeline
 
     async def MediateContext(self, request, context):
+        caller = await _caller(context)
         envelope = ContextEnvelope(
-            session_id=request.session_id,
+            session_id=await _session(context, caller, request.session_id),
             content=request.content,
             provenance=Provenance(
                 source=request.source or "tool_result",
@@ -81,6 +106,7 @@ class MediationServicer(mediation_pb2_grpc.MediationServiceServicer):
         )
 
     async def MediateToolCall(self, request, context):
+        caller = await _caller(context)
         try:
             arguments = json.loads(request.arguments_json) if request.arguments_json else {}
         except json.JSONDecodeError:
@@ -88,8 +114,9 @@ class MediationServicer(mediation_pb2_grpc.MediationServiceServicer):
                 grpc.StatusCode.INVALID_ARGUMENT, "arguments_json is not valid JSON"
             )
         tool_request = ToolCallRequest(
-            session_id=request.session_id,
+            session_id=await _session(context, caller, request.session_id),
             agent_id=request.agent_id or "default",
+            tenant_id=caller.tenant,
             tool_name=request.tool_name,
             arguments=arguments,
             argument_trust_labels=dict(request.argument_trust_labels),
@@ -110,9 +137,11 @@ class MediationServicer(mediation_pb2_grpc.MediationServiceServicer):
         )
 
     async def MediateMemoryWrite(self, request, context):
+        caller = await _caller(context)
         result = await self._pipeline.process_memory_write(
             MemoryWriteRequest(
-                session_id=request.session_id,
+                session_id=await _session(context, caller, request.session_id),
+                tenant_id=caller.tenant,
                 agent_id=request.agent_id or "default",
                 content=request.content,
                 source=request.source or "agent_output",
@@ -127,9 +156,11 @@ class MediationServicer(mediation_pb2_grpc.MediationServiceServicer):
         )
 
     async def MediateMemoryRead(self, request, context):
+        caller = await _caller(context)
         result = await self._pipeline.process_memory_read(
             MemoryReadRequest(
-                session_id=request.session_id,
+                session_id=await _session(context, caller, request.session_id),
+                tenant_id=caller.tenant,
                 agent_id=request.agent_id or "default",
                 memory_id=request.memory_id,
                 rescan=request.rescan,
@@ -143,11 +174,13 @@ class MediationServicer(mediation_pb2_grpc.MediationServiceServicer):
         )
 
     async def MediateOutput(self, request, context):
+        caller = await _caller(context)
         result = await self._pipeline.process_output(
             request.content,
-            session_id=request.session_id,
+            session_id=await _session(context, caller, request.session_id),
             destination=request.destination or "user",
             data_class_labels=list(request.data_class_labels),
+            tenant_id=caller.tenant,
         )
         return mediation_pb2.OutputResponse(
             blocked=result.blocked,

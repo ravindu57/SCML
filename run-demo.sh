@@ -81,7 +81,7 @@ if [[ "${1:-}" == "--start-mediator" ]]; then
   VENV="$DIR/.venv"
   [[ -x "$VENV/bin/uvicorn" ]] || VENV="$(cd "$DIR/../../.." && pwd)/.venv"
   setsid nohup env DATABASE_URL="" TRUST_MEDIATOR_ENV=development REDIS_URL="" \
-      TRUST_MEDIATOR_API_KEYS="" \
+      TRUST_MEDIATOR_API_KEYS="" TRUST_MEDIATOR_ADMIN_API_KEYS="" TRUST_MEDIATOR_RATE_LIMIT="100000/minute" \
       "$VENV/bin/uvicorn" trust_mediator.api.app:app --host 0.0.0.0 --port 8000 \
       > "$RUN/mediator.log" 2>&1 < /dev/null &
   for _ in $(seq 1 40); do
@@ -183,7 +183,7 @@ step "SCML mediator"
 # The repo .env is production mode with docker-only hostnames and a real API
 # key, all of which break a local run. Override explicitly.
 if launch mediator "$MEDIATOR_PORT" env \
-    DATABASE_URL="" TRUST_MEDIATOR_ENV=development REDIS_URL="" TRUST_MEDIATOR_API_KEYS="" \
+    DATABASE_URL="" TRUST_MEDIATOR_ENV=development REDIS_URL="" TRUST_MEDIATOR_API_KEYS="" TRUST_MEDIATOR_ADMIN_API_KEYS="" TRUST_MEDIATOR_RATE_LIMIT="100000/minute" \
     "$VENV/bin/uvicorn" trust_mediator.api.app:app --host 0.0.0.0 --port "$MEDIATOR_PORT"; then
   log "mediator on :$MEDIATOR_PORT — $(curl -s "http://127.0.0.1:$MEDIATOR_PORT/health")"
 else

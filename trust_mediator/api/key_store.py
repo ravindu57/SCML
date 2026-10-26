@@ -28,6 +28,7 @@ from __future__ import annotations
 import os
 import threading
 import time
+from collections.abc import Callable
 
 import structlog
 
@@ -39,7 +40,15 @@ logger = structlog.get_logger(__name__)
 class ApiKeyStore:
     """Caches parsed API keys, re-reading the key file as it changes."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        path_of: Callable[[], str] = lambda: settings.api_keys_file,
+        env_entries: Callable[[], list[KeyEntry]] = lambda: settings.api_key_entries,
+    ) -> None:
+        # Callables, not values: settings are read on every lookup so tests and
+        # operators that change them see the change, exactly as before.
+        self._path_of = path_of
+        self._env_entries = env_entries
         self._lock = threading.Lock()
         self._entries: list[KeyEntry] = []
         self._signature: tuple[float, int] | None = None
@@ -48,11 +57,11 @@ class ApiKeyStore:
 
     def entries(self) -> list[KeyEntry]:
         """Current (tenant, principal, key) triples from whichever source is configured."""
-        path = settings.api_keys_file
+        path = self._path_of()
         if not path:
             # No file configured: the env var is static, so there is nothing to
             # cache or invalidate.
-            return settings.api_key_entries
+            return self._env_entries()
 
         now = time.monotonic()
         # Re-stat at most once per interval. entries() is on the request
@@ -146,6 +155,14 @@ class ApiKeyStore:
 #: Process-wide store. Stateless apart from the cache, so sharing is correct.
 _store = ApiKeyStore()
 
+#: Control-plane keys (TRUST_MEDIATOR_ADMIN_API_KEYS[_FILE]). Same rotation and
+#: last-good semantics as the data-plane set, kept in a separate cache so the
+#: two can never be confused for one another.
+_admin_store = ApiKeyStore(
+    path_of=lambda: settings.admin_api_keys_file,
+    env_entries=lambda: settings.admin_api_key_entries,
+)
+
 
 def entries() -> list[KeyEntry]:
     """Current (tenant, principal, key) triples, honouring a rotating key file."""
@@ -160,3 +177,13 @@ def principals() -> list[tuple[str | None, str]]:
 def reload_keys() -> None:
     """Drop the cache so the next lookup re-reads the file."""
     _store.reload()
+
+
+def admin_entries() -> list[KeyEntry]:
+    """Current control-plane (tenant, principal, key) triples."""
+    return _admin_store.entries()
+
+
+def reload_admin_keys() -> None:
+    """Drop the admin cache so the next lookup re-reads the file."""
+    _admin_store.reload()

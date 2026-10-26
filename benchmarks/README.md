@@ -139,9 +139,11 @@ not be quoted as one.
 | `testbeds/injecagent/` | External validation: 1054 third-party injection cases |
 | `soak/` | Fault injection + availability measurement (§8.3) |
 
-Adding AgentDojo means writing a class satisfying the `Testbed` protocol
+A new testbed means writing a class satisfying the `Testbed` protocol
 (`name`, `supported_axes`, `asr_kpi`, `async run()`); the harness, metrics and
 reporting are shared. `testbeds/injecagent/` is the worked example.
+AgentDojo is the exception: it calls a hosted LLM, so it runs through its own
+`testbeds/agentdojo/runner.py` rather than this harness, and costs money.
 
 ## Methodology
 
@@ -205,6 +207,11 @@ since fixed:
 Result: **47.9% → 33.3% ASR**, read path 88% → 38%, `fact_replacement`
 83% → 17%, with FPR unchanged at 0.0% and utility at 100%.
 
+**Update (9812de2, 2026-09-04):** the FR-MI-06 control-plane conflict
+detector took this to **20.8%** (`tool_hijack` 83% → 33%, `authority_spoof`
+67% → 17%), FPR still 0.0% and utility 100%. The paragraph below describes the
+state *before* that change.
+
 Still short of the < 10% target. The residual failures are concentrated in
 `tool_hijack` (83%) and `authority_spoof` (67%) — plainly worded poisoned
 memories that match no shipped detector at all (scanner 0.00, instruction
@@ -221,7 +228,8 @@ detector patterns until this testbed passes would be overfitting to a corpus
 written in-house, and the resulting ASR would not be a research result. Any
 tuning driven by these findings should be validated on a corpus the tuner did
 not write. **The InjecAgent testbed now provides that** (1054 third-party
-cases); AgentDojo remains unimplemented.
+cases), and so does AgentDojo (`testbeds/agentdojo/`, a live-LLM runner;
+see `results/agentdojo.md`).
 
 **2. The scanner is the heuristic pre-filter only.** `SCANNER_BACKEND=onnx`
 still falls back to heuristics; no trained DeBERTa model ships. Every ASR here
@@ -305,7 +313,7 @@ more training data of the same shape will not help.
 
 Do not cite these as existing:
 
-- AgentDojo testbed (§14.1)
 - Trained DeBERTa classifier for `SCANNER_BACKEND=onnx` (§6.3) — still falls
   back to the heuristic
-- AgentDojo testbed (§14.1) — InjecAgent and the soak harness now exist
+- AgentDojo attacks beyond `important_instructions` and `ignore_previous`
+  (15 of 17 not run), and an AgentDojo per-module ablation (§14.3)

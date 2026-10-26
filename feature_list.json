@@ -1,0 +1,464 @@
+{
+  "source": "docs/recovery/ANALYSIS.md §9 (ranked backlog, 2026-10-15)",
+  "updated": "2026-10-18",
+  "rules": "passes=true only when the verifier confirms every acceptance criterion with reproducible evidence. Frozen evidence: FROZEN.md.",
+  "items": [
+    {
+      "id": 0,
+      "title": "Rescue on-disk-only work (TLS worktree → branch, stash → archive)",
+      "tag": "D",
+      "role": "CLI vibe coder",
+      "status": "verified",
+      "acceptance": [
+        "TLS worktree preserved as branch rescue/tls-by-default",
+        "stash and worktree leftovers archived with SHA256SUMS outside the repo"
+      ],
+      "evidence": [
+        "branch rescue/tls-by-default",
+        "../archive-2026-10-16/SHA256SUMS"
+      ],
+      "passes": true,
+      "frozen": false,
+      "paid": false,
+      "notes": "Verified 2026-10-18 (verifier sweep): evidence tests run and assert the criteria; frozen hashes match. Branch rescue/tls-by-default at 3c4df90; archive SHA256SUMS all OK."
+    },
+    {
+      "id": 1,
+      "title": "Policy validation: strict schema, require agents.default, missing allowed_tools = deny, no untrusted_arg_policy: allow, regex fullmatch",
+      "tag": "D",
+      "role": "CLI vibe coder",
+      "status": "verified",
+      "acceptance": [
+        "§5.2/§9: a malformed policy is rejected before store/load/rollback",
+        "PolicyEngine denies unrecognised shapes and never raises",
+        "every shipped policy validates"
+      ],
+      "evidence": [
+        "26c877d",
+        "tests/unit/test_policy_fail_closed.py"
+      ],
+      "passes": true,
+      "frozen": false,
+      "paid": false,
+      "notes": "Verified 2026-10-18 (verifier sweep): evidence tests run and assert the criteria; frozen hashes match. Store: PUT 422 (test_audit_completeness::test_refused_policy_write); load: TestLoaderFallback; rollback: TestRollbackRevalidates; test_every_shipped_policy_validates."
+    },
+    {
+      "id": 2,
+      "title": "Separate control-plane authority; never enforce a shadow policy",
+      "tag": "D",
+      "role": "CLI vibe coder",
+      "status": "verified",
+      "acceptance": [
+        "FR-CP-03: control-plane writes require admin keys separate from data-plane keys",
+        "FR-CP-02: a shadow version is never active"
+      ],
+      "evidence": [
+        "894399f",
+        "tests/unit/test_control_plane_authority.py"
+      ],
+      "passes": true,
+      "frozen": false,
+      "paid": false,
+      "notes": "Verified 2026-10-18 (verifier sweep): evidence tests run and assert the criteria; frozen hashes match."
+    },
+    {
+      "id": 3,
+      "title": "Label integrity: reject unknown labels; unlabelled = untrusted; server-derived memory labels",
+      "tag": "D/R",
+      "role": "CLI vibe coder",
+      "status": "partial",
+      "acceptance": [
+        "/tool-call rejects unknown trust labels (422)",
+        "unlabelled input treated as untrusted",
+        "memory labels derived server-side"
+      ],
+      "evidence": [
+        "b5178c3",
+        "tests/unit/test_fail_closed_clients.py"
+      ],
+      "passes": false,
+      "frozen": false,
+      "paid": false,
+      "notes": "[UNVERIFIED] Unknown-label rejection is committed; unlabelled=untrusted and server-derived memory labels not confirmed."
+    },
+    {
+      "id": 4,
+      "title": "Fail-closed clients and classifier",
+      "tag": "D",
+      "role": "CLI vibe coder",
+      "status": "verified",
+      "acceptance": [
+        "§9: guard strict raises on error/escalate/unknown",
+        "classifier failure raises ClassifierUnavailable, never 0.0"
+      ],
+      "evidence": [
+        "b5178c3",
+        "tests/unit/test_fail_closed_clients.py",
+        "tests/unit/test_fail_policy.py"
+      ],
+      "passes": true,
+      "frozen": false,
+      "paid": false,
+      "notes": "Verified 2026-10-18 (verifier sweep): evidence tests run and assert the criteria; frozen hashes match. Strict guard parametrised over error/revoked-key/escalate/mediator_error."
+    },
+    {
+      "id": 5,
+      "title": "Honour require_approval_for",
+      "tag": "D/R",
+      "role": "CLI vibe coder",
+      "status": "verified",
+      "acceptance": [
+        "FR-PE-03: tools named in require_approval_for return require_approval"
+      ],
+      "evidence": [
+        "26c877d",
+        "tests/unit/test_policy_fail_closed.py"
+      ],
+      "passes": true,
+      "frozen": false,
+      "paid": false,
+      "notes": "Verified 2026-10-18 (verifier sweep): evidence tests run and assert the criteria; frozen hashes match."
+    },
+    {
+      "id": 6,
+      "title": "Tenant isolation: memory, audit, gRPC, rate-limit bucket",
+      "tag": "D",
+      "role": "CLI vibe coder",
+      "status": "verified",
+      "acceptance": [
+        "Sec #6: every memory query filters on tenant",
+        "session ids tenant-scoped; '::' in client id is 422",
+        "gRPC resolves tenant per call",
+        "rate-limit bucket tenant:agent:tool"
+      ],
+      "evidence": [
+        "72234fc",
+        "tests/unit/test_tenant_isolation.py"
+      ],
+      "passes": true,
+      "frozen": false,
+      "paid": false,
+      "notes": "Verified 2026-10-18 (verifier sweep): evidence tests run and assert the criteria; frozen hashes match. Every MemoryRepository query filters tenant_id; '::' 422 on all six routes; gRPC and rate-limit tests present."
+    },
+    {
+      "id": 7,
+      "title": "Audit completeness: admin events, pipeline exceptions, write-failure gap markers, hash all fields",
+      "tag": "D",
+      "role": "CLI vibe coder",
+      "status": "verified",
+      "acceptance": [
+        "FR-AL-01: admin actions recorded in #control-plane::<tenant>",
+        "pipeline_exception recorded",
+        "audit_gap on write failure",
+        "hash_version 2 covers every field"
+      ],
+      "evidence": [
+        "f4f1107",
+        "tests/unit/test_audit_completeness.py"
+      ],
+      "passes": true,
+      "frozen": false,
+      "paid": false,
+      "notes": "Verified 2026-10-18 (verifier sweep): evidence tests run and assert the criteria; frozen hashes match. Purge status check and release race covered by test_tenant_isolation (purge_refuses_an_active_record, release_is_a_single_conditional_transition, purged_record_not_requarantined)."
+    },
+    {
+      "id": 8,
+      "title": "Wire FR-OR-02 data-flow rules per tenant, deny by default",
+      "tag": "D",
+      "role": "CLI vibe coder",
+      "status": "verified",
+      "acceptance": [
+        "FR-OR-02: protected_classes/data_flow_rules read from tenant policy, deny by default"
+      ],
+      "evidence": [
+        "f4805d0",
+        "tests/unit/test_data_flow_rules.py"
+      ],
+      "passes": true,
+      "frozen": false,
+      "paid": false,
+      "notes": "Verified 2026-10-18 (verifier sweep): evidence tests run and assert the criteria; frozen hashes match."
+    },
+    {
+      "id": 9,
+      "title": "Deploy defaults fail closed; rate limiter actually limits",
+      "tag": "D",
+      "role": "Shipper",
+      "status": "verified",
+      "acceptance": [
+        "env defaults to production",
+        "no default compose passwords",
+        "every guarded route visible to the rate limiter"
+      ],
+      "evidence": [
+        "f28d6a3",
+        "tests/unit/test_deploy_defaults.py"
+      ],
+      "passes": true,
+      "frozen": false,
+      "paid": false,
+      "notes": "Verified 2026-10-18 (verifier sweep): evidence tests run and assert the criteria; frozen hashes match."
+    },
+    {
+      "id": 10,
+      "title": "Doc honesty pass",
+      "tag": "R",
+      "role": "PRD person",
+      "status": "partial",
+      "acceptance": [
+        "no doc quotes a number its result file does not support",
+        "FR-OR-03 defined in the addendum",
+        "FR-MI-06 ID collision resolved"
+      ],
+      "evidence": [
+        "7099451"
+      ],
+      "passes": false,
+      "frozen": false,
+      "paid": false,
+      "notes": "Numbers corrected in 7099451. FR-OR-03 definition and FR-MI-06 collision not yet resolved."
+    },
+    {
+      "id": 11,
+      "title": "Re-run AgentDojo baseline (important_instructions × 4 suites) into a versioned file",
+      "tag": "R",
+      "role": "Agentic builder",
+      "status": "open",
+      "acceptance": [
+        "§14.2: new result in benchmarks/results/v2/ via /run-eval",
+        "benign and attacked runs, undefended and SCML",
+        "eval-analyst reproduces the headline"
+      ],
+      "evidence": [],
+      "passes": false,
+      "frozen": false,
+      "paid": true,
+      "notes": "Uncommitted --offset flag in benchmarks/testbeds/agentdojo/runner.py supports resuming this run."
+    },
+    {
+      "id": 12,
+      "title": "Remaining AgentDojo attacks (14 automatable; DoS reported separately)",
+      "tag": "R",
+      "role": "Agentic builder",
+      "status": "open",
+      "acceptance": [
+        "§14.1: coverage table shows attacks × suites run",
+        "manual attack documented as not automated"
+      ],
+      "evidence": [],
+      "passes": false,
+      "frozen": false,
+      "paid": true,
+      "notes": ""
+    },
+    {
+      "id": 13,
+      "title": "AgentDojo per-module ablation",
+      "tag": "R",
+      "role": "Agentic builder",
+      "status": "open",
+      "acceptance": [
+        "PRD §14.3: one row per module disabled, incl. no_tool_policy"
+      ],
+      "evidence": [],
+      "passes": false,
+      "frozen": false,
+      "paid": true,
+      "notes": ""
+    },
+    {
+      "id": 14,
+      "title": "Full slack --sanitize suite",
+      "tag": "R",
+      "role": "Agentic builder",
+      "status": "open",
+      "acceptance": [
+        "FR-OR-03: suite-level slack ASR and benign utility with --sanitize"
+      ],
+      "evidence": [],
+      "passes": false,
+      "frozen": false,
+      "paid": true,
+      "notes": ""
+    },
+    {
+      "id": 15,
+      "title": "AgentDojo targets: ASR < 5%, utility ≥ 90%, held-out split",
+      "tag": "R",
+      "role": "Architect",
+      "status": "open",
+      "acceptance": [
+        "§14.2 targets met on a held-out split not used for design"
+      ],
+      "evidence": [],
+      "passes": false,
+      "frozen": false,
+      "paid": false,
+      "notes": ""
+    },
+    {
+      "id": 16,
+      "title": "Memory poisoning storage ASR 20.8% → < 10% without in-house tuning",
+      "tag": "R",
+      "role": "Architect",
+      "status": "open",
+      "acceptance": [
+        "§14.2/§14.2a: storage ASR < 10% and harm reported",
+        "evaluated on an external or held-out corpus"
+      ],
+      "evidence": [
+        "benchmarks/results/memory_poisoning.md (frozen baseline)"
+      ],
+      "passes": false,
+      "frozen": false,
+      "paid": false,
+      "notes": ""
+    },
+    {
+      "id": 17,
+      "title": "§6.3 detection (FR-SC-07..09)",
+      "tag": "R",
+      "role": "Architect",
+      "status": "open",
+      "acceptance": [
+        "FR-SC-07: held-out AUC ≥ 0.85 at FPR ≤ 3%",
+        "NFR-PERF-01: off the request path or within p95 budget"
+      ],
+      "evidence": [
+        "a1ae261",
+        "benchmarks/results/affordance_detector.md"
+      ],
+      "passes": false,
+      "frozen": false,
+      "paid": false,
+      "notes": "Affordance detector measured as no-go (AUC 0.779). LLM 0.72; TF-IDF rejected."
+    },
+    {
+      "id": 18,
+      "title": "CI: pin ruff, grpc in [dev], TS build+test, image build",
+      "tag": "N",
+      "role": "Shipper",
+      "status": "verified",
+      "acceptance": [
+        "CI runs lint, tests, client-install check, TS tests, image build"
+      ],
+      "evidence": [
+        "8baba9a",
+        ".github/workflows/ci.yml",
+        "5c9798f",
+        "https://github.com/ravindu57/SCML/actions/runs/39158432783"
+      ],
+      "passes": true,
+      "frozen": false,
+      "paid": false,
+      "notes": "Verified 2026-10-19: CI run 39158432783 green on 5c9798f (PR #1), all 8 jobs: lint, test 3.11/3.12, client-install, typescript-client, typescript-services (orchestrator, demo-agent), docker. The first run failed on two local-only leaks, fixed in 5c9798f."
+    },
+    {
+      "id": 19,
+      "title": "Addendum production items: spill-to-disk, sandbox interface, runbooks, Postgres/Redis/Kafka TLS, k8s secret volume",
+      "tag": "N/D",
+      "role": "Architect",
+      "status": "open",
+      "acceptance": [
+        "addendum §16.1–16.5 acceptance criteria"
+      ],
+      "evidence": [],
+      "passes": false,
+      "frozen": false,
+      "paid": false,
+      "notes": "2026-10-18 (ADR-0008): load-harness audit drops (~300k) are real overload of the ~3.8k events/s writer by in-process scenarios, not a bug; spill-to-disk is what would prevent the loss."
+    },
+    {
+      "id": 20,
+      "title": "ID-citing tests for uncited Must requirements",
+      "tag": "N",
+      "role": "CLI vibe coder",
+      "status": "verified",
+      "acceptance": [
+        "every Must FR has a test citing its ID"
+      ],
+      "evidence": [
+        "07da387",
+        "tests/unit/test_must_requirements.py"
+      ],
+      "passes": true,
+      "frozen": false,
+      "paid": false,
+      "notes": "Verified 2026-10-18 (verifier sweep): evidence tests run and assert the criteria; frozen hashes match. All 22 Must FRs in ANALYSIS §4 are cited by at least one test. Must NFR measurements are outside this criterion."
+    },
+    {
+      "id": 21,
+      "title": "Hygiene clean-up",
+      "tag": "N",
+      "role": "CLI vibe coder",
+      "status": "partial",
+      "acceptance": [
+        "worktrees pruned",
+        "stash dropped after archive",
+        "merged branches deleted",
+        "stale root files removed",
+        "CRLF .gitattributes"
+      ],
+      "evidence": [
+        "../archive-2026-10-16/README.txt"
+      ],
+      "passes": false,
+      "frozen": false,
+      "paid": false,
+      "notes": "Worktrees and stash archived. 14 local branches remain; examples/langchain_demo.py has 4 ruff errors; .venv built at an old path."
+    },
+    {
+      "id": 22,
+      "title": "Report, README, paper aligned with final numbers",
+      "tag": "R",
+      "role": "PRD person",
+      "status": "open",
+      "acceptance": [
+        "every number traceable to a result file via docs/EVAL_RESULTS.md"
+      ],
+      "evidence": [],
+      "passes": false,
+      "frozen": false,
+      "paid": false,
+      "notes": ""
+    },
+    {
+      "id": 23,
+      "title": "Deploy to the chosen target",
+      "tag": "D",
+      "role": "Shipper",
+      "status": "partial",
+      "acceptance": [
+        "target chosen (ADR-0004)",
+        "live smoke test passes against the deployed URL",
+        "secrets in the platform store"
+      ],
+      "evidence": [
+        "b508a58",
+        "docs/DEPLOY_VPS.md",
+        "scripts/smoke.sh"
+      ],
+      "passes": false,
+      "frozen": false,
+      "paid": false,
+      "notes": "Target chosen: single Docker host with Caddy. Not deployed: no server yet."
+    },
+    {
+      "id": 24,
+      "title": "mcp/ server: fix or keep out of releases; pickle → safer format",
+      "tag": "N",
+      "role": "CLI vibe coder",
+      "status": "partial",
+      "acceptance": [
+        "Sec #15/#17 resolved or mcp/ excluded from every release artifact"
+      ],
+      "evidence": [
+        "bd2e6c0 (.gitignore)"
+      ],
+      "passes": false,
+      "frozen": false,
+      "paid": false,
+      "notes": "trust_mediator/mcp/ is gitignored (local only). Pickle use not addressed."
+    }
+  ]
+}

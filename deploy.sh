@@ -82,11 +82,28 @@ else
   SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
   sed -i "s|change-me-to-a-random-256-bit-secret|$SECRET|g" "$ENV_FILE"
   # Set Postgres + Redis URLs for Docker Compose
-  sed -i "s|^DATABASE_URL=.*|DATABASE_URL=postgresql+asyncpg://tmuser:tmpassword@postgres:5432/trust_mediator|" "$ENV_FILE"
-  sed -i "s|^REDIS_URL=.*|REDIS_URL=redis://redis:6379/0|" "$ENV_FILE"
+  # DATABASE_URL / REDIS_URL are built by docker-compose.yml from the two
+  # passwords below; nothing here may carry a default credential.
   sed -i "s|^TRUST_MEDIATOR_ENV=.*|TRUST_MEDIATOR_ENV=production|" "$ENV_FILE"
   log ".env generated with random secret key"
 fi
+
+# docker-compose.yml refuses to start without these (no default passwords).
+# token_urlsafe: they are interpolated into connection URLs unencoded, so they
+# must contain no '@', '/', ':' or '#'.
+for VAR in POSTGRES_PASSWORD REDIS_PASSWORD; do
+  if ! grep -qE "^${VAR}=.+" "$ENV_FILE"; then
+    VALUE=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+    sed -i "/^${VAR}=/d" "$ENV_FILE"
+    echo "${VAR}=${VALUE}" >> "$ENV_FILE"
+    log "Generated ${VAR} in .env"
+    if [[ "$VAR" == "POSTGRES_PASSWORD" ]] && docker volume ls -q | grep -q "postgres_data$"; then
+      warn "An existing Postgres volume keeps its old password. Before starting, run:"
+      warn "  docker compose run --rm postgres psql -h postgres -U tmuser -c \"ALTER USER tmuser PASSWORD '<new>'\""
+      warn "or remove the volume (destroys data). Until then the mediator cannot connect."
+    fi
+  fi
+done
 
 # ── Step 3: Build Docker image ────────────────────────────────────────────────
 step "Step 3 — Building trust-mediator Docker image"

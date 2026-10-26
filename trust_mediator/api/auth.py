@@ -202,6 +202,82 @@ def _validate_caller(
     return caller
 
 
+def admin_caller_for(api_key: str) -> Caller | None:
+    """Resolve a **control-plane** key to its (tenant, principal), or None.
+
+    Looks only at the admin set. A data-plane key resolves to None here even
+    though it is valid on the mediation routes — that is the separation.
+    """
+    matched: Caller | None = None
+    probe = api_key.encode("utf-8")
+    for entry in key_store.admin_entries():
+        if hmac.compare_digest(probe, entry.key.encode("utf-8")):
+            matched = Caller(
+                tenant=entry.tenant or settings.default_tenant,
+                principal=entry.name or key_fingerprint(entry.key),
+            )
+    return matched
+
+
+def admin_open_access_allowed() -> bool:
+    """Whether control-plane routes let unauthenticated callers through.
+
+    Only in the fully open development setup: no data-plane key source and no
+    admin key source at all. Configuring *any* key means this deployment
+    authenticates, and then a control-plane action needs an admin key. In
+    particular, data-plane keys with no admin keys means the control plane is
+    **closed** — falling back to "any data-plane key may administer" would
+    reinstate the exact escalation the separate set exists to remove.
+    """
+    if settings.admin_api_keys_file:
+        return False
+    return open_access_allowed() and not key_store.admin_entries()
+
+
+def _validate_admin(api_key: str | None = Security(_header_scheme)) -> Caller:
+    """Validate X-API-Key against the control-plane key set (FR-CP-03).
+
+    Guards policy writes and rollback and quarantine release and purge. An
+    agent's own data-plane key is refused with 403: an agent that is told by
+    injected content to widen its allow-list, or to release the memory entry
+    that carried the injection, must not hold a credential that can do it.
+    """
+    if admin_open_access_allowed():
+        return Caller(tenant=settings.default_tenant, principal=ANONYMOUS)
+
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing X-API-Key header",
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+
+    caller = admin_caller_for(api_key)
+    if caller is None:
+        # One message whether the key is a data-plane key, revoked, or unknown:
+        # telling a caller "valid key, wrong plane" confirms the key is live.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Control-plane action requires an admin API key",
+        )
+    return caller
+
+
+def session_for(caller: Caller, session_id: str) -> str:
+    """The caller's tenant-scoped session key; 422 on a reserved separator.
+
+    Every route that passes a client session id into the pipeline or the audit
+    log goes through this, so one tenant can neither read nor append to
+    another's hash chain (see core/tenancy.py).
+    """
+    from trust_mediator.core.tenancy import InvalidSessionId, scoped_session
+
+    try:
+        return scoped_session(caller.tenant, session_id)
+    except InvalidSessionId as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
 # Annotated dependency — import this in routers. Resolves to the caller's
 # principal name, never the key.
 AuthDep = Annotated[str, Depends(_validate_api_key)]
@@ -209,3 +285,7 @@ AuthDep = Annotated[str, Depends(_validate_api_key)]
 # Annotated dependency — import this in routers that must scope by tenant.
 # Resolves to a Caller (tenant + principal); the raw key never leaves auth.py.
 CallerDep = Annotated[Caller, Depends(_validate_caller)]
+
+# Annotated dependency for control-plane writes (policy, rollback, quarantine
+# release/purge). Resolves to a Caller from the *admin* key set only.
+AdminDep = Annotated[Caller, Depends(_validate_admin)]

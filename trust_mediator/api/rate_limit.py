@@ -65,3 +65,60 @@ limiter = Limiter(
     swallow_errors=True,              # don't let limiter errors crash requests
     in_memory_fallback_enabled=True,  # survive Redis startup race conditions
 )
+
+
+# ── Middleware ───────────────────────────────────────────────────────────────
+
+
+def _iter_routes(routes):
+    """Every route, descending into included routers.
+
+    FastAPI 0.139 no longer flattens ``include_router`` into ``app.routes``: it
+    appends one ``_IncludedRouter`` per call, holding the real routes on
+    ``.original_router``. slowapi's own lookup scans ``app.routes`` flat, found
+    no ``/v1`` route, and treats "no route" as exempt, so **no mediation,
+    policy or admin route was rate limited at all**. Measured: 8 calls under a
+    5/minute limit, all 200. Same nesting as test_api_auth's route walk.
+    """
+    for route in routes:
+        nested = getattr(route, "routes", None)
+        if nested is None:
+            nested = getattr(getattr(route, "original_router", None), "routes", None)
+        if nested is not None and not hasattr(route, "endpoint"):
+            yield from _iter_routes(nested)
+        else:
+            yield route
+
+
+def find_route_handler(routes, scope):
+    from starlette.routing import Match
+
+    handler = None
+    for route in _iter_routes(routes):
+        match, _ = route.matches(scope)
+        if match == Match.FULL and hasattr(route, "endpoint"):
+            handler = route.endpoint
+    return handler
+
+
+def build_rate_limit_middleware():
+    """SlowAPIMiddleware with a route lookup that sees included routers."""
+    from slowapi.middleware import SlowAPIMiddleware, _should_exempt, sync_check_limits
+
+    class RateLimitMiddleware(SlowAPIMiddleware):
+        async def dispatch(self, request, call_next):
+            limiter = request.app.state.limiter
+            if not limiter.enabled:
+                return await call_next(request)
+            handler = find_route_handler(request.app.routes, request.scope)
+            if _should_exempt(limiter, handler):
+                return await call_next(request)
+            error_response, inject = sync_check_limits(limiter, request, handler, request.app)
+            if error_response is not None:
+                return error_response
+            response = await call_next(request)
+            if inject:
+                response = limiter._inject_headers(response, request.state.view_rate_limit)
+            return response
+
+    return RateLimitMiddleware

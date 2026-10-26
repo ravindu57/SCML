@@ -162,3 +162,54 @@ class TestAuditQueueIsolation:
         assert runner._drain_audit_queue() == 50
         assert pipeline._audit._queue.qsize() == 0
         assert runner._audit_backlog() == 0
+
+
+class _RecordingRepo:
+    def __init__(self):
+        self.appended = []
+
+    async def append_chained(self, event):
+        self.appended.append(event)
+        return event
+
+    async def append_chained_batch(self, events):
+        self.appended.extend(events)
+        return events
+
+
+class TestAuditDrainProbe:
+    async def test_fr_al_01_nfr_perf_04_drain_probe_never_overflows_the_queue(
+        self, monkeypatch
+    ):
+        """
+        The drain probe fed a 20k burst through `log()` into the 10k-bounded
+        queue, so half of it was dropped on the spot — inflating the logged
+        drop total — and then counted as "drained", reporting ~1.9x the real
+        write rate (7,185 vs 3,851 events/s, 2026-10-18). The probe must stay
+        inside the queue bound and count only events that were persisted.
+        """
+        import asyncio
+        import itertools
+        import time
+
+        import benchmarks.load.__main__ as load_main
+        from trust_mediator.modules.audit_log.logger import AuditLogger
+
+        repo = _RecordingRepo()
+        audit = AuditLogger(repo=repo)
+        audit._queue = asyncio.Queue(maxsize=100)
+        await audit.start()
+
+        class _Pipeline:
+            _audit = audit
+
+        # One tick per perf_counter() call, so elapsed is exactly 1.0 and
+        # the reported rate equals the number of events counted as drained.
+        ticks = itertools.count()
+        monkeypatch.setattr(time, "perf_counter", lambda: float(next(ticks)))
+        rate = await load_main._measure_audit_drain_rate(_Pipeline(), burst=300)
+        monkeypatch.undo()
+        await audit.stop()
+
+        assert audit.dropped_total == 0
+        assert rate == len(repo.appended) == 100

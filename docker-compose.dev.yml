@@ -34,8 +34,8 @@ services:
 
   postgres:
     ports:
-      - "5432:5432"   # expose for local DB tools (TablePlus, pgAdmin)
+      - "127.0.0.1:5432:5432"   # loopback only: local DB tools (TablePlus, pgAdmin)
 
   redis:
     ports:
-      - "6379:6379"   # expose for local redis-cli inspection
+      - "127.0.0.1:6379:6379"   # loopback only: local redis-cli inspection

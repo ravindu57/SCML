@@ -9,7 +9,9 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from trust_mediator.api.auth import AuthDep
+from trust_mediator.api.admin_audit import record_admin_action
+from trust_mediator.api.auth import AdminDep, CallerDep, session_for
+from trust_mediator.models.audit_event import AuditModule
 from trust_mediator.api.dependencies import PipelineDep
 from trust_mediator.models.context_envelope import TrustLabel
 from trust_mediator.models.memory_record import MemoryReadRequest, MemoryWriteRequest
@@ -22,7 +24,9 @@ class MemoryWriteBody(BaseModel):
     content: str
     source: str = "agent"
     source_uri: str = ""
-    trust_label: str = "untrusted_data"
+    # Typed: an unknown label is a 422. It used to be coerced to
+    # untrusted_data, which silently *downgraded* "RISKY_EXTERNAL" or "risky".
+    trust_label: TrustLabel = TrustLabel.UNTRUSTED_DATA
     agent_id: str = "default"
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -58,18 +62,16 @@ class QuarantineListResponse(BaseModel):
 
 
 @router.post("/write", response_model=MemoryWriteResponse, summary="Vet a candidate memory write")
-async def memory_write(body: MemoryWriteBody, pipeline: PipelineDep, _: AuthDep):
+async def memory_write(body: MemoryWriteBody, pipeline: PipelineDep, caller: CallerDep):
     """
     FR-MI-01: Run the full 5-stage memory write vetting pipeline.
     Returns persist | quarantine | reject with integrity score.
     """
-    try:
-        label = TrustLabel(body.trust_label)
-    except ValueError:
-        label = TrustLabel.UNTRUSTED_DATA
+    label = body.trust_label
 
     request = MemoryWriteRequest(
-        session_id=body.session_id,
+        session_id=session_for(caller, body.session_id),
+        tenant_id=caller.tenant,
         content=body.content,
         source=body.source,
         source_uri=body.source_uri,
@@ -90,12 +92,13 @@ async def memory_write(body: MemoryWriteBody, pipeline: PipelineDep, _: AuthDep)
 
 
 @router.post("/read", response_model=MemoryReadResponse, summary="Verify a memory read")
-async def memory_read(body: MemoryReadBody, pipeline: PipelineDep, _: AuthDep):
+async def memory_read(body: MemoryReadBody, pipeline: PipelineDep, caller: CallerDep):
     """
     FR-MI-04: Verify provenance/integrity of a memory read before context re-entry.
     """
     request = MemoryReadRequest(
-        session_id=body.session_id,
+        session_id=session_for(caller, body.session_id),
+        tenant_id=caller.tenant,
         memory_id=body.memory_id,
         agent_id=body.agent_id,
         rescan=body.rescan,
@@ -112,13 +115,13 @@ async def memory_read(body: MemoryReadBody, pipeline: PipelineDep, _: AuthDep):
 
 
 @router.get("/quarantined", response_model=QuarantineListResponse, summary="List quarantined memory entries")
-async def list_quarantined(pipeline: PipelineDep, _: AuthDep, agent_id: str | None = None):
+async def list_quarantined(pipeline: PipelineDep, caller: CallerDep, agent_id: str | None = None):
     """FR-MI-05: Return all quarantined entries for human review.
 
     Quarantined content is attacker-controlled by definition, so listing it
     without a key hands an attacker back the payloads the mediator caught.
     """
-    records = await pipeline._memory.list_quarantined(agent_id=agent_id)
+    records = await pipeline._memory.list_quarantined(agent_id=agent_id, tenant_id=caller.tenant)
     return QuarantineListResponse(
         records=[
             {
@@ -135,7 +138,7 @@ async def list_quarantined(pipeline: PipelineDep, _: AuthDep, agent_id: str | No
 
 
 @router.post("/quarantined/{memory_id}/release", summary="Release a quarantined memory entry after review")
-async def release_quarantined(memory_id: str, pipeline: PipelineDep, reviewer: AuthDep):
+async def release_quarantined(memory_id: str, pipeline: PipelineDep, admin: AdminDep):
     """FR-MI-05: Promote a quarantined entry to ACTIVE after human review.
 
     The highest-privilege call in the API: it takes content the memory
@@ -146,8 +149,22 @@ async def release_quarantined(memory_id: str, pipeline: PipelineDep, reviewer: A
     That name is written into the memory record and the audit chain, so a
     caller-supplied value meant the log attested to a review that never
     happened — worse than no record, because FR-AL-01 exists to be trusted.
+
+    Requires an admin key (FR-CP-03). With a data-plane key, the agent whose
+    memory was poisoned could release the poison itself.
     """
-    success = await pipeline._memory.review_and_release(memory_id, reviewer=reviewer)
+    try:
+        success = await pipeline._memory.review_and_release(
+            memory_id, reviewer=admin.principal, tenant_id=admin.tenant
+        )
+    except Exception as e:
+        record_admin_action(pipeline._audit, admin, "memory_release",
+                            module=AuditModule.MEMORY_INTEGRITY, succeeded=False,
+                            details={"memory_id": memory_id, "error_type": type(e).__name__}, errored=True)
+        raise
+    record_admin_action(pipeline._audit, admin, "memory_release",
+                        module=AuditModule.MEMORY_INTEGRITY, succeeded=success,
+                        details={"memory_id": memory_id})
     if not success:
         raise HTTPException(status_code=404, detail="Memory record not found or not in quarantined state")
     return {"released": True, "memory_id": memory_id}
@@ -155,12 +172,30 @@ async def release_quarantined(memory_id: str, pipeline: PipelineDep, reviewer: A
 
 @router.delete("/quarantined/{memory_id}", summary="Purge a quarantined or rejected memory entry")
 async def purge_quarantined(
-    memory_id: str, pipeline: PipelineDep, principal: AuthDep, reason: str = "admin_purge"
+    memory_id: str, pipeline: PipelineDep, admin: AdminDep, reason: str = "admin_purge"
 ):
     """FR-MI-05: Hard-delete a quarantined/rejected entry.
 
     Destroys evidence of a caught attack, so it is authenticated and the
-    principal is recorded alongside the caller's free-text reason.
+    principal is recorded alongside the caller's free-text reason. Requires an
+    admin key (FR-CP-03).
     """
-    await pipeline._memory.purge(memory_id, reason=f"{reason} (by {principal})")
+    try:
+        purged = await pipeline._memory.purge(
+            memory_id, reason=f"{reason} (by {admin.principal})", tenant_id=admin.tenant
+        )
+    except Exception as e:
+        record_admin_action(pipeline._audit, admin, "memory_purge",
+                            module=AuditModule.MEMORY_INTEGRITY, succeeded=False,
+                            details={"memory_id": memory_id, "error_type": type(e).__name__}, errored=True)
+        raise
+    record_admin_action(pipeline._audit, admin, "memory_purge",
+                        module=AuditModule.MEMORY_INTEGRITY, succeeded=purged,
+                        details={"memory_id": memory_id, "reason": reason[:200]})
+    if not purged:
+        # Unknown id, another tenant's record, or not quarantined/rejected.
+        # One answer for all three, so the response does not reveal which.
+        raise HTTPException(
+            status_code=404, detail="Memory record not found or not quarantined/rejected"
+        )
     return {"purged": True, "memory_id": memory_id}

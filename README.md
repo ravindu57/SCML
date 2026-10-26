@@ -20,7 +20,7 @@
 **Trust-aware context mediation for LLM agents, RAG pipelines, and tool-calling systems.**
 
 [![CI](https://github.com/ravindu57/SCML/actions/workflows/ci.yml/badge.svg)](https://github.com/ravindu57/SCML/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-614%20passed-brightgreen?style=flat-square)](tests/)
+[![Tests](https://img.shields.io/badge/tests-874%20passed-brightgreen?style=flat-square)](tests/)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
 [![TypeScript](https://img.shields.io/badge/TS_client-25%20passed-3178C6?style=flat-square&logo=typescript&logoColor=white)](clients/typescript/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-orange?style=flat-square)](LICENSE)
@@ -87,6 +87,10 @@ The tenant is **bound to the API key**, never supplied by the client:
   Globex's, even for the same `agent_id`.
 - A tenant that enrols no policy is **deny-all** (fail-closed at the tenant
   boundary); only the `default` tenant falls back to the gateway YAML.
+- Memory, audit replay, gRPC and rate limits are scoped the same way: a
+  record, quarantine entry or session written with Acme's key is invisible to
+  Globex's, admins included. Session ids are namespaced internally
+  (`acme::s1`), so a client id may not contain `::`.
 - Pre-tenancy deployments are unchanged: an unqualified key resolves to the
   `default` tenant, exactly as before.
 
@@ -201,7 +205,9 @@ Add to `~/.claude/claude_desktop_config.json`:
 
 ## Benchmarks
 
-SCML is evaluated against **four published attack corpora** with **2,100+ attack cases**. Every number is reproducible from a committed result file.
+SCML is evaluated on **two published benchmarks** (AgentDojo, InjecAgent) plus an **in-house memory-poisoning corpus**: 2,051 attacked cases in total (949 + 1,054 + 48). Every number below comes from a committed file in [`benchmarks/results/`](benchmarks/results/).
+
+> **What is not met yet (PRD §14.2).** On AgentDojo, SCML reaches 7.3% ASR (target < 5%), a 75% reduction (target ≥ 90%), and keeps 81% of benign utility (target ≥ 90%). Only 2 of AgentDojo's 17 attack types have been run. Memory-poisoning storage ASR is 20.8% (target < 10%). The injection scanner detects 0 of 1,054 InjecAgent attacks: least-agency tool policy is the defence, not detection.
 
 ### InjecAgent — 1,054 third-party cases (ACL Findings 2024)
 
@@ -233,19 +239,17 @@ SCML is evaluated against **four published attack corpora** with **2,100+ attack
 <tr><td><code>slack</code></td><td align="right">63.8%</td><td align="right"><b>30.5%</b></td><td align="right">71%</td></tr>
 </table>
 
-### Tool-Output Sanitizer — Closing the Slack Gap (FR-OR-03)
+### Tool-Output Sanitizer — Targeting the Slack Gap (FR-OR-03)
 
 The slack gap (30.5% ASR) is caused by attacks delivered inside tool results that the model rewrites rather than copies. The deterministic `ToolOutputSanitizer` strips instruction framing before the agent reads them — no LLM call, no new dependencies.
 
-<table>
-<tr><th>Arm</th><th align="right">ASR</th><th align="right">Benign Utility</th></tr>
-<tr><td>SCML</td><td align="right">33.3%</td><td align="right">52.4%</td></tr>
-<tr><td>SCML + <code>--sanitize</code></td><td align="right"><b>0.0%</b></td><td align="right">52.4%</td></tr>
-</table>
+**Pilot only, a single task** ([`output_sanitizer.md`](benchmarks/results/output_sanitizer.md)): on slack `user_task_2` under `important_instructions` (5 injections), SCML ASR is 60% and SCML + `--sanitize` is **0%**, with 5/5 tool results rewritten and no added utility cost.
 
-> 105 attacked cases (21 tasks × 5 injections), **122 injected spans stripped**, zero benign utility cost.
+> The full slack `--sanitize` suite (21 tasks × 5 injections) has **not** been committed as a result, so no suite-level sanitizer number is claimed here.
 
 ### Memory Poisoning (48 in-house cases)
+
+**Storage ASR 20.8%** against a < 10% target: **not met** ([`memory_poisoning.md`](benchmarks/results/memory_poisoning.md)). Storage counts a poisoned record that was persisted; harm (below) counts whether the mediator would have let its goal through. Both are reported because either alone misleads.
 
 <table>
 <tr><th>Harm Vector</th><th align="right">Cases</th><th align="right">Harmful After Defence</th></tr>
@@ -268,7 +272,7 @@ DATABASE_URL="" REDIS_URL="" TRUST_MEDIATOR_API_KEYS="" \
   .venv/bin/uvicorn trust_mediator.api.app:app --port 8000 &
 sleep 2
 bash demo.sh                                        # run the demo
-.venv/bin/pytest tests/ -q                           # 614 passed
+.venv/bin/pytest tests/ -q                           # 874 passed (needs the [grpc] extra)
 cd clients/typescript && npm test                    # 25 passed
 ```
 
@@ -393,7 +397,7 @@ All config via `TRUST_MEDIATOR_*` env vars — nothing hardcoded. Every decision
 
 ```bash
 DATABASE_URL="" TRUST_MEDIATOR_ENV=development REDIS_URL="" TRUST_MEDIATOR_API_KEYS="" \
-  .venv/bin/pytest tests/ -q            # 614 passed
+  .venv/bin/pytest tests/ -q            # 874 passed (needs the [grpc] extra)
 
 cd clients/typescript && npm test       # 25 passed
 ```

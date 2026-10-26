@@ -7,12 +7,12 @@ Every response includes decision, reason_code, trust labels, and an audit_ref.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
-from trust_mediator.api.auth import AuthDep, CallerDep
+from trust_mediator.api.auth import CallerDep, session_for
 from trust_mediator.api.dependencies import PipelineDep
 from trust_mediator.models.context_envelope import TrustLabel
 from trust_mediator.models.tool_call import ToolCallRequest
@@ -48,7 +48,11 @@ class ToolCallMediationRequest(BaseModel):
     session_id: str = ""
     tool_name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
-    argument_trust_labels: dict[str, str] = Field(default_factory=dict)
+    # Typed, so an unrecognised label is a 422. It used to be `dict[str, str]`
+    # filtered to known values, which silently dropped "untrusted" or
+    # "UNTRUSTED_DATA" — and an unlabelled argument counts as trusted, so
+    # FR-PE-04 never fired. gRPC already rejected unknown labels.
+    argument_trust_labels: dict[str, TrustLabel] = Field(default_factory=dict)
     agent_id: str = "default"
     is_irreversible: bool = False
     is_high_impact: bool = False
@@ -66,8 +70,11 @@ class ToolCallMediationResponse(BaseModel):
 class OutputMediationRequest(BaseModel):
     session_id: str = ""
     content: str
-    destination: str = "user"
-    data_class_labels: list[str] = Field(default_factory=list)
+    destination: str = Field(default="user", max_length=128)
+    # Bounded: labels are client strings and are written into the audit chain.
+    data_class_labels: list[Annotated[str, Field(max_length=64)]] = Field(
+        default_factory=list, max_length=32
+    )
 
 
 class OutputMediationResponse(BaseModel):
@@ -82,12 +89,16 @@ class OutputMediationResponse(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/context", response_model=ContextMediationResponse, summary="Label + scan retrieved/tool content")
-async def mediate_context(request: Request, body: ContextMediationRequest, pipeline: PipelineDep, _: AuthDep):
+async def mediate_context(
+    request: Request, body: ContextMediationRequest, pipeline: PipelineDep, caller: CallerDep
+):
     """
     FR-IG-01, FR-SC-01: Intercept and scan untrusted/risky content.
     Returns the verdict, trust label, and sanitised content.
     """
-    interceptor = IngressInterceptor(session_id=body.session_id, agent_id=body.agent_id)
+    interceptor = IngressInterceptor(
+        session_id=session_for(caller, body.session_id), agent_id=body.agent_id
+    )
 
     # Wrap content in the appropriate envelope based on source.
     #
@@ -152,15 +163,11 @@ async def mediate_tool_call(request: ToolCallMediationRequest, pipeline: Pipelin
     never from the request body, which carries no tenant field. A company's
     key resolves its own policy document no matter what any client sends.
     """
-    arg_labels = {
-        k: TrustLabel(v) for k, v in request.argument_trust_labels.items()
-        if v in TrustLabel.__members__.values()
-    }
     tool_request = ToolCallRequest(
-        session_id=request.session_id,
+        session_id=session_for(caller, request.session_id),
         tool_name=request.tool_name,
         arguments=request.arguments,
-        argument_trust_labels=arg_labels,
+        argument_trust_labels=request.argument_trust_labels,
         agent_id=request.agent_id,
         tenant_id=caller.tenant,
         is_irreversible=request.is_irreversible,
@@ -178,15 +185,16 @@ async def mediate_tool_call(request: ToolCallMediationRequest, pipeline: Pipelin
 
 
 @router.post("/output", response_model=OutputMediationResponse, summary="Redact and authorise outbound response/action")
-async def mediate_output(request: OutputMediationRequest, pipeline: PipelineDep, _: AuthDep):
+async def mediate_output(request: OutputMediationRequest, pipeline: PipelineDep, caller: CallerDep):
     """
     FR-OR-01, FR-OR-02: Redact PII/secrets and block exfiltration.
     """
     result = await pipeline.process_output(
         content=request.content,
-        session_id=request.session_id,
+        session_id=session_for(caller, request.session_id),
         destination=request.destination,
         data_class_labels=request.data_class_labels,
+        tenant_id=caller.tenant,
     )
     return OutputMediationResponse(
         content=result.content,

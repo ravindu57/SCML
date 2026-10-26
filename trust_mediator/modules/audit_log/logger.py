@@ -25,6 +25,20 @@ from trust_mediator.modules.audit_log.kafka_forwarder import KafkaAuditForwarder
 logger = structlog.get_logger(__name__)
 
 
+#: Distinct sessions tracked per gap counter. Session ids are client-chosen,
+#: so during a long outage a caller could otherwise grow these maps without
+#: bound. Beyond the cap, losses are folded into one system-session marker:
+#: the count stays exact, only the per-session attribution is lost.
+MAX_GAP_SESSIONS = 10_000
+OVERFLOW_GAP_SESSION = "#audit-system::gaps"
+
+
+def _count_gap(counts: dict[str, int], session_id: str) -> None:
+    if session_id not in counts and len(counts) >= MAX_GAP_SESSIONS:
+        session_id = OVERFLOW_GAP_SESSION
+    counts[session_id] = counts.get(session_id, 0) + 1
+
+
 class AuditLogger:
     """
     Async audit event writer with hash-chain tamper-evidence.
@@ -46,6 +60,8 @@ class AuditLogger:
         # Events dropped since the last gap marker, per session. Keyed by
         # session so a forensic replay of that session shows its own gap.
         self._dropped: dict[str, int] = {}
+        # Events the store failed to persist, per session, for the same marker.
+        self._write_failed: dict[str, int] = {}
         #: Cumulative drops for the lifetime of this logger (metrics/tests).
         self.dropped_total = 0
 
@@ -101,7 +117,7 @@ class AuditLogger:
         precisely how much was lost and where — a known gap is recoverable
         forensics, an unknown one is not.
         """
-        self._dropped[session_id] = self._dropped.get(session_id, 0) + 1
+        _count_gap(self._dropped, session_id)
         self.dropped_total += 1
         # One line per drop would itself become a flood under overload; the
         # gap marker written into the chain carries the exact count.
@@ -167,9 +183,21 @@ class AuditLogger:
         the session's own hash chain, `replay(session_id)` shows the gap in
         position — the chain stays verifiable and the hole is explicit.
         """
-        if not self._dropped:
+        await self._flush_counts("_dropped", "queue_overflow", (
+            "Audit queue saturated; this many decisions for this session were "
+            "not recorded (FR-AL-01 gap)."
+        ))
+        await self._flush_counts("_write_failed", "write_failed", (
+            "The audit store rejected or could not take this many events for "
+            "this session; they were not recorded (FR-AL-01 gap)."
+        ))
+
+    async def _flush_counts(self, attr: str, cause: str, note: str) -> None:
+        counts = getattr(self, attr)
+        if not counts:
             return
-        pending, self._dropped = self._dropped, {}
+        pending = dict(counts)
+        counts.clear()
         for session_id, count in pending.items():
             marker = self.make_event(
                 session_id=session_id,
@@ -178,21 +206,24 @@ class AuditLogger:
                 reason_code="audit_gap",
                 details={
                     "dropped_events": count,
+                    "cause": cause,
                     "overflow_policy": self._overflow_policy,
                     "queue_maxsize": self._queue.maxsize,
-                    "note": (
-                        "Audit queue saturated; this many decisions for this "
-                        "session were not recorded (FR-AL-01 gap)."
-                    ),
+                    "note": note,
                 },
             )
             try:
                 await self._repo.append_chained(marker)
             except Exception as e:
-                # Put the count back so the next flush retries rather than
-                # losing the record of the loss.
-                self._dropped[session_id] = self._dropped.get(session_id, 0) + count
-                logger.error("audit_logger.gap_marker_failed", error=str(e))
+                # Put back this count and every one not yet tried, so the next
+                # flush retries rather than losing the record of the loss, and
+                # stop: with the store down, trying each remaining session
+                # would cost one failing call per session on every batch.
+                remaining = list(pending.items())
+                for sid, n in remaining[remaining.index((session_id, count)):]:
+                    counts[sid] = counts.get(sid, 0) + n
+                logger.error("audit_logger.gap_marker_failed", error=str(e), cause=cause)
+                return
 
     async def _write_batch(self, events: list[AuditEvent]) -> None:
         """
@@ -224,6 +255,10 @@ class AuditLogger:
             finalized = await self._repo.append_chained(event)
         except Exception as e:
             logger.error("audit_logger.db_write_error", error=str(e))
+            # Counted, so the next flush writes an audit_gap marker into this
+            # session's chain. A write failure used to leave no trace in the
+            # log at all, unlike a queue overflow.
+            _count_gap(self._write_failed, event.session_id)
             return
         self._fan_out(finalized)
 
@@ -261,7 +296,17 @@ class AuditLogger:
         """Verify the hash chain integrity of a sequence of events."""
         issues: list[str] = []
         prev_hash = ""
+        seen_v2 = False
         for i, event in enumerate(events):
+            # v1 covers fewer fields, so relabelling a v2 event as v1 would
+            # let its unhashed fields be edited. Versions only ever increase
+            # along a chain, so a v1 after a v2 is itself tampering.
+            if event.hash_version < 2 and seen_v2:
+                issues.append(
+                    f"Hash version downgrade at seq {event.seq_no} (event {i}): "
+                    f"v{event.hash_version} after a v2 event"
+                )
+            seen_v2 = seen_v2 or event.hash_version >= 2
             expected = event.compute_hash(prev_hash)
             if event.event_hash != expected:
                 issues.append(

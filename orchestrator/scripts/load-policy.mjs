@@ -24,7 +24,10 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const url = (process.env.SCML_URL || 'http://localhost:8000').replace(/\/+$/, '');
-const apiKey = process.env.SCML_API_KEY || '';
+// PUT /v1/policy is a control-plane write: it needs an admin key
+// (TRUST_MEDIATOR_ADMIN_API_KEYS on the server). SCML_API_KEY is the
+// fallback for keyless development, where any value is ignored.
+const apiKey = process.env.SCML_ADMIN_API_KEY || process.env.SCML_API_KEY || '';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const policy = JSON.parse(await readFile(path.join(here, '..', 'policies', 'policy.json'), 'utf8'));
